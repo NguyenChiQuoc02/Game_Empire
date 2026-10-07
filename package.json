@@ -1,0 +1,25 @@
+{
+  "name": "game-empire",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "balance": "tsx scripts/balance.ts",
+    "check:i18n": "tsx scripts/check-i18n.ts",
+    "doc": "tsx scripts/make-doc.ts"
+  },
+  "dependencies": {
+    "firebase": "^12.19.0",
+    "pixi.js": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "docx": "^9.9.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.3"
+  }
+}
