@@ -249,7 +249,7 @@ export const UNIT_LIST: UnitDef[] = [
     id: 'tonngokhong', name: 'Tôn Ngộ Không', kind: 'general', cost: 70,
     hp: 640, dmg: 34, cd: 0.7, speed: 70, range: 36, armor: 8,
     skill: 'wukong', skill2: 'monkeys', skillName: 'Bảy Mươi Hai Phép Biến Hóa',
-    desc: 'Kỹ năng 1: cứ 15 giây biến thành một vị tướng bất kỳ và lập tức thi triển kỹ năng của vị tướng đó, giữ hình dạng 8 giây. Kỹ năng 2: cứ 20 giây thổi lông hóa 2 khỉ con (30% máu, sát thương, giáp của Ngộ Không) tồn tại 5 giây.',
+    desc: 'Kỹ năng 1: cứ 5 giây (hồi chiêu tính khi đã hết hình dạng) biến thành một vị tướng bất kỳ và lập tức thi triển kỹ năng của vị tướng đó, giữ hình dạng 8 giây. Kỹ năng 2: cứ 20 giây thổi lông hóa 2 khỉ con (30% máu, sát thương, giáp của Ngộ Không) tồn tại 5 giây.',
     unlockCost: 950, scale: 1.3,
   }),
   U({
@@ -333,21 +333,21 @@ export const UNIT_LIST: UnitDef[] = [
   // ───────────── BOSS ─────────────
   U({
     id: 'dongtrac', name: 'Đổng Trác', kind: 'boss', cost: 0,
-    hp: 3300, dmg: 46, cd: 1.3, speed: 20, range: 50, armor: 16,
+    hp: 3150, dmg: 46, cd: 1.3, speed: 20, range: 50, armor: 16,
     skill: 'tyrant', skillName: 'Bạo Chúa',
     desc: 'Mỗi 9s triệu hồi 2 Samurai. Dưới 50% máu sẽ nổi điên (+40% sát thương, chạy nhanh hơn).',
     unlockCost: 0, scale: 1.9,
   }),
   U({
     id: 'dongphuongbatbai', name: 'Đông Phương Bất Bại', kind: 'boss', cost: 0,
-    hp: 3400, dmg: 34, cd: 0.7, speed: 46, range: 44, armor: 12,
+    hp: 3250, dmg: 34, cd: 0.7, speed: 46, range: 44, armor: 12,
     skill: 'phantom', skillName: 'Quỳ Hoa Bảo Điển',
     desc: 'Né 25% đòn đơn mục tiêu; cứ 7 giây lướt xuyên đội hình địch gây 90 sát thương cho mọi kẻ trên đường.',
     unlockCost: 0, scale: 1.85,
   }),
   U({
     id: 'nguumavuong', name: 'Ngưu Ma Vương', kind: 'boss', cost: 0,
-    hp: 3600, dmg: 48, cd: 1.4, speed: 22, range: 56, armor: 14,
+    hp: 3450, dmg: 48, cd: 1.4, speed: 22, range: 56, armor: 14,
     skill: 'inferno', skillName: 'Hỏa Diệm Vương',
     desc: 'Cứ 10 giây phun sóng lửa rộng (85 sát thương, thiêu đốt 10 máu/giây trong 4 giây). Dưới 50% máu sát thương +30%.',
     unlockCost: 0, scale: 2.05,
@@ -447,6 +447,14 @@ export const PLAYABLE = UNIT_LIST.filter((u) => u.kind === 'troop' || u.kind ===
 /** đồ phòng thủ (xếp riêng, bộ phòng thủ tối đa 3 món) */
 export const DEFENSES = UNIT_LIST.filter((u) => u.kind === 'defense');
 export const DEFENSE_DECK_SIZE = 3;
+/** nâng cấp ô bộ bài ra trận: 6 → 9 ô (giá xu để mở thêm từng ô) */
+export const DECK_EXTRA_COSTS = [400, 800, 1400];
+/** nâng cấp ô bộ đồ phòng thủ: 3 → 5 ô */
+export const DEF_EXTRA_COSTS = [300, 700];
+/** nâng cấp máu thành trì: tối đa 10 cấp, mỗi cấp +12% máu cờ nhà */
+export const FLAG_MAX_LV = 10;
+export const flagUpgradeCost = (lv: number) => 100 * (lv + 1);
+export const flagHpMul = (lv: number) => 1 + 0.12 * lv;
 export const STARTER_DEFENSES = DEFENSES.filter((u) => u.unlockCost === 0).map((u) => u.id);
 /** mỗi lane mỗi bên tối đa số công trình */
 export const MAX_DEFENSES_PER_LANE = 3;

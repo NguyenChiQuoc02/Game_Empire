@@ -107,7 +107,7 @@ const MAPS: Def[][] = [MAP1, MAP2, MAP3];
 /** hệ số sức mạnh / thu nhập địch theo bản đồ (bắt đầu, bước mỗi trạm) */
 const POWER: [number, number][] = [[1.0, 0.027], [1.2, 0.024], [1.3, 0.017]];
 const INCOME: [number, number][] = [[1.9, 0.17], [3.1, 0.1], [3.8, 0.08]];
-const BOSS_POWER = [1.15, 1.15, 1.05];
+const BOSS_POWER = [1.04, 1.04, 0.95];
 
 export const STATIONS: Station[] = MAPS.flatMap((defs, ch) =>
   defs.map((d, j): Station => {
@@ -122,7 +122,8 @@ export const STATIONS: Station[] = MAPS.flatMap((defs, ch) =>
       flagHp: Math.round((340 + 33 * id) * (boss ? 1.15 : 1) / 10) * 10,
       units: Math.round(boss ? (10 + 1.5 * id) * 0.62 + 2 : 10 + 1.5 * id),
       reward: Math.round(((100 + 30 * id) * (boss ? 1.8 : 1)) / 10) * 10,
-      fastSec: boss ? 150 + 5 * ch : round5(100 + 1.5 * id),
+      // thời gian cho 3 sao tăng dần theo độ sâu: 100s (trạm đầu) → ~200s (trạm cuối); Boss cần thêm thời gian chờ Boss xuất hiện
+      fastSec: round5(boss ? 140 + 2 * id : 100 + 3.5 * id),
     };
   }),
 );

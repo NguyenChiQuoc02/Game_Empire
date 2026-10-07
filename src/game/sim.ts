@@ -1,4 +1,4 @@
-import { MAX_DEFENSES_PER_LANE, UNIT_LIST, UNITS, levelMul, type SkillId, type UnitDef } from '../data/units';
+import { MAX_DEFENSES_PER_LANE, UNIT_LIST, UNITS, levelMul, type SkillId, type UnitDef, flagHpMul } from '../data/units';
 import { laneCountOf, type Station } from '../data/campaign';
 
 export const LANE_LEN = 1000;
@@ -11,10 +11,11 @@ export const GOLD_CAP = 100;
 /** các mốc giới hạn vàng của người chơi và giá nâng cấp lên mốc kế tiếp (trả bằng vàng trong trận) */
 export const CAP_STEPS = [100, 140, 190, 250, 320];
 export const CAP_COSTS = [50, 90, 140, 200];
+/** nâng giới hạn vàng cũng tăng tốc độ sản xuất vàng (nhân với thu nhập gốc) */
+export const CAP_INCOME_MUL = [1, 1.2, 1.4, 1.6, 1.8];
 export const PLAYER_START_GOLD = 30;
 export const PLAYER_FLAG_HP = 520;
 export const PLAYER_INCOME = 2.6;
-export const OVERTIME_AT = 150;
 /** địch vào trận chậm hơn một chút: vàng khởi điểm thấp + thu nhập tăng dần trong giây đầu */
 export const ENEMY_START_GOLD = 10;
 export const ENEMY_RAMP_SEC = 25;
@@ -121,13 +122,14 @@ export type SimEvent =
   | { t: 'shake'; power: number }
   | { t: 'fx'; kind: FxKind; lane: number; x: number; dir: 1 | -1; r?: number; x2?: number }
   | { t: 'boss'; id: string; lane: number }
-  | { t: 'overtime' }
   | { t: 'end'; winner: Side };
 
 export interface BattleConfig {
   station: Station;
   /** cấp độ thẻ của người chơi */
   levels: Record<string, number>;
+  /** cấp nâng cấp máu thành trì của người chơi (0..10) */
+  flagLevel?: number;
 }
 
 interface SpawnOpts {
@@ -144,7 +146,7 @@ interface SpawnOpts {
 /** thời gian hồi ban đầu của từng kỹ năng chủ động (giây) */
 const SKILL_INIT: Partial<Record<SkillId, number>> = {
   palm: 10, pairHeal: 0, heal: 0, fireAttack: 8, tyrant: 6, monk: 0,
-  wukong: 15, monkeys: 10, erlang: 8, warlord: 6, melody: 5, dash: 6, stun: 7, shieldAura: 3,
+  wukong: 5, monkeys: 10, erlang: 8, warlord: 6, melody: 5, dash: 6, stun: 7, shieldAura: 3,
   dragonPalm: 5, poisonCloud: 5, phantom: 5, inferno: 8,
 };
 
@@ -168,7 +170,6 @@ export class Battle {
   enemyBudget: number;
   enemyDeployed = 0;
   private nextUid = 1;
-  private overtimeAnnounced = false;
 
   constructor(public cfg: BattleConfig) {
     const st = cfg.station;
@@ -176,7 +177,7 @@ export class Battle {
     this.enemyBudget = st.units;
     const n = laneCountOf(st);
     // màn Boss chỉ có 1 lane: thành ta là phòng tuyến duy nhất nên bền hơn
-    const myFlag = n === 1 ? Math.round(PLAYER_FLAG_HP * 1.8) : PLAYER_FLAG_HP;
+    const myFlag = Math.round(PLAYER_FLAG_HP * (n === 1 ? 1.8 : 1) * flagHpMul(this.cfg.flagLevel ?? 0));
     for (let i = 0; i < n; i++) {
       this.lanes.push({
         index: i,
@@ -223,6 +224,7 @@ export class Battle {
     if (this.over || cost === null || this.gold[0] < cost) return false;
     this.gold[0] -= cost;
     this.capLevel++;
+    this.income[0] = PLAYER_INCOME * CAP_INCOME_MUL[this.capLevel];
     return true;
   }
 
@@ -329,7 +331,6 @@ export class Battle {
       }
       lane.units = lane.units.filter((u) => u.alive || u.deadTimer > 0);
     }
-    if (this.time > OVERTIME_AT && !this.over) this.overtime(dt);
   }
 
   /** Màn Boss: boss xuất hiện gần cuối trận */
@@ -344,27 +345,6 @@ export class Battle {
       this.boss = this.spawn(UNITS[st.bossId], 1, 0, SPAWN_X[1] - 30);
       this.emit({ t: 'boss', id: st.bossId, lane: 0 });
       this.emit({ t: 'shake', power: 10 });
-    }
-  }
-
-  private overtime(dt: number) {
-    if (!this.overtimeAnnounced) {
-      this.overtimeAnnounced = true;
-      this.emit({ t: 'overtime' });
-    }
-    const k = 0.012 * (1 + (this.time - OVERTIME_AT) / 40) * dt;
-    for (const lane of this.lanes) {
-      if (lane.winner !== null) continue;
-      const [pf, ef] = lane.flags;
-      pf.hp -= pf.maxHp * k;
-      ef.hp -= ef.maxHp * k;
-      const pr = pf.hp / pf.maxHp;
-      const er = ef.hp / ef.maxHp;
-      if (pf.hp <= 0 || ef.hp <= 0) {
-        // bên nào còn nhiều phần trăm máu cờ hơn thắng lane
-        this.laneWon(lane, pr >= er ? 0 : 1);
-        if (this.over) return;
-      }
     }
   }
 
@@ -904,7 +884,7 @@ export class Battle {
         }
         const pool = UNIT_LIST.filter((d) => d.kind === 'general' && d.id !== u.def.id);
         const pick = pool[Math.floor(Math.random() * pool.length)];
-        T.wukong = 15;
+        T.wukong = 5;
         u.form = pick.id;
         u.formT = 8;
         T[pick.skill] = 0; // sẵn sàng thi triển ngay

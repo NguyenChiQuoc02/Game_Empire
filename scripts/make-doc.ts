@@ -7,11 +7,11 @@ import {
 } from 'docx';
 import {
   UNIT_LIST, UNITS, DEFENSES, levelMul, upgradeCost, DECK_SIZE, DEFENSE_DECK_SIZE, MAX_DEFENSES_PER_LANE, MAX_GENERALS_IN_DECK, MAX_LEVEL,
-  STARTER_DEFENSES, type UnitDef,
+  STARTER_DEFENSES, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, FLAG_MAX_LV, flagHpMul, flagUpgradeCost, type UnitDef,
 } from '../src/data/units';
 import { CHAPTERS, STATIONS, STATIONS_PER_MAP, stationLabel } from '../src/data/campaign';
 import {
-  BOSS_AT_HP, BOSS_AT_TIME, BOSS_FLAG_GUARD, BOUNTY_BOSS, BOUNTY_GENERAL, BOUNTY_TROOP, CAP_COSTS, CAP_STEPS, LANE_COUNT, OVERTIME_AT,
+  BOSS_AT_HP, BOSS_AT_TIME, BOSS_FLAG_GUARD, BOUNTY_BOSS, BOUNTY_GENERAL, BOUNTY_TROOP, CAP_COSTS, CAP_INCOME_MUL, CAP_STEPS, LANE_COUNT,
   PLAYER_FLAG_HP, PLAYER_INCOME, PLAYER_START_GOLD,
 } from '../src/game/sim';
 
@@ -160,7 +160,7 @@ const SKILL_DETAIL: Record<string, { effect: string; numbers: string; tip: strin
   },
   tyrant: {
     effect: 'Bạo Chúa: triệu hồi lính và nổi điên khi sắp thua.',
-    numbers: 'Mỗi 9 giây triệu hồi 2 Samurai (lần đầu sau 6 giây). Dưới 50% máu: sát thương ×1,4, tốc độ ×1,4. Máu 3.300, giáp 16, tốc độ chậm (20).',
+    numbers: 'Mỗi 9 giây triệu hồi 2 Samurai (lần đầu sau 6 giây). Dưới 50% máu: sát thương ×1,4, tốc độ ×1,4. Máu 3.150, giáp 16, tốc độ chậm (20).',
     tip: 'Hạ gục Đổng Trác là THẮNG NGAY toàn trận; khi hắn còn sống cờ địch chỉ nhận 30% sát thương. Dồn tướng xuyên giáp và tường chặn để câu giờ.',
     counter: '—',
   },
@@ -228,7 +228,7 @@ const NEW_INFO: Record<string, { numbers: string; tip: string; weak?: string }> 
   crossbow: { numbers: 'Tầm 250, 26 sát thương mỗi 1,7 giây, xuyên 50% giáp.', tip: 'Khắc tinh của Lính khiên, Voi chiến và tướng giáp dày.', weak: 'Máu 80, bị áp sát là chết.' },
   elephant: { numbers: 'Máu 720, giáp 14, sát thương lan bán kính 55, tốc độ chậm (24).', tip: 'Xe tăng đầu lane; thả sớm để kịp tới tuyến giữa, che cho xạ thủ phía sau.', weak: 'Chậm; dễ bị độc và sát thương xuyên giáp bào mòn.' },
   poisoner: { numbers: 'Mỗi đòn gây độc 9 máu/giây trong 5 giây (xuyên giáp), tầm 130.', tip: 'Rất hiệu quả trước đối thủ máu dày, tướng và boss; nhiều Độc sư cộng độc chồng lên nhau.', weak: 'Máu 70, sát thương đòn thường rất thấp.' },
-  tonngokhong: { numbers: 'Kỹ năng 1: cứ 15 giây biến thành một trong 18 tướng còn lại (ngẫu nhiên) và lập tức dùng kỹ năng của tướng đó; giữ hình 8 giây (vẫn dùng chỉ số của Ngộ Không, kỹ năng gốc vẫn hoạt động). Kỹ năng 2: cứ 20 giây (lần đầu sau 10 giây) thổi lông hóa 2 Khỉ Con có 30% máu, sát thương, giáp của Ngộ Không, tồn tại 5 giây.', tip: 'Đặt vào lane đông địch để các kỹ năng diện rộng được dịp phát huy; khỉ con vừa chặn đường vừa gây sát thương phụ.', weak: 'Kỹ năng 1 ngẫu nhiên, không chọn được tướng biến thành.' },
+  tonngokhong: { numbers: 'Kỹ năng 1: cứ 5 giây (hồi chiêu chỉ đếm khi đã hết hình dạng, lần đầu sau 5 giây) biến thành một trong 18 tướng còn lại (ngẫu nhiên) và lập tức dùng kỹ năng của tướng đó; giữ hình 8 giây (vẫn dùng chỉ số của Ngộ Không, kỹ năng gốc vẫn hoạt động). Kỹ năng 2: cứ 20 giây (lần đầu sau 10 giây) thổi lông hóa 2 Khỉ Con có 30% máu, sát thương, giáp của Ngộ Không, tồn tại 5 giây.', tip: 'Đặt vào lane đông địch để các kỹ năng diện rộng được dịp phát huy; khỉ con vừa chặn đường vừa gây sát thương phụ.', weak: 'Kỹ năng 1 ngẫu nhiên, không chọn được tướng biến thành.' },
   duongtien: { numbers: 'Cứ 14 giây (lần đầu sau 8 giây): triệu hồi Hao Thiên Khuyển (50% máu, sát thương, giáp của Dương Tiễn; tồn tại 15 giây, chỉ giữ một con) và tự tăng 50% sát thương, tốc độ, giáp, tốc độ đánh trong 5 giây.', tip: 'Càng sống lâu càng có lợi vì chu kỳ kỹ năng lặp lại; đi cùng Y sư/Tế đàn để trụ.', weak: 'Chỉ kích hoạt khi có địch trong tầm 500 hoặc gần cờ.' },
   taothao: { numbers: 'Cứ 11 giây: mọi quân ta cùng lane +25% sát thương và +15% tốc độ đánh trong 5 giây.', tip: 'Đi kèm đội quân đông (Samurai, Tử sĩ, Voi chiến) để buff có giá trị.', weak: 'Gần như vô dụng nếu lane ít quân.' },
   chudu: { numbers: 'Cứ 9 giây: vùng quanh mục tiêu bị chậm 45% trong 4 giây và nhận 55 sát thương. Tầm 200.', tip: 'Làm chậm Kỵ sĩ/Ninja, tạo thời gian cho Cung/Nỏ bắn.', weak: 'Máu 380, giáp thấp.' },
@@ -240,8 +240,8 @@ const NEW_INFO: Record<string, { numbers: string; tip: string; weak?: string }> 
   lenhhoxung: { numbers: 'Mỗi đòn xuyên 50% giáp, 20% chí mạng ×2,5; nhịp đánh 0,65 giây.', tip: 'Đối trọng với mọi đội giáp dày, boss giáp cao.', weak: 'Máu 480.' },
   truongvoky: { numbers: 'Phản lại 30% sát thương nhận từ đối thủ cận chiến trong 90 đơn vị.', tip: 'Đứng giữa tuyến đầu địch cận chiến, càng bị đánh càng mạnh.', weak: 'Không phản được đòn tầm xa.' },
   auduongphong: { numbers: 'Cứ 9 giây: đám mây độc lên cụm địch, 30 sát thương rồi 12 máu/giây trong 6 giây (xuyên giáp). Tầm 150.', tip: 'Rất hiệu quả trước Voi chiến, tướng và boss.', weak: 'Máu 460, giáp 6.' },
-  dongphuongbatbai: { numbers: 'Máu 3.400, né 25% đòn đơn mục tiêu; mỗi 7 giây lướt xuyên đội hình gây 90 sát thương mọi kẻ trên đường. Tốc độ 46, nhịp đánh 0,7 giây.', tip: 'Dùng sát thương lan (không bị né) và tướng làm chậm/choáng (Chu Du, Tư Mã Ý).', weak: 'Máu thấp hơn Ngưu Ma Vương.' },
-  nguumavuong: { numbers: 'Máu 3.600, giáp 14, tốc độ chậm (22). Mỗi 10 giây phun sóng lửa 85 sát thương diện rộng + thiêu 10 máu/giây trong 4 giây; dưới 50% máu sát thương +30%.', tip: 'Phân tán đội hình, có Y sư/Tế đàn, dùng xuyên giáp (Nỏ, Hoàng Trung, Lệnh Hồ Xung).', weak: 'Rất chậm; có thể bị kéo dài bằng tường/chặn đường.' },
+  dongphuongbatbai: { numbers: 'Máu 3.250, né 25% đòn đơn mục tiêu; mỗi 7 giây lướt xuyên đội hình gây 90 sát thương mọi kẻ trên đường. Tốc độ 46, nhịp đánh 0,7 giây.', tip: 'Dùng sát thương lan (không bị né) và tướng làm chậm/choáng (Chu Du, Tư Mã Ý).', weak: 'Máu thấp hơn Ngưu Ma Vương.' },
+  nguumavuong: { numbers: 'Máu 3.450, giáp 14, tốc độ chậm (22). Mỗi 10 giây phun sóng lửa 85 sát thương diện rộng + thiêu 10 máu/giây trong 4 giây; dưới 50% máu sát thương +30%.', tip: 'Phân tán đội hình, có Y sư/Tế đàn, dùng xuyên giáp (Nỏ, Hoàng Trung, Lệnh Hồ Xung).', weak: 'Rất chậm; có thể bị kéo dài bằng tường/chặn đường.' },
   wall: { numbers: 'Máu 900, giáp 20, không tấn công. Địch buộc phải phá tường mới đi tiếp.', tip: 'Đặt phía trước Cung/Nỏ/Tháp để câu giờ.', weak: 'Không gây sát thương.' },
   spikewall: { numbers: 'Máu 480, mỗi 1,2 giây gây 16 sát thương (xuyên 50% giáp) lên mọi địch trong 70 đơn vị.', tip: 'Chắn đường và bào mòn địch đang đập tường; mạnh nhất ở lane địch dồn đông.', weak: 'Máu thấp hơn Tường đá.' },
   archertower: { numbers: 'Máu 360, bắn 14 sát thương mỗi giây vào địch gần nhất trong tầm 260.', tip: 'Đặt sau tường; có sẵn từ đầu game.', weak: 'Sát thương thấp, ưu tiên bảo vệ bằng tường.' },
@@ -265,7 +265,7 @@ function build() {
   B.push({ k: 'p', text: 'TAM LỘ CÔNG THÀNH', bold: true, center: true, color: '7A3E12' });
   B.push({ k: 'p', text: 'Three Lanes Siege', italic: true, center: true });
   B.push({ k: 'p', text: 'Tài liệu mô tả game, cách chơi, nhân vật, chiêu thức và trang quản trị', center: true, bold: true });
-  B.push({ k: 'p', text: 'Game chiến thuật 2D chạy trên trình duyệt (laptop & điện thoại)  ·  Phiên bản 2.0  ·  08/10/2026', center: true, italic: true });
+  B.push({ k: 'p', text: 'Game chiến thuật 2D chạy trên trình duyệt (laptop & điện thoại)  ·  Phiên bản 2.1  ·  08/10/2026', center: true, italic: true });
   img('shot-map.png', 560, 'Bản đồ chiến dịch: mỗi bản đồ có 10 trạm nối nhau bằng con đường quanh co, trạm cuối là Boss');
   B.push({ k: 'break' });
 
@@ -350,9 +350,9 @@ function build() {
     [
       ['Trên-trái', 'Chân dung chỉ huy (bạn)', 'Tên, cấp độ (tính theo số trận thắng), nút Tạm dừng'],
       ['Trên-giữa', 'Bảng "Trạm m-n"', 'Đồng hồ trận đấu và các thanh trạng thái lane (xanh = bạn thắng, đỏ = địch thắng)'],
-      ['Trên-phải', 'Chân dung chỉ huy địch', 'Tên trạm, cấp độ địch, số quân địch còn lại, nút tốc độ ×1 / ×2'],
+      ['Trên-phải', 'Chân dung chỉ huy địch', 'Tên trạm, cấp độ địch, số quân địch còn lại; bên dưới là nút tốc độ ×1 · ×1,5 · ×2 · ×2,5 · ×3'],
       ['Giữa', 'Chiến trường', 'Kéo thả thẻ vào lane; xem quân giao chiến; hai bên là tháp canh có cờ'],
-      ['Dưới-trái', 'Bảng vàng', 'Vàng hiện có, tốc độ hồi vàng (+2,6/s), mức tối đa và nút ↑ nâng cấp giới hạn vàng (phím U)'],
+      ['Dưới-trái', 'Bảng vàng', 'Vàng hiện có, tốc độ sản xuất vàng, mức tối đa và nút ↑ nâng cấp kho vàng (phím U; rê chuột để xem chi tiết)'],
       ['Dưới-giữa', 'Thẻ bài: lính | đồ phòng thủ | tướng', 'Giá vàng ở góc trái, kéo thẻ vào lane; thẻ xám = chưa đủ vàng'],
       ['Dưới-phải', 'Đồng hồ lane', 'Máu cờ ta/địch của từng lane theo thời gian thực'],
       ['Trên thẻ / trên quân', 'Cửa sổ thông tin', 'Rê chuột (hoặc chạm) để xem tên, máu hiện tại, chỉ số và mô tả kỹ năng'],
@@ -367,25 +367,28 @@ function build() {
       ['Chạm hai bước', 'Chạm thẻ để chọn, sau đó chạm vào lane. Thẻ vẫn được chọn nên có thể chạm liên tiếp để thả nhiều quân.'],
       ['Phím tắt (laptop)', '1–9: chọn thẻ theo thứ tự hiển thị · Q / W / E: thả vào lane 1 / 2 / 3 · U: nâng giới hạn vàng · Esc hoặc P: tạm dừng'],
       ['Tạm dừng', 'Nút ⏸ hoặc phím Esc: có thể đổi ngôn ngữ, tiếp tục hoặc rút lui trong menu tạm dừng'],
-      ['Tốc độ', 'Nút ×1 / ×2 ở góc phải để tăng tốc trận đấu'],
+      ['Tốc độ', 'Nhóm nút ×1 · ×1,5 · ×2 · ×2,5 · ×3 dưới chân dung chỉ huy địch (trên điện thoại chỉ hiện mức đang chọn, chạm để chuyển mức kế tiếp)'],
+      ['Xem thông tin', 'Rê chuột (hoặc chạm) vào quân/thẻ/nút nâng cấp vàng để xem chi tiết; ngoài bản đồ, rê chuột vào Boss hoặc quân địch trong bảng trạm để xem thông số'],
     ],
     [2400, 6900],
   );
   h2('3.4. Vàng (tài nguyên trong trận)');
   ul(
-    `Bắt đầu trận với ${PLAYER_START_GOLD} vàng, hồi ${f(PLAYER_INCOME)} vàng mỗi giây, mức tối đa ban đầu ${CAP_STEPS[0]}.`,
+    `Bắt đầu trận với ${PLAYER_START_GOLD} vàng, sản xuất ${f(PLAYER_INCOME)} vàng mỗi giây, mức tối đa ban đầu ${CAP_STEPS[0]}.`,
+    'Lưu ý: "vàng" trong trận chỉ dùng để xuất quân và nâng cấp kho vàng; hoàn toàn tách biệt với "xu" (tiền ngoài trận) dùng để mở khóa/nâng cấp thẻ, ô bộ bài và thành trì.',
     'Triển khai quân tốn vàng (lính 10–34, đồ phòng thủ 12–32, tướng 45–75). Địch cũng có vàng riêng, thu nhập tăng dần theo trạm; đầu trận địch vào chậm hơn một chút.',
     'Mỗi tướng chỉ xuất hiện ở MỘT lane tại một thời điểm. Khi tướng chết hoặc lane của tướng đã kết thúc (thắng/thua), tướng biến khỏi chiến trường và nếu đủ vàng bạn có thể thả lại.',
     'Không đủ vàng: thanh vàng rung nhẹ, quân không được thả.',
   );
   h3('Nâng cấp giới hạn vàng');
-  p('Nút "↑" cạnh bảng vàng cho phép trả vàng để nâng mức vàng tối đa, giúp tích trữ để thả tướng và đồ phòng thủ cùng lúc:');
+  p('Nút "↑" cạnh bảng vàng cho phép trả vàng để nâng mức vàng tối đa VÀ tăng tốc độ sản xuất vàng. Rê chuột vào nút để xem giới hạn/tốc độ hiện tại → kế tiếp, chi phí và các mốc:');
   table(
-    ['Cấp giới hạn', 'Vàng tối đa', 'Chi phí nâng lên cấp này'],
-    CAP_STEPS.map((cap, i) => [String(i + 1), String(cap), i === 0 ? 'Ban đầu' : `${CAP_COSTS[i - 1]} vàng`]),
-    [2200, 2800, 4300],
+    ['Cấp', 'Vàng tối đa', 'Tốc độ sản xuất vàng', 'Chi phí nâng lên cấp này'],
+    CAP_STEPS.map((cap, i) => [String(i + 1), String(cap), `${f(PLAYER_INCOME * CAP_INCOME_MUL[i], 2)}/s (×${f(CAP_INCOME_MUL[i], 1)})`, i === 0 ? 'Ban đầu' : `${CAP_COSTS[i - 1]} vàng`]),
+    [1000, 2200, 3100, 3000],
   );
-  p('Mức giới hạn chỉ áp dụng trong trận hiện tại; trận mới bắt đầu lại từ cấp 1. Khi vàng đang ở mức tối đa mà không dùng, vàng hồi thêm sẽ bị bỏ phí: hãy nâng cấp hoặc xuất quân.', { italic: true });
+  img('shot-captip.png', 560, 'Rê chuột vào nút ↑ để xem chi tiết nâng cấp: giới hạn vàng, tốc độ sản xuất vàng, chi phí và các mốc; góc phải trên là nhóm nút tốc độ ×1 → ×3');
+  p('Nâng cấp chỉ áp dụng trong trận hiện tại; trận mới bắt đầu lại từ cấp 1. Khi vàng đang ở mức tối đa mà không dùng, vàng sản xuất thêm sẽ bị bỏ phí: hãy nâng cấp hoặc xuất quân.', { italic: true });
   h3('Vàng thưởng khi hạ quân');
   ul(
     `Hạ một lính địch: nhận ${Math.round(BOUNTY_TROOP * 100)}% giá vàng của lính đó; hạ một tướng địch: ${Math.round(BOUNTY_GENERAL * 100)}% giá; hạ Boss: ${BOUNTY_BOSS} vàng cố định.`,
@@ -421,9 +424,7 @@ function build() {
     ],
     [2400, 6900],
   );
-  h2('3.8. Hết giờ (Overtime)');
-  p(`Sau ${OVERTIME_AT} giây, cờ của cả hai bên bắt đầu tự sụp dần (khoảng 1,2% máu tối đa mỗi giây và tăng dần). Ở mỗi lane, bên nào còn nhiều phần trăm máu cờ hơn sẽ thắng lane khi cờ sụp. Cơ chế này tránh các trận hòa kéo dài; đồng hồ chuyển đỏ khi vào hết giờ.`);
-  h2('3.9. Thưởng và sao');
+  h2('3.8. Thưởng và sao');
   table(
     ['Kết quả', 'Xu nhận được'],
     [
@@ -438,17 +439,17 @@ function build() {
     [
       ['★', 'Chiến thắng trạm'],
       ['★★', 'Chiến thắng và không để địch thắng lane nào'],
-      ['★★★', 'Chiến thắng không mất lane và đủ nhanh (ngưỡng thời gian riêng của từng trạm, hiển thị trong bảng thông tin trạm)'],
+      ['★★★', 'Chiến thắng không mất lane và đủ nhanh. Ngưỡng thời gian tăng dần theo độ sâu: khoảng 100 giây ở trạm đầu → 200 giây ở trạm cuối (hiển thị trong bảng thông tin trạm)'],
     ],
     [1600, 7700],
   );
   p('Sao được lưu lại theo từng trạm (giữ số sao cao nhất đã đạt) và hiển thị ngay trên bản đồ.');
-  h2('3.10. Màn Boss');
+  h2('3.9. Màn Boss');
   ul(
     'Chỉ có MỘT lane: toàn bộ quân hai bên dồn vào một đường nên không thể bỏ lane để cứu lane khác. Cờ nhà được tăng độ bền.',
     `Boss không xuất hiện ngay: nó chỉ vào trận khi cờ địch còn ≤ ${Math.round(BOSS_AT_HP * 100)}% máu hoặc sau ${BOSS_AT_TIME} giây (không sớm hơn 25 giây), kèm cảnh báo trên màn hình. Trước đó bạn đối đầu quân thường của địch.`,
     `Khi Boss còn sống, cờ địch chỉ nhận ${Math.round(BOSS_FLAG_GUARD * 100)}% sát thương: bắt buộc phải hạ Boss. Hạ gục Boss là chiến thắng ngay lập tức.`,
-    'Boss có nhiều máu hơn hẳn tướng thường (3.300–3.600) và chiêu thức riêng (xem mục 9).',
+    'Boss có nhiều máu hơn hẳn tướng thường (3.150–3.450) và chiêu thức riêng (xem mục 9).',
   );
   B.push({ k: 'break' });
 
@@ -490,6 +491,8 @@ function build() {
     'Mở khóa thẻ bằng xu (giá mỗi loại ở phần danh sách). Thẻ mới mở ở cấp 1. Tab Binh đoàn chia ba mục: Lính · Phòng thủ · Tướng.',
     `Nâng cấp tối đa ${MAX_LEVEL} cấp: mỗi cấp tăng 12% máu và 12% sát thương (kể cả sát thương kỹ năng, hồi máu...) so với cấp 1. Cấp 5 = +48%.`,
     'Giá nâng cấp: lính = 60 × cấp hiện tại; đồ phòng thủ = 70 × cấp; tướng = 140 × cấp (ví dụ lính từ cấp 2 lên 3 tốn 120 xu).',
+    'Ô BỘ BÀI và ô ĐỒ PHÒNG THỦ mở thêm bằng xu (xem bảng dưới): nhấn ô "+" viền vàng cuối hàng ô trong tab Binh đoàn.',
+    'THÀNH TRÌ: nâng cấp máu cờ nhà bằng xu (mỗi cấp +12% máu, tối đa 10 cấp), áp dụng cho mọi trận.',
     'Trong trận, thẻ xếp theo thứ tự: lính | đồ phòng thủ | tướng; thẻ lính nền xanh, đồ phòng thủ nền nâu, thẻ tướng nền đỏ thẫm viền vàng với chân dung lớn.',
   );
   table(
@@ -502,7 +505,18 @@ function build() {
     ]),
     [900, 2300, 2000, 2100, 2000],
   );
-  img('shot-army.png', 560, 'Tab Binh đoàn: bộ bài ra trận, bộ đồ phòng thủ, danh sách lính, mở khóa và nâng cấp');
+  h3('Nâng cấp ô bộ bài và thành trì');
+  table(
+    ['Hạng mục', 'Giới hạn', 'Chi phí (xu)'],
+    [
+      ['Ô bộ bài ra trận (6 → 9 ô)', `+${DECK_EXTRA_COSTS.length} ô`, DECK_EXTRA_COSTS.map((c, i) => `ô ${7 + i}: ${c}`).join(' · ')],
+      ['Ô bộ đồ phòng thủ (3 → 5 ô)', `+${DEF_EXTRA_COSTS.length} ô`, DEF_EXTRA_COSTS.map((c, i) => `ô ${4 + i}: ${c}`).join(' · ')],
+      ['Máu thành trì', `${FLAG_MAX_LV} cấp`, `cấp 1: ${flagUpgradeCost(0)} → cấp ${FLAG_MAX_LV}: ${flagUpgradeCost(FLAG_MAX_LV - 1)} (mỗi cấp +12% máu cờ nhà: ${PLAYER_FLAG_HP} → ${Math.round(PLAYER_FLAG_HP * flagHpMul(FLAG_MAX_LV))})`],
+    ],
+    [3300, 1500, 4500],
+  );
+  p('Khi bộ bài có hơn 9 thẻ (lính + đồ phòng thủ + tướng), thẻ trong trận được chia thành hai hàng trên màn hình nhỏ.', { italic: true });
+  img('shot-army.png', 560, 'Tab Binh đoàn: thành trì, bộ bài ra trận, bộ đồ phòng thủ (ô "+" mở thêm), danh sách thẻ');
   img('shot-army-generals.png', 560, 'Danh sách tướng (19 vị)');
   img('shot-army-defense.png', 560, 'Danh sách đồ phòng thủ (10 loại)');
   B.push({ k: 'break' });
@@ -528,7 +542,7 @@ function build() {
 
   // 9
   h1(`9. Boss (${bosses.length}) và quân triệu hồi`);
-  p('Mỗi bản đồ kết thúc bằng một trạm Boss (1 lane). Boss chỉ vào trận khi gần cuối (xem mục 3.10) và không thể triển khai bởi người chơi.');
+  p('Mỗi bản đồ kết thúc bằng một trạm Boss (1 lane). Boss chỉ vào trận khi gần cuối (xem mục 3.9) và không thể triển khai bởi người chơi.');
   for (const u of bosses) unitCard(u);
   ul(
     'Gợi ý chung: giữ vàng ở mức cao trước khi Boss xuất hiện (nâng giới hạn vàng), xây tường chặn ở lane để câu giờ rồi dồn tướng xuyên giáp; Y sư/Tế đàn giúp chống sóng lửa và độc.',
@@ -571,6 +585,7 @@ function build() {
     'Chỉ cần thắng 2/3 lane (trạm thường): có thể bỏ một lane để dồn lực thắng hai lane còn lại.',
     'Hạ quân địch cũng cho vàng: hãy ưu tiên đổi quân có lợi (Tường, Tháp cung kéo địch vào vùng sát thương) thay vì xông ra.',
     'Nâng giới hạn vàng sớm khi trận kéo dài (đặc biệt ở trạm Boss) để có thể thả tướng sau khi Boss xuất hiện.',
+    'Nâng kho vàng cũng tăng tốc độ sản xuất vàng: ở trận dài hoặc trạm Boss, nâng sớm sẽ có lợi hơn.',
     'Kỵ sĩ nên thả khi lane còn trống để chạy được quãng đường dài (bonus tới ×5).',
     'Đặt Tường đá/Lính khiên phía trước, Cung thủ/Nỏ/Tháp cung phía sau; thêm Y sư hoặc Tế đàn để kéo dài giao tranh.',
     'Dùng xu nâng cấp thẻ chủ lực thay vì mở rộng quá nhiều thẻ; ưu tiên tướng chủ lực và 1–2 công trình tốt.',
@@ -594,7 +609,15 @@ function build() {
     'Bối cảnh: mây trôi, chim (dơi ở màn đêm) đập cánh, quầng sáng mặt trời/trăng thở nhẹ, cỏ và hoa đung đưa, cánh hoa/lá/đom đóm/tàn lửa/tuyết rơi, ánh nắng, nước lấp lánh, đuốc/đèn lồng chập chờn, cờ bay.',
     'Hiệu ứng: số sát thương nảy lên, vệt chém, tên/đá/phép có vệt đuôi, rung màn hình khi va chạm mạnh, pháo giấy khi thắng lane, cảnh báo Boss xuất hiện, hiệu ứng riêng cho mỗi chiêu của tướng, boss và công trình (sóng lửa, mây độc, sấm sét, trụ băng, hóa thân, phân thân...).',
   );
-  h2('12.3. Đa ngôn ngữ');
+  h2('12.3. Điện thoại: dọc và ngang');
+  ul(
+    'Điện thoại dọc: bản đồ dọc + thanh trạm gọn ở dưới; thẻ bài xếp một hàng (tối đa 9 thẻ, nhiều hơn chia hai hàng), nút tốc độ dạng gọn.',
+    'Điện thoại NẰM NGANG: bản đồ ngang bên trái + bảng thông tin trạm bên phải (nút Ra trận cố định ở đáy), thanh điều hướng mỏng, HUD thấp, khung thẻ một hàng gọn để chiến trường rộng nhất có thể. Xoay máy là bố cục tự đổi.',
+    'Nhấn thẻ để xem mô tả: khung mô tả nổi lên trên chiến trường và không làm đổi kích thước khung hình nên không bị giật.',
+  );
+  img('shot-mobile-land-map.png', 440, 'Điện thoại nằm ngang: bản đồ bên trái, bảng trạm bên phải, nút Ra trận cố định');
+  img('shot-mobile-land-battle.png', 440, 'Điện thoại nằm ngang: chiến trường rộng, khung thẻ một hàng gọn, nút tốc độ gọn dưới chân dung chỉ huy địch');
+  h2('12.4. Đa ngôn ngữ');
   p('Có thể chuyển giữa tiếng Việt và tiếng Anh ở: màn hình đăng nhập (nút VI/EN), Cài đặt (⚙) trong màn hình chính, menu Tạm dừng khi đang chơi và trang quản trị. Lựa chọn được ghi nhớ trên trình duyệt; lần đầu mở game, ngôn ngữ chọn theo trình duyệt. Tên lính/tướng, mô tả kỹ năng, tên trạm và chữ nổi trong trận đều được dịch (tên tướng tiếng Anh dùng phiên âm Pinyin như Yang Guo, Zhang Fei...).');
   img('shot-mobile-battle.png', 300, 'Giao diện điện thoại (iPhone 15): thẻ bài thu nhỏ, bảng vàng có nút nâng giới hạn, chỉ huy ở trên');
   B.push({ k: 'break' });
@@ -694,7 +717,6 @@ function build() {
       ['Sát thương lan (AoE)', 'Gây sát thương lên nhiều mục tiêu trong một vùng'],
       ['Tầm xa', 'Đơn vị có tầm đánh > 70'],
       ['Triệu hồi', 'Quân tạm thời do kỹ năng tạo ra (Hao Thiên Khuyển, Khỉ Con...), không cho vàng thưởng'],
-      ['Overtime (hết giờ)', `Sau ${OVERTIME_AT} giây cờ hai bên tự sụp dần`],
     ],
     [2400, 6900],
   );

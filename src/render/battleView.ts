@@ -105,8 +105,11 @@ export class BattleView {
   depth(lane: number) {
     return this.battle.lanes.length === 1 ? 1.05 : 0.92 + 0.08 * lane;
   }
+  /** lane tại toạ độ dọc của chiến trường; -1 nếu điểm nằm ngoài các làn (bầu trời / phía dưới) */
   laneAt(localY: number) {
-    return Math.max(0, Math.min(this.battle.lanes.length - 1, Math.floor((localY - this.panoH) / this.laneH)));
+    const rel = localY - this.panoH;
+    if (rel < 0 || rel >= this.battle.lanes.length * this.laneH) return -1;
+    return Math.floor(rel / this.laneH);
   }
 
   /** đổi toạ độ ngang trên màn hình sang toạ độ lane (0..1000) */
@@ -352,8 +355,7 @@ export class BattleView {
   private consume() {
     const evs = this.battle.events;
     for (const e of evs) {
-      if (e.t === 'overtime') this.showToast(t('hud.overtime'));
-      else if (e.t === 'boss') {
+      if (e.t === 'boss') {
         this.showToast(t('hud.bossAppear', { name: unitName(UNITS[e.id]) }));
         this.vfx.handle(e);
       } else {

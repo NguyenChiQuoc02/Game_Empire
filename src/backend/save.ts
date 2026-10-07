@@ -1,9 +1,13 @@
-import { STARTERS, STARTER_DEFENSES, DECK_SIZE, DEFENSE_DECK_SIZE, UNITS } from '../data/units';
+import { STARTERS, STARTER_DEFENSES, DECK_SIZE, DEFENSE_DECK_SIZE, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, FLAG_MAX_LV, UNITS } from '../data/units';
 import { STATIONS } from '../data/campaign';
 import type { SaveData } from './types';
 
 /** v2: bố cục 3 bản đồ x 10 trạm (tiến trình trạm của bản cũ không còn khớp nên được đặt lại) */
 export const STATION_LAYOUT_VERSION = 2;
+
+/** số ô bộ bài / bộ đồ phòng thủ hiện có (gốc + đã mở thêm) */
+export const deckSizeOf = (s: Pick<SaveData, 'deckSlots'>) => DECK_SIZE + (s.deckSlots ?? 0);
+export const defSizeOf = (s: Pick<SaveData, 'defSlots'>) => DEFENSE_DECK_SIZE + (s.defSlots ?? 0);
 
 export function newSave(name: string): SaveData {
   const unlocked: Record<string, number> = {};
@@ -21,6 +25,9 @@ export function newSave(name: string): SaveData {
     wins: 0,
     losses: 0,
     updatedAt: Date.now(),
+    deckSlots: 0,
+    defSlots: 0,
+    flagLv: 0,
     sv: STATION_LAYOUT_VERSION,
   };
 }
@@ -35,8 +42,11 @@ export function normalizeSave(raw: Partial<SaveData> | null, name: string): Save
     if (k === 'troop' || k === 'general' || k === 'defense') unlocked[id] = Math.max(1, Math.min(5, Number(lv) || 1));
   }
   for (const id of [...STARTERS, ...STARTER_DEFENSES]) unlocked[id] ??= 1;
-  const deck = (raw.deck ?? base.deck).filter((id, i, a) => unlocked[id] && UNITS[id]?.kind !== 'defense' && a.indexOf(id) === i).slice(0, DECK_SIZE);
-  const defDeck = (raw.defDeck ?? base.defDeck).filter((id, i, a) => unlocked[id] && UNITS[id]?.kind === 'defense' && a.indexOf(id) === i).slice(0, DEFENSE_DECK_SIZE);
+  const clampInt = (v: unknown, hi: number) => Math.max(0, Math.min(hi, Math.floor(Number(v) || 0)));
+  const deckSlots = clampInt(raw.deckSlots, DECK_EXTRA_COSTS.length);
+  const defSlots = clampInt(raw.defSlots, DEF_EXTRA_COSTS.length);
+  const deck = (raw.deck ?? base.deck).filter((id, i, a) => unlocked[id] && UNITS[id]?.kind !== 'defense' && a.indexOf(id) === i).slice(0, DECK_SIZE + deckSlots);
+  const defDeck = (raw.defDeck ?? base.defDeck).filter((id, i, a) => unlocked[id] && UNITS[id]?.kind === 'defense' && a.indexOf(id) === i).slice(0, DEFENSE_DECK_SIZE + defSlots);
   // save cũ (trước v2) có bố cục trạm khác: giữ xu/thẻ/bộ bài, đặt lại tiến trình trạm
   const legacy = (raw.sv ?? 1) < STATION_LAYOUT_VERSION;
   const cleared = STATIONS.map((_, i) => !legacy && !!raw.cleared?.[i]);
@@ -54,6 +64,9 @@ export function normalizeSave(raw: Partial<SaveData> | null, name: string): Save
     losses: Number(raw.losses) || 0,
     updatedAt: Number(raw.updatedAt) || Date.now(),
     rev: Math.max(0, Number(raw.rev) || 0),
+    deckSlots,
+    defSlots,
+    flagLv: clampInt(raw.flagLv, FLAG_MAX_LV),
     sv: STATION_LAYOUT_VERSION,
   };
 }
@@ -76,6 +89,9 @@ export function mergeSaves(remote: SaveData, local: SaveData, baseCoins: number)
       progress: Math.max(remote.progress, local.progress),
       cleared: STATIONS.map((_, i) => !!(remote.cleared[i] || local.cleared[i])),
       stars: STATIONS.map((_, i) => Math.max(remote.stars[i] ?? 0, local.stars[i] ?? 0)),
+      deckSlots: Math.max(remote.deckSlots ?? 0, local.deckSlots ?? 0),
+      defSlots: Math.max(remote.defSlots ?? 0, local.defSlots ?? 0),
+      flagLv: Math.max(remote.flagLv ?? 0, local.flagLv ?? 0),
       wins: Math.max(remote.wins, local.wins),
       losses: Math.max(remote.losses, local.losses),
       updatedAt: Math.max(remote.updatedAt, local.updatedAt),

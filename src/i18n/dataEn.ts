@@ -22,7 +22,7 @@ export const EN_UNITS: Record<string, { name: string; skill: string; desc: strin
   crossbow: { name: 'Crossbowman', skill: 'Armor-Piercing Bolt', desc: 'Repeating crossbow with huge range; bolts ignore 50% of the target\'s armor.' },
   elephant: { name: 'War Elephant', skill: 'Stomp', desc: 'A colossal but slow war elephant. Every strike deals splash damage (radius 55).' },
   poisoner: { name: 'Poisoner', skill: 'Venom', desc: 'Throws poison from range: hit targets lose 9 HP per second for 5 seconds (ignores armor).' },
-  tonngokhong: { name: 'Sun Wukong', skill: '72 Transformations', desc: 'Skill 1: every 15 seconds he turns into a random general and instantly casts that general\'s skill, keeping the form for 8 seconds. Skill 2: every 20 seconds he plucks hairs into 2 monkey cubs (30% of his HP, damage and armor) lasting 5 seconds.' },
+  tonngokhong: { name: 'Sun Wukong', skill: '72 Transformations', desc: 'Skill 1: every 5 seconds (cooldown runs once the form ends) he turns into a random general and instantly casts that general\'s skill, keeping the form for 8 seconds. Skill 2: every 20 seconds he plucks hairs into 2 monkey cubs (30% of his HP, damage and armor) lasting 5 seconds.' },
   khicon: { name: 'Monkey Cub', skill: 'Hair Clone', desc: 'A hair clone of Sun Wukong: 30% of his HP, damage and armor, lasting 5 seconds.' },
   duongtien: { name: 'Erlang Shen', skill: 'Celestial Hound', desc: 'Every 14 seconds summons the Celestial Hound (50% of his HP, damage and armor) and boosts his own stats by 50% for 5 seconds.' },
   taothao: { name: 'Cao Cao', skill: 'Warlord\'s Banner', desc: 'Every 11 seconds orders an advance: allies in the lane gain +25% damage and +15% attack speed for 5 seconds.' },

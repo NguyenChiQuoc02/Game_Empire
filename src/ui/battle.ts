@@ -2,16 +2,20 @@ import type { Application, Ticker } from 'pixi.js';
 import { h } from './dom';
 import { getLang, onLang, stationName, t, unitDesc, unitName, unitSkill } from '../i18n';
 import { STATIONS, stationLabel, type Station } from '../data/campaign';
-import { MAX_DEFENSES_PER_LANE, UNITS, levelMul, type UnitDef } from '../data/units';
-import { Battle, OVERTIME_AT, PLAYER_INCOME, type UnitInst } from '../game/sim';
+import { MAX_DEFENSES_PER_LANE, UNITS, levelMul } from '../data/units';
+import { Battle, CAP_INCOME_MUL, CAP_STEPS, PLAYER_INCOME, type UnitInst } from '../game/sim';
 import { EnemyAI } from '../game/ai';
 import { BattleView } from '../render/battleView';
 import { mutate, state } from '../state';
 import { langSwitch, openModal, portrait, toast, fmt, type Modal } from './common';
 import { faceUrl, iconUrl } from '../render/icons';
 import { rewardFor, starsFor } from '../game/rewards';
+import { tipBody } from './tip';
 
 export type ExitAction = 'menu' | 'retry' | 'next';
+
+/** các mức tốc độ trận đấu */
+const SPEEDS = [1, 1.5, 2, 2.5, 3];
 
 export class BattleScreen {
   private battle: Battle;
@@ -29,6 +33,11 @@ export class BattleScreen {
 
   private paused = false;
   private speed = 1;
+  private speedBtns: HTMLElement[] = [];
+  private lastW = 0;
+  private lastH = 0;
+  private mq = window.matchMedia('(max-width: 760px), (max-height: 520px)');
+  private mqFn = () => this.el.speed?.classList.toggle('compact', this.mq.matches);
   private selected: string | null = null;
   private resultT = 0;
   private resultShown = false;
@@ -48,7 +57,7 @@ export class BattleScreen {
     timer?: HTMLElement; pips?: HTMLElement[]; gold?: HTMLElement; goldBar?: HTMLElement; goldRow?: HTMLElement;
     cards?: Map<string, HTMLElement>; info?: HTMLElement; speed?: HTMLElement;
     dialMy?: HTMLElement[]; dialEn?: HTMLElement[]; income?: HTMLElement;
-    capText?: HTMLElement; capBtn?: HTMLElement; capCost?: HTMLElement; foeLeft?: HTMLElement;
+    capText?: HTMLElement; capBtn?: HTMLElement; capCost?: HTMLElement; capLv?: HTMLElement; foeLeft?: HTMLElement;
   } = {};
   private lastCardState = '';
   private drag: { id: string; sx: number; sy: number; moved: boolean; ghost?: HTMLElement; pid: number } | null = null;
@@ -62,7 +71,7 @@ export class BattleScreen {
       ...save.defDeck.filter((id) => UNITS[id]?.kind === 'defense'),
       ...save.deck.filter((id) => UNITS[id]?.kind === 'general'),
     ];
-    this.battle = new Battle({ station: this.station, levels: { ...save.unlocked } });
+    this.battle = new Battle({ station: this.station, levels: { ...save.unlocked }, flagLevel: save.flagLv ?? 0 });
     this.ai = new EnemyAI(this.battle, this.station.deck);
     this.view = new BattleView(app, this.battle, this.station);
 
@@ -82,6 +91,7 @@ export class BattleScreen {
     this.field.addEventListener('pointermove', this.onFieldMove);
     this.field.addEventListener('pointerleave', this.onFieldLeave);
     window.addEventListener('keydown', this.onKey);
+    this.mq.addEventListener('change', this.mqFn);
     this.offLang = onLang(() => this.buildUi());
     app.ticker.add(this.tick);
     app.ticker.start();
@@ -93,6 +103,7 @@ export class BattleScreen {
     this.app.ticker.remove(this.tick);
     this.ro.disconnect();
     this.offLang();
+    this.mq.removeEventListener('change', this.mqFn);
     window.removeEventListener('keydown', this.onKey);
     this.field.removeEventListener('pointerdown', this.onFieldDown);
     this.field.removeEventListener('pointermove', this.onFieldMove);
@@ -107,6 +118,10 @@ export class BattleScreen {
   private resize() {
     const r = this.field.getBoundingClientRect();
     if (r.width < 10 || r.height < 10) return;
+    // bỏ qua thay đổi < 1px (tránh dựng lại chiến trường không cần thiết)
+    if (Math.abs(r.width - this.lastW) < 1 && Math.abs(r.height - this.lastH) < 1) return;
+    this.lastW = r.width;
+    this.lastH = r.height;
     this.app.renderer.resize(r.width, r.height);
     this.view.layout(r.width, r.height);
   }
@@ -123,7 +138,11 @@ export class BattleScreen {
     const laneN = this.battle.lanes.length;
     const pips = Array.from({ length: laneN }, () => h('span', { class: 'pip' }));
     const timer = h('div', { class: 'timer', text: '0:00' });
-    const speed = h('button', { class: 'icon-btn round small', text: `×${this.speed}`, attrs: { type: 'button', 'aria-label': t('hud.speed') }, on: { click: () => this.toggleSpeed() } });
+    this.speedBtns = SPEEDS.map((v) => h('button', {
+      class: 'spd', text: `×${v}`, attrs: { type: 'button', 'data-v': String(v), 'aria-label': `${t('hud.speed')} ×${v}` },
+      on: { click: () => this.onSpeedClick(v) },
+    }));
+    const speed = h('div', { class: 'speed-box', attrs: { role: 'group', 'aria-label': t('hud.speed'), title: t('hud.speed') } }, ...this.speedBtns);
     const foeLeft = h('b', { text: '0' });
     const myId = this.deck.find((id) => UNITS[id].kind === 'general') ?? this.deck[0];
     const enemyId = st.boss ? (st.bossId ?? 'dongtrac') : st.deck.find((id) => UNITS[id].kind === 'general') ?? st.deck[st.deck.length - 1];
@@ -151,10 +170,15 @@ export class BattleScreen {
 
     const capText = h('small', { class: 'cap', text: '/100' });
     const capCost = h('b', { text: '' });
+    const capLv = h('i', { class: 'cap-lv' });
     const capBtn = h('button', {
-      class: 'cap-up', attrs: { type: 'button', title: t('hud.upgradeCap') },
+      class: 'cap-up', attrs: { type: 'button', 'aria-label': t('hud.upgradeCap') },
       on: { click: () => this.upgradeCap() },
-    }, h('span', { text: '⬆' }), capCost);
+    }, h('span', { text: '⬆' }), capCost, capLv);
+    capBtn.addEventListener('pointerenter', (e) => e.pointerType === 'mouse' && this.showCapTip(capBtn));
+    capBtn.addEventListener('pointerleave', () => this.hideCardTip());
+    capBtn.addEventListener('focus', () => this.showCapTip(capBtn));
+    capBtn.addEventListener('blur', () => this.hideCardTip());
     const gold = h('b', { text: '0' });
     const goldBar = h('div', { class: 'gold-fill' });
     const income = h('small', { text: `+${PLAYER_INCOME}/s` });
@@ -167,6 +191,8 @@ export class BattleScreen {
     const info = h('div', { class: 'info' });
     const cards = new Map<string, HTMLElement>();
     const hand = h('div', { class: 'hand' });
+    // số cột lưới thẻ trên màn nhỏ: một hàng nếu ≤ 9 thẻ, ngược lại chia hai hàng
+    hand.style.setProperty('--cols', String(this.deck.length <= 9 ? this.deck.length : Math.ceil(this.deck.length / 2)));
     let prevKind = '';
     this.deck.forEach((id, i) => {
       const d = UNITS[id];
@@ -196,9 +222,11 @@ export class BattleScreen {
         return h('div', { class: 'dial-row' }, h('b', { text: String(i + 1) }), h('span', { class: 'bar my' }, my), h('span', { class: 'bar en' }, en));
       }));
     this.handHost.replaceChildren(h('footer', { class: 'hand-panel' }, info, h('div', { class: 'hand-row' }, goldRow, hand, dial)));
-    this.el = { timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income, capText, capBtn, capCost, foeLeft };
+    this.el = { timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income, capText, capBtn, capCost, capLv, foeLeft };
     this.lastCardState = '';
     this.refreshInfo();
+    this.refreshSpeed();
+    this.mqFn();
     this.updateHud();
   }
 
@@ -212,7 +240,8 @@ export class BattleScreen {
     }
     const d = UNITS[id];
     info.className = 'info';
-    info.replaceChildren(h('b', { text: unitName(d) }), h('span', { class: 'sk', text: ` · ${unitSkill(d)}` }), h('div', { class: 'desc', text: unitDesc(d) }));
+    // mô tả dài nổi lên phía trên (không đổi chiều cao khung dưới) để chọn thẻ không làm chiến trường co giãn/giật
+    info.replaceChildren(h('div', { class: 'sel' }, h('b', { text: unitName(d) }), h('span', { class: 'sk', text: ` · ${unitSkill(d)}` }), h('div', { class: 'desc', text: unitDesc(d) })));
   }
 
   private updateHud() {
@@ -220,7 +249,6 @@ export class BattleScreen {
     const e = this.el;
     const sec = Math.floor(b.time);
     e.timer!.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
-    e.timer!.classList.toggle('over', b.time > OVERTIME_AT);
     b.lanes.forEach((l, i) => {
       const p = e.pips![i];
       p.className = `pip${l.winner === 0 ? ' win' : l.winner === 1 ? ' lose' : ''}`;
@@ -233,8 +261,10 @@ export class BattleScreen {
     e.gold!.textContent = String(Math.floor(b.gold[0]));
     e.goldBar!.style.width = `${Math.min(100, (b.gold[0] / cap) * 100)}%`;
     e.capText!.textContent = `/${cap}`;
+    e.income!.textContent = `+${Number(b.income[0].toFixed(2))}/s`;
     const upCost = b.capUpgradeCost();
     e.capCost!.textContent = upCost === null ? 'MAX' : String(upCost);
+    e.capLv!.textContent = t('hud.capLv', { n: b.capLevel + 1 });
     e.capBtn!.classList.toggle('max', upCost === null);
     e.capBtn!.classList.toggle('poor', upCost !== null && b.gold[0] < upCost);
     e.foeLeft!.textContent = String(b.enemyLeft + b.enemyAlive);
@@ -260,8 +290,11 @@ export class BattleScreen {
     if (this.disposed) return;
     if (this.paused) return;
     const dt = Math.min(ticker.deltaMS / 1000, 0.05) * this.speed;
-    this.ai.update(dt);
-    this.battle.update(dt);
+    const steps = Math.max(1, Math.ceil(dt / 0.034));
+    for (let i = 0; i < steps && !this.battle.over; i++) {
+      this.ai.update(dt / steps);
+      this.battle.update(dt / steps);
+    }
     this.view.update(dt);
     this.updateHud();
     this.updateTip();
@@ -271,9 +304,15 @@ export class BattleScreen {
     }
   };
 
-  private toggleSpeed() {
-    this.speed = this.speed === 1 ? 2 : 1;
-    this.el.speed!.textContent = `×${this.speed}`;
+  /** laptop: chọn thẳng mức tốc độ; màn nhỏ chỉ hiện mức đang chọn, chạm để chuyển mức kế tiếp */
+  private onSpeedClick(v: number) {
+    const compact = this.el.speed?.classList.contains('compact') ?? false;
+    this.speed = compact ? SPEEDS[(SPEEDS.indexOf(this.speed) + 1) % SPEEDS.length] : v;
+    this.refreshSpeed();
+  }
+
+  private refreshSpeed() {
+    for (const b of this.speedBtns) b.classList.toggle('active', Number(b.dataset.v) === this.speed);
   }
 
   private pause() {
@@ -301,6 +340,7 @@ export class BattleScreen {
     const r = this.field.getBoundingClientRect();
     if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) return -1;
     const lane = this.view.laneAt(cy - r.top);
+    if (lane < 0) return -1;
     return this.battle.lanes[lane].winner === null ? lane : -1;
   }
 
@@ -471,6 +511,38 @@ export class BattleScreen {
     tip.style.top = `${Math.max(4, cr.top - sr.top - hh - 8)}px`;
   }
 
+  /** rê chuột vào nút nâng cấp vàng: giới hạn hiện tại → kế tiếp, chi phí và các mốc */
+  private showCapTip(btn: HTMLElement) {
+    if (this.drag) return;
+    const b = this.battle;
+    const lv = b.capLevel;
+    const cost = b.capUpgradeCost();
+    const cur = b.goldCap(0);
+    const next = cost === null ? null : CAP_STEPS[lv + 1];
+    const row = (k: string, v: string, cls = '') => h('div', { class: `cap-row ${cls}` }, h('span', { text: k }), h('b', { text: v }));
+    const steps = h('div', { class: 'cap-steps' }, ...CAP_STEPS.map((c, i) => h('span', { class: `cs${i < lv ? ' done' : i === lv ? ' cur' : ''}`, text: String(c) })));
+    const tip = this.cardTip;
+    tip.className = 'unit-tip card-tip cap-tip ally';
+    tip.replaceChildren(
+      h('div', { class: 'tip-head' }, h('b', { text: `⬆ ${t('hud.capTitle')}` }), h('em', { text: t('hud.capLevel', { n: lv + 1, max: CAP_STEPS.length }) })),
+      next === null
+        ? h('div', { class: 'cap-max', text: t('hud.capMaxInfo', { cap: cur }) })
+        : h('div', { class: 'cap-body' },
+          row(t('hud.capGold'), `${cur} → ${next}  (+${next - cur})`, 'up'),
+          row(t('hud.capIncome'), `${Number((PLAYER_INCOME * CAP_INCOME_MUL[lv]).toFixed(2))} → ${Number((PLAYER_INCOME * CAP_INCOME_MUL[lv + 1]).toFixed(2))} /s`, 'up'),
+          row(t('hud.capCost'), t('hud.capCostVal', { n: cost! }), b.gold[0] >= cost! ? 'ok' : 'poor')),
+      steps,
+      h('p', { class: 'cap-note', text: t('hud.capNote') }),
+    );
+    tip.style.display = 'block';
+    const sr = this.screen.getBoundingClientRect();
+    const cr = btn.getBoundingClientRect();
+    const w = tip.offsetWidth;
+    const hh = tip.offsetHeight;
+    tip.style.left = `${Math.max(4, Math.min(sr.width - w - 4, cr.left - sr.left + cr.width / 2 - w / 2))}px`;
+    tip.style.top = `${Math.max(4, cr.top - sr.top - hh - 8)}px`;
+  }
+
   private hideCardTip() {
     this.cardTip.style.display = 'none';
   }
@@ -512,6 +584,7 @@ export class BattleScreen {
       return;
     }
     toast(t('hud.capUp', { cap: b.goldCap(0) }), 'good');
+    if (this.cardTip.classList.contains('cap-tip') && this.cardTip.style.display === 'block') this.showCapTip(this.el.capBtn!);
   }
 
   private tryDeploy(id: string, lane: number, x?: number) {
@@ -581,51 +654,4 @@ export class BattleScreen {
       { dismissible: false },
     );
   }
-}
-
-
-// ───────────────────────── nội dung tooltip (quân trên chiến trường và thẻ bài) ─────────────────────────
-interface TipData {
-  def: UnitDef;
-  side: 0 | 1;
-  hp: number;
-  maxHp: number;
-  dmg: number;
-  armor: number;
-  speed: number;
-  range: number;
-  cd: number;
-  pow: number;
-  level?: number;
-}
-
-function tipBody(d: TipData): HTMLElement[] {
-  const { def } = d;
-  const ally = d.side === 0;
-  const pct = Math.max(0, Math.min(1, d.hp / d.maxHp));
-  const stat = (ico: string, val: string, title: string) => h('span', { class: 'ts', attrs: { title } }, h('i', { text: ico }), val);
-  const tags = [t(`kind.${def.kind}`), t(ally ? 'hud.ally' : 'hud.foe'), d.level ? `Lv ${d.level}` : ''].filter(Boolean).join(' · ');
-  const stats: HTMLElement[] = [];
-  if (def.kind === 'defense') {
-    if (def.skill === 'altar') stats.push(stat('✚', String(Math.round(d.dmg)), t('stat.heal')));
-    else if (def.dmg > 0) stats.push(stat('⚔', String(Math.round(d.dmg)), t('stat.atk')));
-    if (def.dmg > 0 || def.skill === 'altar') stats.push(stat('⏱', `${Number(d.cd.toFixed(2))}s`, t('stat.cd')));
-    if (def.range > 0) stats.push(stat('🎯', String(d.range), t('stat.rng')));
-    if (d.armor > 0) stats.push(stat('🛡', String(Math.round(d.armor)), t('stat.armor')));
-  } else if (def.skill === 'heal') stats.push(stat('✚', String(Math.round(15 * d.pow)), t('stat.heal')));
-  else {
-    stats.push(stat(def.skill === 'bomb' ? '💥' : '⚔', String(Math.round(d.dmg)), t('stat.atk')));
-    if (def.skill !== 'bomb') stats.push(stat('⏱', `${Number(d.cd.toFixed(2))}s`, t('stat.cd')));
-  }
-  if (def.kind !== 'defense') {
-    stats.push(stat('👟', String(Math.round(d.speed)), t('stat.spd')));
-    stats.push(stat('🎯', d.range > 70 ? String(d.range) : t('stat.melee'), t('stat.rng')));
-    stats.push(stat('🛡', String(Math.round(d.armor)), t('stat.armor')));
-  }
-  return [
-    h('div', { class: 'tip-head' }, h('b', { text: unitName(def) }), h('em', { text: tags })),
-    h('div', { class: 'tip-hp' }, h('span', { text: `❤ ${Math.ceil(d.hp)} / ${Math.ceil(d.maxHp)}` }), h('span', { class: 'bar' }, h('i', { attrs: { style: `width:${pct * 100}%` } }))),
-    h('div', { class: 'tip-stats' }, ...stats),
-    h('div', { class: 'tip-skill' }, h('b', { text: `✦ ${unitSkill(def)}` }), h('p', { text: unitDesc(def) })),
-  ];
 }

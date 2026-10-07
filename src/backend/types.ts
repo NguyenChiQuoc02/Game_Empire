@@ -15,6 +15,12 @@ export interface SaveData {
   wins: number;
   losses: number;
   updatedAt: number;
+  /** số ô bộ bài mở thêm (0..3, ngoài 6 ô gốc) */
+  deckSlots?: number;
+  /** số ô bộ đồ phòng thủ mở thêm (0..2, ngoài 3 ô gốc) */
+  defSlots?: number;
+  /** cấp nâng cấp máu thành trì (0..10) */
+  flagLv?: number;
   /** phiên bản bố cục trạm (2 = 3 bản đồ x 10 trạm) */
   sv?: number;
   /** Số phiên bản trên server, tăng mỗi lần ghi; dùng để phát hiện thiết bị khác đã ghi trước */

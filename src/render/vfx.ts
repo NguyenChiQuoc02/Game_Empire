@@ -326,8 +326,6 @@ export class Vfx {
       case 'fx':
         this.skill(e);
         break;
-      case 'overtime':
-        break;
     }
   }
 

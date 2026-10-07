@@ -11,7 +11,7 @@ import { flush, mutate, onSaveStatus, refresh, setBase, state } from './state';
 import { onLang, t } from './i18n';
 import { h } from './ui/dom';
 import { renderAuth } from './ui/auth';
-import { focusStation, renderHome } from './ui/home';
+import { focusStation, isPortraitLayout, renderHome } from './ui/home';
 import { BattleScreen, type ExitAction } from './ui/battle';
 import { toast } from './ui/common';
 import { loadNotices, unread } from './notices';
@@ -110,6 +110,23 @@ async function boot() {
     else if (screen === 'home') void refresh().then((changed) => changed && screen === 'home' && redraw()).catch(() => {});
   });
   window.addEventListener('pagehide', () => void flush());
+  // xoay điện thoại / đổi cỡ cửa sổ: vẽ lại màn hình chính khi bố cục đổi (trận đấu tự co giãn)
+  let layoutKey = `${isPortraitLayout()}|${window.innerHeight <= 520}`;
+  let lastSize = [window.innerWidth, window.innerHeight];
+  let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+  const onResize = () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const key = `${isPortraitLayout()}|${window.innerHeight <= 520}`;
+      const big = Math.abs(window.innerWidth - lastSize[0]) > 60 || Math.abs(window.innerHeight - lastSize[1]) > 90;
+      if (key === layoutKey && !big) return;
+      layoutKey = key;
+      lastSize = [window.innerWidth, window.innerHeight];
+      if (screen === 'home') redraw();
+    }, 250);
+  };
+  window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', onResize);
 
   backend.onAuth(async (user) => {
     const my = ++token;
