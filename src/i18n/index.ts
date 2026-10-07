@@ -1,7 +1,7 @@
 import type { UnitDef } from '../data/units';
-import type { Station } from '../data/campaign';
+import type { Chapter, Station } from '../data/campaign';
 import { STRINGS } from './strings';
-import { EN_UNITS, EN_STATIONS } from './dataEn';
+import { EN_UNITS, EN_STATIONS, EN_CHAPTERS } from './dataEn';
 
 export type Lang = 'vi' | 'en';
 export const LANGS: Lang[] = ['vi', 'en'];
@@ -55,3 +55,5 @@ export const unitDesc = (d: UnitDef) => (lang === 'en' ? EN_UNITS[d.id]?.desc : 
 export const stationName = (s: Station) => (lang === 'en' ? EN_STATIONS[s.id]?.name : undefined) ?? s.name;
 export const stationSub = (s: Station) => (lang === 'en' ? EN_STATIONS[s.id]?.sub : undefined) ?? s.subtitle;
 export const stationDesc = (s: Station) => (lang === 'en' ? EN_STATIONS[s.id]?.desc : undefined) ?? s.desc;
+export const chapterName = (c: Chapter) => (lang === 'en' ? EN_CHAPTERS[c.id]?.name : undefined) ?? c.name;
+export const chapterSub = (c: Chapter) => (lang === 'en' ? EN_CHAPTERS[c.id]?.sub : undefined) ?? c.subtitle;

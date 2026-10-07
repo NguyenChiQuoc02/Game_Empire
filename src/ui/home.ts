@@ -1,21 +1,23 @@
 import { h } from './dom';
-import { stationDesc, stationName, stationSub, t, unitDesc, unitName, unitSkill } from '../i18n';
+import { chapterName, chapterSub, stationDesc, stationName, stationSub, t, unitDesc, unitName, unitSkill } from '../i18n';
 import { faceUrl } from '../render/icons';
 import { getApp } from '../render/app';
 import { peekMapArt, renderMapArt, type MapSpec } from '../render/mapArt';
-import { MAP_CITIES, STATIONS } from '../data/campaign';
+import { CHAPTERS, STATIONS, STATIONS_PER_MAP, stationLabel, stationPos } from '../data/campaign';
 import {
-  DECK_SIZE, MAX_GENERALS_IN_DECK, MAX_LEVEL, PLAYABLE, UNITS, upgradeCost, type UnitDef,
+  DECK_SIZE, DEFENSES, DEFENSE_DECK_SIZE, MAX_GENERALS_IN_DECK, MAX_LEVEL, PLAYABLE, UNITS, upgradeCost, type UnitDef,
 } from '../data/units';
 import { mutate, state } from '../state';
 import { fmt, portrait, statLine, toast } from './common';
 import { openSettings } from './settings';
-import { FAST_WIN_SEC, rewardFor } from '../game/rewards';
+import { openInbox } from './inbox';
+import { unread } from '../notices';
+import { rewardFor } from '../game/rewards';
 
 type Tab = 'campaign' | 'army';
 let tab: Tab = 'campaign';
 let selected = -1;
-let armyFilter: 'troop' | 'general' = 'troop';
+let armyFilter: 'troop' | 'defense' | 'general' = 'troop';
 
 /** Chọn sẵn một trạm khi quay lại màn chiến dịch */
 export function focusStation(i: number) {
@@ -33,7 +35,7 @@ export function renderHome(root: HTMLElement, ctx: HomeCtx) {
   const save = state.save!;
   currentCtx = ctx;
   bindResize();
-  if (selected < 0 || selected > save.progress) selected = Math.min(save.progress, STATIONS.length - 1);
+  if (selected < 0 || selected >= STATIONS.length) selected = Math.min(save.progress, STATIONS.length - 1);
   const keepScroll = root.querySelector('.content')?.scrollTop ?? 0;
   const mapMode = tab === 'campaign';
 
@@ -42,6 +44,7 @@ export function renderHome(root: HTMLElement, ctx: HomeCtx) {
     { class: 'topbar' },
     h('div', { class: 'player' }, h('div', { class: 'avatar', text: save.name.slice(0, 1).toUpperCase() }), h('div', { class: 'pname' }, h('b', { text: save.name }), h('small', { text: t('home.record', { w: save.wins, l: save.losses }) }))),
     h('div', { class: 'coins', attrs: { title: t('home.coins') } }, h('i', { text: '🪙' }), h('b', { text: fmt(save.coins) })),
+    bell(ctx),
     h('button', { class: 'icon-btn', text: '⚙', attrs: { 'aria-label': t('settings.title'), type: 'button' }, on: { click: () => openSettings({ onLogout: ctx.onLogout }) } }),
   );
 
@@ -73,14 +76,15 @@ function bindResize() {
 // ───────────────────────── bản đồ chiến dịch ─────────────────────────
 let lastMapSize: [number, number] | null = null;
 
-function mapSpec(w: number, h: number, portrait: boolean): MapSpec {
+function mapSpec(w: number, h: number, portrait: boolean, chIdx: number): MapSpec {
   const k = portrait ? 'p' : 'l';
+  const ch = CHAPTERS[chIdx];
   return {
     w, h,
-    stations: STATIONS.map((s) => s.map[k]),
-    themes: STATIONS.map((s) => s.theme),
-    start: MAP_CITIES.start[k],
-    end: MAP_CITIES.end[k],
+    stations: ch.stations.map((i) => stationPos(i, k)),
+    themes: ch.stations.map((i) => STATIONS[i].theme),
+    start: ch.start[k],
+    end: ch.end[k],
   };
 }
 
@@ -88,43 +92,69 @@ function stars(n: number, cls = '') {
   return h('span', { class: `stars ${cls}` }, ...[1, 2, 3].map((i) => h('i', { class: i <= n ? 'on' : '', text: '★' })));
 }
 
+/** bản đồ đã mở khi trạm đầu của bản đồ đã mở (cần hoàn thành đủ các trạm của bản đồ trước) */
+const chapterOpen = (c: number) => c >= 0 && c < CHAPTERS.length && CHAPTERS[c].stations[0] <= state.save!.progress;
+
+/** chuyển sang xem một bản đồ (được xem cả bản đồ chưa mở, nhưng không chơi được) */
+/** nút chuông thông báo kèm số thông báo chưa đọc */
+function bell(ctx: HomeCtx): HTMLElement {
+  const n = unread().length;
+  return h('button', { class: 'icon-btn bell', attrs: { 'aria-label': t('inbox.bell'), type: 'button' }, on: { click: () => openInbox(() => ctx.redraw()) } }, h('span', { text: '🔔' }), n ? h('i', { class: 'badge', text: String(Math.min(n, 9)) }) : null);
+}
+
+function gotoChapter(c: number, ctx: HomeCtx) {
+  const save = state.save!;
+  if (c < 0 || c >= CHAPTERS.length) return;
+  const ids = CHAPTERS[c].stations;
+  const open = ids.filter((i) => i <= save.progress);
+  selected = open.length ? (open.find((i) => !save.cleared[i]) ?? open[open.length - 1]) : ids[0];
+  if (!chapterOpen(c)) toast(t('map.chapterLockedView', { n: STATIONS_PER_MAP }), 'info');
+  ctx.redraw();
+}
+
 function campaign(ctx: HomeCtx): HTMLElement {
   const save = state.save!;
   const portraitMode = window.innerWidth < 900;
   const k = portraitMode ? 'p' : 'l';
+  const chIdx = STATIONS[selected].chapter;
+  const ch = CHAPTERS[chIdx];
   const wrap = h('div', { class: 'campaign' });
   const mapWrap = h('div', { class: 'map-wrap' });
   const img = h('img', { class: 'map-bg', attrs: { alt: '', draggable: 'false' } });
   mapWrap.append(img);
 
-  mapWrap.append(h('div', { class: 'chapter-plate' }, h('b', { text: t('map.title') }), h('small', { text: t('map.subtitle') })));
-  const allClear = save.cleared.every(Boolean);
-  if (allClear) mapWrap.append(h('div', { class: 'map-win', text: `🏆 ${t('home.allClear')}` }));
+  mapWrap.append(h('div', { class: 'chapter-plate' }, h('b', { text: `${t('map.chapter', { n: chIdx + 1 })} · ${chapterName(ch)}` }), h('small', { text: chapterSub(ch) })));
+  if (save.cleared.every(Boolean)) mapWrap.append(h('div', { class: 'map-win', text: `🏆 ${t('home.allClear')}` }));
 
   const city = (cls: string, label: string, p: [number, number]) =>
     h('div', { class: `city-chip ${cls}`, attrs: { style: `left:${p[0] * 100}%;top:${p[1] * 100}%` } }, h('i', { text: cls === 'start' ? '🏯' : '⚔' }), h('span', { text: label }));
-  mapWrap.append(city('start', t('map.start'), MAP_CITIES.start[k]), city('end', t('map.enemy'), MAP_CITIES.end[k]));
+  mapWrap.append(city('start', t('map.start'), ch.start[k]), city('end', t('map.enemy'), ch.end[k]));
 
-  STATIONS.forEach((st, i) => {
-    const locked = i > save.progress;
-    const cleared = save.cleared[i];
-    const sel = selected === i;
-    const [x, y] = st.map[k];
-    const bossFace = st.boss ? faceUrl('dongtrac', 1) : '';
+  ch.stations.forEach((idx) => {
+    const st = STATIONS[idx];
+    const locked = idx > save.progress;
+    const cleared = save.cleared[idx];
+    const sel = selected === idx;
+    const [x, y] = stationPos(idx, k);
+    const bossFace = st.boss ? faceUrl(st.bossId ?? 'dongtrac', 1) : '';
     const node = h(
       'button',
       {
         class: `map-node ${cleared ? 'cleared' : locked ? 'locked' : 'current'}${st.boss ? ' boss' : ''}${sel ? ' selected' : ''}`,
         attrs: { type: 'button', style: `left:${x * 100}%;top:${y * 100}%`, 'aria-label': stationName(st) },
-        on: { click: () => { if (locked) return toast(t('home.locked'), 'info'); selected = i; ctx.redraw(); } },
+        on: { click: () => { selected = idx; ctx.redraw(); } },
       },
       st.boss ? h('div', { class: 'boss-medal' }, bossFace ? h('img', { attrs: { src: bossFace, alt: '', draggable: 'false' } }) : null, h('em', { text: t('map.boss') })) : null,
       h('div', { class: 'node-flag' }),
-      h('div', { class: 'node-plate' }, h('b', { text: locked ? '🔒' : `1-${i + 1}` }), stars(save.stars[i] ?? 0)),
+      h('div', { class: 'node-plate' }, h('b', { text: locked ? `🔒 ${stationLabel(idx)}` : stationLabel(idx) }), stars(save.stars[idx] ?? 0)),
     );
     mapWrap.append(node);
   });
 
+  // chuyển chương
+  const navBtn = (c: number, ico: string) =>
+    h('button', { class: `chapter-btn${c < 0 || c >= CHAPTERS.length ? ' disabled' : ''}`, text: ico, attrs: { type: 'button', 'aria-label': ico }, on: { click: () => gotoChapter(c, ctx) } });
+  mapWrap.append(h('div', { class: 'chapter-nav' }, navBtn(chIdx - 1, '◀'), h('span', { class: chapterOpen(chIdx) ? '' : 'locked', text: `${chapterOpen(chIdx) ? '' : '🔒 '}${chIdx + 1}/${CHAPTERS.length}` }), navBtn(chIdx + 1, '▶')));
   mapWrap.append(h('div', { class: 'map-hint' }, h('i', { text: '📜' }), h('span', { text: t('map.hint') })));
   wrap.append(mapWrap, stationPanel(ctx));
 
@@ -136,11 +166,11 @@ function campaign(ctx: HomeCtx): HTMLElement {
     const w = Math.round(r.width);
     const hh = Math.round(r.height);
     lastMapSize = [w, hh];
-    const url = await renderMapArt(app, mapSpec(w, hh, portraitMode));
+    const url = await renderMapArt(app, mapSpec(w, hh, portraitMode, chIdx));
     if (mapWrap.isConnected) img.src = url;
   };
   if (lastMapSize) {
-    const cached = peekMapArt(mapSpec(lastMapSize[0], lastMapSize[1], portraitMode));
+    const cached = peekMapArt(mapSpec(lastMapSize[0], lastMapSize[1], portraitMode, chIdx));
     if (cached) img.src = cached;
   }
   requestAnimationFrame(() => requestAnimationFrame(() => void place()));
@@ -152,8 +182,10 @@ function stationPanel(ctx: HomeCtx): HTMLElement {
   const i = Math.max(0, Math.min(selected, STATIONS.length - 1));
   const st = STATIONS[i];
   const cleared = save.cleared[i];
-  const foes = (st.boss ? [UNITS.dongtrac] : []).concat(st.deck.map((id) => UNITS[id]));
-  const lead = st.boss ? UNITS.dongtrac : foes.find((d) => d.kind === 'general') ?? foes[foes.length - 1];
+  const locked = i > save.progress;
+  const bossDef = st.bossId ? UNITS[st.bossId] : null;
+  const foes = (bossDef ? [bossDef] : []).concat(st.deck.map((id) => UNITS[id]));
+  const lead = bossDef ?? foes.find((d) => d.kind === 'general') ?? foes[foes.length - 1];
   const face = faceUrl(lead.id, 1);
   const first = !cleared;
   const star = (n: number, text: string) =>
@@ -165,7 +197,8 @@ function stationPanel(ctx: HomeCtx): HTMLElement {
     h('h3', { class: 'sp-title', text: t('map.panelTitle') }),
     h('div', { class: 'sp-preview' },
       face ? h('img', { attrs: { src: face, alt: '', draggable: 'false' } }) : null,
-      h('div', { class: 'sp-name' }, h('b', { text: `1-${i + 1} · ${stationName(st)}` }), h('small', { text: stationSub(st) }), st.boss ? h('em', { text: t('map.boss') }) : null)),
+      h('div', { class: 'sp-name' }, h('b', { text: `${stationLabel(i)} · ${stationName(st)}` }), h('small', { text: stationSub(st) }), st.boss ? h('em', { text: t('map.boss') }) : null)),
+    locked ? h('div', { class: 'sp-locked', text: `🔒 ${t('map.stationLocked')}` }) : null,
     h('p', { class: 'sp-desc sp-detail', text: stationDesc(st) }),
     h('div', { class: 'sp-block' },
       h('div', { class: 'sp-label', text: t('map.rewards') }),
@@ -173,17 +206,21 @@ function stationPanel(ctx: HomeCtx): HTMLElement {
       stars(save.stars[i] ?? 0, 'big')),
     h('div', { class: 'sp-block sp-detail' },
       h('div', { class: 'sp-label', text: t('map.cond') }),
-      h('div', { class: 'sp-cond' }, h('i', { text: '🚩' }), h('span', { text: t('map.condLanes') })),
+      h('div', { class: 'sp-chips' },
+        h('span', { class: 'chip', text: `☠ ${t('map.units', { n: st.units })}` }),
+        h('span', { class: 'chip', text: `🛤 ${st.boss ? t('map.oneLane') : t('map.threeLane')}` }),
+        st.mod ? h('span', { class: 'chip warn', text: `⚠ ${t(`mod.${st.mod}`)}` }) : null),
+      h('div', { class: 'sp-cond' }, h('i', { text: '🚩' }), h('span', { text: st.boss ? t('map.condBoss') : t('map.condLanes') })),
       h('div', { class: 'sp-label', text: t('map.stars') }),
-      star(1, t('map.star1')), star(2, t('map.star2')), star(3, t('map.star3', { sec: FAST_WIN_SEC }))),
+      star(1, t('map.star1')), star(2, t('map.star2')), star(3, t('map.star3', { sec: st.fastSec }))),
     h('div', { class: 'sp-block sp-detail' },
       h('div', { class: 'sp-label', text: t('map.forces') }),
       h('div', { class: 'foes' }, ...foes.map((d) => h('div', { class: `foe ${d.kind}`, attrs: { title: `${unitName(d)} — ${unitSkill(d)}` } }, portrait(d.id, 1), h('small', { text: unitName(d) }))))),
     h('button', {
-      class: 'btn primary big sp-go',
-      text: `⚔ ${t(cleared ? 'home.replayBtn' : 'home.fight')}`,
+      class: `btn primary big sp-go${locked ? ' disabled' : ''}`,
+      text: locked ? t('home.fightLocked') : `⚔ ${t(cleared ? 'home.replayBtn' : 'home.fight')}`,
       attrs: { type: 'button' },
-      on: { click: () => (save.deck.length ? ctx.onPlay(i) : toast(t('home.emptyDeck'), 'error')) },
+      on: { click: () => (locked ? toast(t('map.stationLocked'), 'info') : save.deck.length ? ctx.onPlay(i) : toast(t('home.emptyDeck'), 'error')) },
     }),
   );
 }
@@ -205,17 +242,31 @@ function army(ctx: HomeCtx): HTMLElement {
       );
     } else slots.append(h('div', { class: 'slot empty', text: '+' }));
   }
+  const defSlots = h('div', { class: 'deck-slots def' });
+  for (let i = 0; i < DEFENSE_DECK_SIZE; i++) {
+    const id = save.defDeck[i];
+    if (id) {
+      const d = UNITS[id];
+      defSlots.append(
+        h('button', { class: 'slot filled defense', attrs: { type: 'button', title: t('army.removeFromDeck') }, on: { click: () => toggleDeck(d, ctx) } },
+          portrait(id), h('span', { class: 'cost', text: String(d.cost) })),
+      );
+    } else defSlots.append(h('div', { class: 'slot empty', text: '+' }));
+  }
   wrap.append(
     h('h2', { class: 'section-title', text: t('army.deck') }),
     h('div', { class: 'deck' }, slots, h('div', { class: 'deck-info', text: t('army.deckInfo', { n: save.deck.length, max: DECK_SIZE, g: gens, gmax: MAX_GENERALS_IN_DECK }) })),
+    h('h2', { class: 'section-title', text: t('army.defDeck') }),
+    h('div', { class: 'deck' }, defSlots, h('div', { class: 'deck-info', text: t('army.defDeckInfo', { n: save.defDeck.length, max: DEFENSE_DECK_SIZE }) })),
   );
 
-  const filt = (k: 'troop' | 'general', label: string) =>
+  const filt = (k: 'troop' | 'defense' | 'general', label: string) =>
     h('button', { class: `pill${armyFilter === k ? ' active' : ''}`, text: label, attrs: { type: 'button' }, on: { click: () => { armyFilter = k; ctx.redraw(); } } });
-  wrap.append(h('div', { class: 'pills' }, filt('troop', t('army.troops')), filt('general', t('army.generals'))));
+  wrap.append(h('div', { class: 'pills' }, filt('troop', t('army.troops')), filt('defense', t('army.defenses')), filt('general', t('army.generals'))));
 
   const grid = h('div', { class: 'cards' });
-  for (const d of PLAYABLE.filter((u) => u.kind === armyFilter)) grid.append(unitCard(d, ctx));
+  const list = armyFilter === 'defense' ? DEFENSES : PLAYABLE.filter((u) => u.kind === armyFilter);
+  for (const d of list) grid.append(unitCard(d, ctx));
   wrap.append(grid);
   return wrap;
 }
@@ -224,7 +275,7 @@ function unitCard(d: UnitDef, ctx: HomeCtx): HTMLElement {
   const save = state.save!;
   const lv = save.unlocked[d.id];
   const owned = lv !== undefined;
-  const inDeck = save.deck.includes(d.id);
+  const inDeck = save.deck.includes(d.id) || save.defDeck.includes(d.id);
   const actions = h('div', { class: 'card-actions' });
 
   if (!owned) {
@@ -284,6 +335,14 @@ function unitCard(d: UnitDef, ctx: HomeCtx): HTMLElement {
 
 function toggleDeck(d: UnitDef, ctx: HomeCtx) {
   const save = state.save!;
+  if (d.kind === 'defense') {
+    if (save.defDeck.includes(d.id)) mutate((s) => { s.defDeck = s.defDeck.filter((x) => x !== d.id); });
+    else {
+      if (save.defDeck.length >= DEFENSE_DECK_SIZE) return toast(t('army.defDeckFull', { n: DEFENSE_DECK_SIZE }), 'error');
+      mutate((s) => { s.defDeck.push(d.id); });
+    }
+    return ctx.redraw();
+  }
   const inDeck = save.deck.includes(d.id);
   if (inDeck) {
     if (save.deck.length <= 1) return toast(t('army.needOne'), 'error');

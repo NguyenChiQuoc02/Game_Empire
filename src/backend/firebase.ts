@@ -1,4 +1,4 @@
-import { AuthError, type AuthUser, type Backend, type SaveData } from './types';
+import { AuthError, type Account, type AuthUser, type Backend, type Notice, type SaveData } from './types';
 import { emailFor } from './names';
 import { mergeSaves, normalizeSave } from './save';
 
@@ -93,6 +93,29 @@ export async function createFirebaseBackend(env: FirebaseEnv): Promise<Backend> 
         tx.set(ref, out);
         return out;
       });
+    },
+    async getAccount(uid) {
+      try {
+        const snap = await fs.getDocFromServer(fs.doc(db, 'accounts', uid));
+        return snap.exists() ? (snap.data() as Account) : { locked: false };
+      } catch {
+        return { locked: false };
+      }
+    },
+    async listNotices(uid) {
+      try {
+        const col = fs.collection(db, 'notices');
+        const [all, mine] = await Promise.all([
+          fs.getDocs(fs.query(col, fs.where('to', '==', 'all'))),
+          fs.getDocs(fs.query(col, fs.where('uids', 'array-contains', uid))),
+        ]);
+        const map = new Map<string, Notice>();
+        for (const d of [...all.docs, ...mine.docs]) map.set(d.id, { ...(d.data() as Notice), id: d.id });
+        return [...map.values()].sort((a, b) => b.createdAt - a.createdAt);
+      } catch (e) {
+        console.warn('notices unavailable', e);
+        return [];
+      }
     },
   };
 }

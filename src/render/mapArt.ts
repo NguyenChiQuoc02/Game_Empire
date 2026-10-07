@@ -1,8 +1,9 @@
 import { Container, Rectangle, type Application } from 'pixi.js';
 import { INK, ball, darker, g, hgrad, mix, poly, rng, rrect, vgrad, vgradA } from './draw';
-import { PAL_BLUE, PAL_DARK, PAL_WARM, cloudBlob, house, karst, pagodaHall, palace, pine, treeBall } from './landmarks';
+import { PAL_BLUE, PAL_DARK, PAL_GOLD, PAL_WARM, cloudBlob, house, karst, pagodaHall, palace, pine, treeBall } from './landmarks';
+import type { StationTheme } from '../data/campaign';
 
-export type MapTheme = 'plains' | 'bamboo' | 'stone' | 'castle' | 'throne';
+export type MapTheme = StationTheme;
 
 export interface MapSpec {
   w: number;
@@ -20,6 +21,12 @@ const REGION: Record<MapTheme, { ground: number; accent: number }> = {
   stone: { ground: 0xc2ced6, accent: 0xffffff },
   castle: { ground: 0xd6a35a, accent: 0xf0c47a },
   throne: { ground: 0x6c4c7c, accent: 0xff7a5a },
+  sea: { ground: 0xe8d49a, accent: 0x4ad0f0 },
+  snow: { ground: 0xe4eef8, accent: 0xffffff },
+  desert: { ground: 0xe6c27a, accent: 0xf0c47a },
+  heaven: { ground: 0xf0e0fa, accent: 0xffd34d },
+  volcano: { ground: 0x5a3a30, accent: 0xff7a2a },
+  night: { ground: 0x34505e, accent: 0xff6a4a },
 };
 
 const cache = new Map<string, string>();
@@ -129,6 +136,34 @@ export async function renderMapArt(app: Application, spec: MapSpec): Promise<str
           if (rand() < 0.4) house(o, x, y, s * 0.75, 0x8a4a3a, 0xf0dcc0);
           else treeBall(o, x, y, s * 0.9, [0x8a9a3c, 0xa4b04a, 0x6e8030]);
           break;
+        case 'sea':
+          if (rand() < 0.22) o.ellipse(x, y, s * 0.9, s * 0.35).fill({ color: 0x4ad0f0, alpha: 0.7 });
+          else if (rand() < 0.3) house(o, x, y, s * 0.6, 0xc89a52, 0xf6e4b0);
+          else treeBall(o, x, y, s, [0x3aa860, 0x58c070, 0x2a8850]);
+          break;
+        case 'snow':
+          if (rand() < 0.65) pine(o, x, y, s, [0x3f7a62, 0x55967a, 0x2f6a52], true);
+          else poly(o, [x - s * 0.15, y, x - s * 0.05, y - s * 0.5, x + s * 0.05, y, x + s * 0.18, y - s * 0.32, x + s * 0.28, y], 0xbfe4ff, 1.2);
+          break;
+        case 'desert':
+          if (rand() < 0.5) {
+            rrectLite(o, x - s * 0.05, y - s * 0.55, s * 0.1, s * 0.55, 0x58a84a);
+            rrectLite(o, x - s * 0.2, y - s * 0.38, s * 0.14, s * 0.07, 0x58a84a);
+            rrectLite(o, x + s * 0.07, y - s * 0.3, s * 0.14, s * 0.07, 0x58a84a);
+          } else house(o, x, y, s * 0.7, 0xb8803a, 0xe6c88a);
+          break;
+        case 'heaven':
+          if (rand() < 0.4) pagodaHall(o, x, y, s * 0.5, s * 0.7, 2, PAL_GOLD);
+          else if (rand() < 0.5) cloudBlob(o, x, y - s * 0.2, s * 0.5, 0xffffff, 0.9);
+          else treeBall(o, x, y, s, [0xff9ac0, 0xffb8d8, 0xe878a0]);
+          break;
+        case 'volcano':
+          if (rand() < 0.4) o.poly([x - s * 0.3, y, x - s * 0.05, y - s * 0.7, x + s * 0.3, y]).fill(0x3a2420).stroke({ width: 1.2, color: 0x1a0a08 });
+          o.moveTo(x, y).lineTo(x + (rand() - 0.5) * s, y - s * 0.3).lineTo(x + (rand() - 0.5) * s * 1.4, y - s * 0.5).stroke({ width: 1.8, color: 0xff6a20, alpha: 0.9 });
+          break;
+        case 'night':
+          treeBall(o, x, y, s, [0xc84a2a, 0xe8702a, 0xa83020]);
+          break;
         case 'throne':
           if (rand() < 0.4) {
             o.poly([x - s * 0.1, y, x - s * 0.06, y - s * 0.9, x, y - s * 1.2, x + s * 0.06, y - s * 0.9, x + s * 0.1, y]).fill(0x3a2450).stroke({ width: 1.2, color: 0x1a1022 });
@@ -165,7 +200,8 @@ export async function renderMapArt(app: Application, spec: MapSpec): Promise<str
     poly(o, [fx, sy - m * 0.12, fx + m * 0.04, sy - m * 0.105, fx, sy - m * 0.09], 0x3d8bff, 1);
   }
   const lastTheme = spec.themes[spec.themes.length - 1];
-  palace(o, ex, ey + m * 0.07, m * 0.3, lastTheme === 'throne' ? PAL_DARK : PAL_WARM);
+  const endPal = lastTheme === 'heaven' ? PAL_GOLD : lastTheme === 'throne' || lastTheme === 'night' || lastTheme === 'volcano' ? PAL_DARK : PAL_WARM;
+  palace(o, ex, ey + m * 0.07, m * 0.3, endPal);
 
   // đường đi vẽ trên cùng của mặt đất
   const stroke = road();
@@ -196,4 +232,8 @@ export async function renderMapArt(app: Application, spec: MapSpec): Promise<str
   root.destroy({ children: true });
   cache.set(key, url);
   return url;
+}
+
+function rrectLite(o: import('pixi.js').Graphics, x: number, y: number, w: number, h: number, c: number) {
+  o.roundRect(x, y, w, h, Math.min(w, h) / 2).fill(c).stroke({ width: 1.2, color: darker(c, 0.6) });
 }

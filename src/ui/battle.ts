@@ -1,9 +1,9 @@
 import type { Application, Ticker } from 'pixi.js';
 import { h } from './dom';
 import { getLang, onLang, stationName, t, unitDesc, unitName, unitSkill } from '../i18n';
-import { STATIONS, type Station } from '../data/campaign';
-import { UNITS, levelMul, type UnitDef } from '../data/units';
-import { Battle, GOLD_CAP, LANE_COUNT, OVERTIME_AT, PLAYER_INCOME, type UnitInst } from '../game/sim';
+import { STATIONS, stationLabel, type Station } from '../data/campaign';
+import { MAX_DEFENSES_PER_LANE, UNITS, levelMul, type UnitDef } from '../data/units';
+import { Battle, OVERTIME_AT, PLAYER_INCOME, type UnitInst } from '../game/sim';
 import { EnemyAI } from '../game/ai';
 import { BattleView } from '../render/battleView';
 import { mutate, state } from '../state';
@@ -48,6 +48,7 @@ export class BattleScreen {
     timer?: HTMLElement; pips?: HTMLElement[]; gold?: HTMLElement; goldBar?: HTMLElement; goldRow?: HTMLElement;
     cards?: Map<string, HTMLElement>; info?: HTMLElement; speed?: HTMLElement;
     dialMy?: HTMLElement[]; dialEn?: HTMLElement[]; income?: HTMLElement;
+    capText?: HTMLElement; capBtn?: HTMLElement; capCost?: HTMLElement; foeLeft?: HTMLElement;
   } = {};
   private lastCardState = '';
   private drag: { id: string; sx: number; sy: number; moved: boolean; ghost?: HTMLElement; pid: number } | null = null;
@@ -55,8 +56,12 @@ export class BattleScreen {
   constructor(private app: Application, private root: HTMLElement, private stIdx: number, private onExit: (a: ExitAction) => void) {
     const save = state.save!;
     this.station = STATIONS[stIdx];
-    // lính trước, tướng sau (phím tắt 1..n theo thứ tự hiển thị)
-    this.deck = save.deck.slice().sort((a, b) => Number(UNITS[a].kind === 'general') - Number(UNITS[b].kind === 'general'));
+    // lính | đồ phòng thủ | tướng (phím tắt 1..n theo thứ tự hiển thị)
+    this.deck = [
+      ...save.deck.filter((id) => UNITS[id]?.kind === 'troop'),
+      ...save.defDeck.filter((id) => UNITS[id]?.kind === 'defense'),
+      ...save.deck.filter((id) => UNITS[id]?.kind === 'general'),
+    ];
     this.battle = new Battle({ station: this.station, levels: { ...save.unlocked } });
     this.ai = new EnemyAI(this.battle, this.station.deck);
     this.view = new BattleView(app, this.battle, this.station);
@@ -115,11 +120,13 @@ export class BattleScreen {
   private buildUi() {
     const save = state.save!;
     const st = this.station;
-    const pips = Array.from({ length: LANE_COUNT }, () => h('span', { class: 'pip' }));
+    const laneN = this.battle.lanes.length;
+    const pips = Array.from({ length: laneN }, () => h('span', { class: 'pip' }));
     const timer = h('div', { class: 'timer', text: '0:00' });
     const speed = h('button', { class: 'icon-btn round small', text: `×${this.speed}`, attrs: { type: 'button', 'aria-label': t('hud.speed') }, on: { click: () => this.toggleSpeed() } });
+    const foeLeft = h('b', { text: '0' });
     const myId = this.deck.find((id) => UNITS[id].kind === 'general') ?? this.deck[0];
-    const enemyId = st.boss ? 'dongtrac' : st.deck.find((id) => UNITS[id].kind === 'general') ?? st.deck[st.deck.length - 1];
+    const enemyId = st.boss ? (st.bossId ?? 'dongtrac') : st.deck.find((id) => UNITS[id].kind === 'general') ?? st.deck[st.deck.length - 1];
     this.hudHost.replaceChildren(
       h('header', { class: 'hud' },
         h('div', { class: 'cmd left' },
@@ -130,7 +137,7 @@ export class BattleScreen {
             h('div', { class: 'xp' }, h('i', { attrs: { style: `width:${((save.wins % 5) / 5) * 100}%` } }))),
           h('button', { class: 'icon-btn round', text: '⏸', attrs: { type: 'button', 'aria-label': t('hud.pause') }, on: { click: () => this.pause() } })),
         h('div', { class: 'stage-plate' },
-          h('small', { text: t('hud.stage', { n: this.stIdx + 1, total: STATIONS.length }) }),
+          h('small', { text: t('hud.stage', { n: stationLabel(this.stIdx) }) }),
           h('div', { class: 'stage-time' }, h('i', { text: '⚔' }), timer),
           h('div', { class: 'pips' }, ...pips)),
         h('div', { class: 'cmd right' },
@@ -138,10 +145,16 @@ export class BattleScreen {
           h('div', { class: 'cmd-info' },
             h('b', { text: stationName(st) }),
             h('span', { class: 'lv', text: `Lv. ${Math.round(st.power * 10)}` }),
-            h('div', { class: 'xp enemy' }, h('i', { attrs: { style: 'width:100%' } }))),
+            h('div', { class: 'foe-left', attrs: { title: t('hud.foeLeft') } }, h('i', { text: '☠' }), foeLeft)),
           this.face(enemyId, 1, 'enemy'))),
     );
 
+    const capText = h('small', { class: 'cap', text: '/100' });
+    const capCost = h('b', { text: '' });
+    const capBtn = h('button', {
+      class: 'cap-up', attrs: { type: 'button', title: t('hud.upgradeCap') },
+      on: { click: () => this.upgradeCap() },
+    }, h('span', { text: '⬆' }), capCost);
     const gold = h('b', { text: '0' });
     const goldBar = h('div', { class: 'gold-fill' });
     const income = h('small', { text: `+${PLAYER_INCOME}/s` });
@@ -149,17 +162,16 @@ export class BattleScreen {
       h('span', { class: 'coin' }),
       h('div', { class: 'gold-num' }, gold, income),
       h('div', { class: 'gold-track' }, goldBar),
-      h('small', { class: 'cap', text: `/${GOLD_CAP}` }));
+      capText,
+      capBtn);
     const info = h('div', { class: 'info' });
     const cards = new Map<string, HTMLElement>();
     const hand = h('div', { class: 'hand' });
-    let sepDone = false;
+    let prevKind = '';
     this.deck.forEach((id, i) => {
       const d = UNITS[id];
-      if (d.kind === 'general' && !sepDone && i > 0) {
-        hand.append(h('span', { class: 'hand-sep' }));
-        sepDone = true;
-      }
+      if (i > 0 && d.kind !== prevKind) hand.append(h('span', { class: 'hand-sep' }));
+      prevKind = d.kind;
       const c = h('div', { class: `hcard ${d.kind}`, attrs: { 'data-id': id } },
         h('span', { class: 'key', text: String(i + 1) }),
         d.kind === 'general' ? this.face(id, 0, 'card-face') : portrait(id),
@@ -176,7 +188,7 @@ export class BattleScreen {
     const dialMy: HTMLElement[] = [];
     const dialEn: HTMLElement[] = [];
     const dial = h('div', { class: 'dial' }, h('div', { class: 'dial-title', text: t('hud.dragLane') }),
-      ...Array.from({ length: LANE_COUNT }, (_, i) => {
+      ...Array.from({ length: laneN }, (_, i) => {
         const my = h('i', {});
         const en = h('i', {});
         dialMy.push(my);
@@ -184,7 +196,7 @@ export class BattleScreen {
         return h('div', { class: 'dial-row' }, h('b', { text: String(i + 1) }), h('span', { class: 'bar my' }, my), h('span', { class: 'bar en' }, en));
       }));
     this.handHost.replaceChildren(h('footer', { class: 'hand-panel' }, info, h('div', { class: 'hand-row' }, goldRow, hand, dial)));
-    this.el = { timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income };
+    this.el = { timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income, capText, capBtn, capCost, foeLeft };
     this.lastCardState = '';
     this.refreshInfo();
     this.updateHud();
@@ -217,8 +229,15 @@ export class BattleScreen {
       e.dialMy![i].style.width = `${(l.flags[0].hp / l.flags[0].maxHp) * 100}%`;
       e.dialEn![i].style.width = `${(l.flags[1].hp / l.flags[1].maxHp) * 100}%`;
     });
+    const cap = b.goldCap(0);
     e.gold!.textContent = String(Math.floor(b.gold[0]));
-    e.goldBar!.style.width = `${(b.gold[0] / GOLD_CAP) * 100}%`;
+    e.goldBar!.style.width = `${Math.min(100, (b.gold[0] / cap) * 100)}%`;
+    e.capText!.textContent = `/${cap}`;
+    const upCost = b.capUpgradeCost();
+    e.capCost!.textContent = upCost === null ? 'MAX' : String(upCost);
+    e.capBtn!.classList.toggle('max', upCost === null);
+    e.capBtn!.classList.toggle('poor', upCost !== null && b.gold[0] < upCost);
+    e.foeLeft!.textContent = String(b.enemyLeft + b.enemyAlive);
     // trạng thái thẻ (chỉ cập nhật DOM khi đổi)
     const st = this.deck.map((id) => {
       const d = UNITS[id];
@@ -326,8 +345,15 @@ export class BattleScreen {
     }
     if (d.moved && d.ghost) {
       d.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px) translate(-50%, -62%)`;
-      this.view.setDrag(true, this.laneAtPoint(e.clientX, e.clientY));
+      const lane = this.laneAtPoint(e.clientX, e.clientY);
+      this.view.setDrag(true, lane, UNITS[d.id].kind === 'defense' && lane >= 0 ? this.placeX(e.clientX) : -1);
     }
+  }
+
+  /** toạ độ lane (0..1000) ứng với vị trí ngang của con trỏ, giới hạn trong nửa sân nhà */
+  private placeX(clientX: number): number {
+    const r = this.field.getBoundingClientRect();
+    return Math.max(90, Math.min(560, this.view.toLaneX(clientX - r.left)));
   }
 
   private onDragEnd(e: PointerEvent, canceled: boolean) {
@@ -339,7 +365,7 @@ export class BattleScreen {
     if (canceled) return;
     if (d.moved) {
       const lane = this.laneAtPoint(e.clientX, e.clientY);
-      if (lane >= 0) this.tryDeploy(d.id, lane);
+      if (lane >= 0) this.tryDeploy(d.id, lane, UNITS[d.id].kind === 'defense' ? this.placeX(e.clientX) : undefined);
     } else {
       // chạm nhẹ: chọn / bỏ chọn thẻ
       this.selected = this.selected === d.id ? null : d.id;
@@ -370,7 +396,7 @@ export class BattleScreen {
       }
       return void this.nudgeHand();
     }
-    this.tryDeploy(this.selected, lane);
+    this.tryDeploy(this.selected, lane, UNITS[this.selected].kind === 'defense' ? this.placeX(e.clientX) : undefined);
   };
 
   // ───────────────────────── thông tin khi rê chuột vào quân ─────────────────────────
@@ -460,8 +486,9 @@ export class BattleScreen {
       this.updateHud();
       return;
     }
+    if (e.key.toLowerCase() === 'u') return void this.upgradeCap();
     const laneKey = ['q', 'w', 'e'].indexOf(e.key.toLowerCase());
-    if (laneKey >= 0 && this.selected) this.tryDeploy(this.selected, laneKey);
+    if (laneKey >= 0 && laneKey < this.battle.lanes.length && this.selected) this.tryDeploy(this.selected, laneKey);
   };
 
   private nudgeHand() {
@@ -471,11 +498,28 @@ export class BattleScreen {
     info.classList.add('nudge');
   }
 
-  private tryDeploy(id: string, lane: number) {
+  /** nâng cấp giới hạn vàng (trả bằng vàng trong trận) */
+  private upgradeCap() {
+    const b = this.battle;
+    if (b.over || this.paused) return;
+    const cost = b.capUpgradeCost();
+    if (cost === null) return void toast(t('hud.capMax'), 'info');
+    if (!b.upgradeCap()) {
+      const row = this.el.goldRow!;
+      row.classList.remove('nogold');
+      void row.offsetWidth;
+      row.classList.add('nogold');
+      return;
+    }
+    toast(t('hud.capUp', { cap: b.goldCap(0) }), 'good');
+  }
+
+  private tryDeploy(id: string, lane: number, x?: number) {
     const b = this.battle;
     const d = UNITS[id];
     if (b.lanes[lane].winner !== null) return;
     if (d.kind === 'general' && b.generalOnField(0, id)) return void toast(t('hud.generalUsed'), 'error');
+    if (d.kind === 'defense' && b.defensesIn(0, lane) >= MAX_DEFENSES_PER_LANE) return void toast(t('hud.defenseFull', { n: MAX_DEFENSES_PER_LANE }), 'error');
     if (b.gold[0] < d.cost) {
       const row = this.el.goldRow!;
       row.classList.remove('nogold');
@@ -483,7 +527,7 @@ export class BattleScreen {
       row.classList.add('nogold');
       return;
     }
-    if (b.deploy(0, id, lane)) {
+    if (b.deploy(0, id, lane, x)) {
       this.deployedOnce = true;
       this.refreshInfo();
     }
@@ -501,7 +545,8 @@ export class BattleScreen {
     const coins = rewardFor(this.station, win, first);
     const last = STATIONS.length - 1;
     const campaignDone = win && first && idx === last;
-    const stars = starsFor(win, b.wins[1], b.time);
+    const chapterDone = win && first && this.station.boss && idx !== last;
+    const stars = starsFor(win, b.wins[1], b.time, this.station.fastSec);
     const bestBefore = save.stars[idx] ?? 0;
     mutate((s) => {
       s.coins += coins;
@@ -525,6 +570,8 @@ export class BattleScreen {
           h('div', {}, h('small', { text: t('result.time') }), h('b', { text: `${Math.floor(time / 60)}:${String(time % 60).padStart(2, '0')}` })),
           h('div', {}, h('small', { text: t('result.kills') }), h('b', { text: String(b.kills[0]) }))),
         h('div', { class: 'res-reward', text: `🪙 +${fmt(coins)}` }),
+        b.bountyTotal[0] > 0 ? h('div', { class: 'res-bounty', text: `💰 ${t('result.bounty', { n: b.bountyTotal[0] })}` }) : null,
+        chapterDone ? h('div', { class: 'banner-win', text: `🎉 ${t('result.chapterDone', { n: this.station.chapter + 1 })}` }) : null,
         campaignDone ? h('div', { class: 'banner-win', text: `🎉 ${t('result.campaignDone')}` }) : null,
         !win ? h('p', { class: 'res-tip', text: t('result.tip') }) : null,
         h('div', { class: 'modal-actions col' },
@@ -559,14 +606,22 @@ function tipBody(d: TipData): HTMLElement[] {
   const stat = (ico: string, val: string, title: string) => h('span', { class: 'ts', attrs: { title } }, h('i', { text: ico }), val);
   const tags = [t(`kind.${def.kind}`), t(ally ? 'hud.ally' : 'hud.foe'), d.level ? `Lv ${d.level}` : ''].filter(Boolean).join(' · ');
   const stats: HTMLElement[] = [];
-  if (def.skill === 'heal') stats.push(stat('✚', String(Math.round(15 * d.pow)), t('stat.heal')));
+  if (def.kind === 'defense') {
+    if (def.skill === 'altar') stats.push(stat('✚', String(Math.round(d.dmg)), t('stat.heal')));
+    else if (def.dmg > 0) stats.push(stat('⚔', String(Math.round(d.dmg)), t('stat.atk')));
+    if (def.dmg > 0 || def.skill === 'altar') stats.push(stat('⏱', `${Number(d.cd.toFixed(2))}s`, t('stat.cd')));
+    if (def.range > 0) stats.push(stat('🎯', String(d.range), t('stat.rng')));
+    if (d.armor > 0) stats.push(stat('🛡', String(Math.round(d.armor)), t('stat.armor')));
+  } else if (def.skill === 'heal') stats.push(stat('✚', String(Math.round(15 * d.pow)), t('stat.heal')));
   else {
     stats.push(stat(def.skill === 'bomb' ? '💥' : '⚔', String(Math.round(d.dmg)), t('stat.atk')));
     if (def.skill !== 'bomb') stats.push(stat('⏱', `${Number(d.cd.toFixed(2))}s`, t('stat.cd')));
   }
-  stats.push(stat('👟', String(Math.round(d.speed)), t('stat.spd')));
-  stats.push(stat('🎯', d.range > 70 ? String(d.range) : t('stat.melee'), t('stat.rng')));
-  stats.push(stat('🛡', String(Math.round(d.armor)), t('stat.armor')));
+  if (def.kind !== 'defense') {
+    stats.push(stat('👟', String(Math.round(d.speed)), t('stat.spd')));
+    stats.push(stat('🎯', d.range > 70 ? String(d.range) : t('stat.melee'), t('stat.rng')));
+    stats.push(stat('🛡', String(Math.round(d.armor)), t('stat.armor')));
+  }
   return [
     h('div', { class: 'tip-head' }, h('b', { text: unitName(def) }), h('em', { text: tags })),
     h('div', { class: 'tip-hp' }, h('span', { text: `❤ ${Math.ceil(d.hp)} / ${Math.ceil(d.maxHp)}` }), h('span', { class: 'bar' }, h('i', { attrs: { style: `width:${pct * 100}%` } }))),

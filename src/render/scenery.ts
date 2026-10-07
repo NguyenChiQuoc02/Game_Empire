@@ -1,10 +1,11 @@
 import { Container, Graphics, type FillGradient } from 'pixi.js';
 import { INK, ball, darker, g, hgrad, mix, outline, poly, rng, rrect, vgrad, vgradA } from './draw';
 import {
-  PAL_BLUE, PAL_DARK, PAL_WARM, cloudBlob, house, karst, palace, pagodaHall, pine, treeBall, type Palette,
+  PAL_BLUE, PAL_DARK, PAL_GOLD, PAL_WARM, cloudBlob, house, karst, palace, pagodaHall, pine, treeBall, type Palette,
 } from './landmarks';
 
-export type ThemeKey = 'plains' | 'bamboo' | 'stone' | 'castle' | 'throne';
+import type { StationTheme } from '../data/campaign';
+export type ThemeKey = StationTheme;
 
 interface ThemeDef {
   sky: [number, number, number];
@@ -26,7 +27,11 @@ interface ThemeDef {
   trees: [number, number, number];
   sakura: boolean;
   pines: boolean;
-  ambient: 'petal' | 'leaf' | 'dust' | 'firefly' | 'ember';
+  ambient: 'petal' | 'leaf' | 'dust' | 'firefly' | 'ember' | 'snow';
+  /** địa hình xa đặc biệt thay cho núi đá */
+  terrain?: 'dunes' | 'cones' | 'clouds';
+  /** cây/vật trang trí đặc trưng */
+  deco?: 'cactus' | 'palm' | 'dead' | 'maple';
   ambientColor: number;
   rays: boolean;
   stars: boolean;
@@ -34,7 +39,7 @@ interface ThemeDef {
   fence: number;
 }
 
-const THEMES: Record<ThemeKey, ThemeDef> = {
+const THEMES: Record<string, ThemeDef> = {
   plains: {
     sky: [0x3a96e6, 0x8fd0ff, 0xfff0d0], sun: 0xfff3b0, sunKind: 'sun', sunX: 0.3, cloud: 0xffffff,
     karst: [0x8fb4a8, 0x6f9c92], snowPeaks: false, river: [0x4ab6e8, 0x2a86c8], ground: [0x8ed062, 0x4f9c3f],
@@ -71,6 +76,126 @@ const THEMES: Record<ThemeKey, ThemeDef> = {
     ambient: 'ember', ambientColor: 0xff9a4a, rays: false, stars: true, flowers: [0xff6a4a, 0xc86aff], fence: 0x2c2036,
   },
 };
+
+// ───── chủ đề mới (chương 2 & 3)
+THEMES.sea = {
+  sky: [0x38b6f0, 0x9fe4ff, 0xfff4d8], sun: 0xfff6c0, sunKind: 'sun', sunX: 0.7, cloud: 0xffffff,
+  karst: [0x6aa8a8, 0x4a8890], snowPeaks: false, river: [0x20c0e0, 0x0a90c0], ground: [0xf0dc9a, 0xd8bc6a],
+  blade: 0x6a9a3a, bladeLight: 0xc8e890, path: [0xf6e4b0, 0xd8bc80], stone: 0xa88a50, fog: 0xe8faff,
+  pal: PAL_BLUE, palace: false, trees: [0x3aa860, 0x58c070, 0x2a8850], sakura: false, pines: false, deco: 'palm',
+  ambient: 'leaf', ambientColor: 0x7ad060, rays: true, stars: false, flowers: [0xff7aa8, 0xffffff], fence: 0xb08a50,
+};
+THEMES.snow = {
+  sky: [0x7faad8, 0xc4dcf0, 0xf4f8ff], sun: 0xffffff, sunKind: 'sun', sunX: 0.3, cloud: 0xf4f8ff,
+  karst: [0xb8c8e0, 0x9ab0d0], snowPeaks: true, river: [0x9ad0f0, 0x6aa8d8], ground: [0xeef4fa, 0xc0d0e0],
+  blade: 0x8aa0b8, bladeLight: 0xffffff, path: [0xd0dcea, 0xa8b8cc], stone: 0x7a8aa0, fog: 0xf0f6ff,
+  pal: PAL_BLUE, palace: false, trees: [0x3f7a62, 0x55967a, 0x2f6a52], sakura: false, pines: true,
+  ambient: 'snow', ambientColor: 0xffffff, rays: false, stars: false, flowers: [0xffffff, 0xb0d8ff], fence: 0x7a6a5a,
+};
+THEMES.desert = {
+  sky: [0x3a90d8, 0x9ad0f0, 0xffe8b0], sun: 0xfff0b0, sunKind: 'sun', sunX: 0.75, cloud: 0xfff4dc,
+  karst: [0xe0b070, 0xc09050], snowPeaks: false, terrain: 'dunes', river: [0x6ac0d8, 0x3a90b0], ground: [0xe8c880, 0xc09850],
+  blade: 0xa08a40, bladeLight: 0xe8d890, path: [0xd8b070, 0xb08848], stone: 0x8a6a30, fog: 0xffecc0,
+  pal: PAL_WARM, palace: true, trees: [0x5a9a3a, 0x72b04a, 0x4a822e], sakura: false, pines: false, deco: 'cactus',
+  ambient: 'dust', ambientColor: 0xf0d8a0, rays: true, stars: false, flowers: [0xffb26a, 0xffe066], fence: 0x8a6a3a,
+};
+THEMES.heaven = {
+  sky: [0xf8b8d8, 0xffe0f0, 0xfff8e0], sun: 0xfff8d0, sunKind: 'sun', sunX: 0.5, cloud: 0xffffff,
+  karst: [0xe8d8f8, 0xc8b0e8], snowPeaks: false, terrain: 'clouds', river: [0xc8a0f0, 0x9a78d8], ground: [0xf8f0ff, 0xd8c8f0],
+  blade: 0xb8a0d8, bladeLight: 0xffffff, path: [0xffe8a0, 0xe0b858], stone: 0xa08848, fog: 0xfff0ff,
+  pal: PAL_GOLD, palace: true, trees: [0xff9ac0, 0xffb8d8, 0xe878a0], sakura: true, pines: false,
+  ambient: 'petal', ambientColor: 0xffd8e8, rays: true, stars: false, flowers: [0xffd34d, 0xffffff], fence: 0xd8b858,
+};
+THEMES.volcano = {
+  sky: [0x2a0a10, 0x8a2a18, 0xff7a30], sun: 0xff9a40, sunKind: 'sun', sunX: 0.5, cloud: 0x6a2a20,
+  karst: [0x4a2020, 0x341414], snowPeaks: false, terrain: 'cones', river: [0xff7a20, 0xc83a10], ground: [0x5a4038, 0x2e1c18],
+  blade: 0x4a2a20, bladeLight: 0xff8a40, path: [0x7a5a50, 0x4a3430], stone: 0x2a1814, fog: 0xa03a20,
+  pal: PAL_DARK, palace: true, trees: [0x3a2018, 0x4a2a20, 0x2a1410], sakura: false, pines: false, deco: 'dead',
+  ambient: 'ember', ambientColor: 0xffa040, rays: false, stars: false, flowers: [0xff6a2a, 0xffb040], fence: 0x3a2420,
+};
+THEMES.night = {
+  sky: [0x0a1030, 0x1a2a58, 0x3a4a80], sun: 0xf8f4d0, sunKind: 'moon', sunX: 0.72, cloud: 0x3a4a70,
+  karst: [0x2a3a60, 0x1a2848], snowPeaks: false, river: [0x2a5a78, 0x142a48], ground: [0x2e4a48, 0x162a2e],
+  blade: 0x1e3a38, bladeLight: 0x6aa898, path: [0x5a6a78, 0x38465a], stone: 0x1a2434, fog: 0x3a5078,
+  pal: PAL_DARK, palace: true, trees: [0xc84a2a, 0xe8702a, 0xa83020], sakura: false, pines: false, deco: 'maple',
+  ambient: 'firefly', ambientColor: 0xffe58a, rays: false, stars: true, flowers: [0xff6a4a, 0xf8e070], fence: 0x2a2030,
+};
+
+// ───── vật trang trí / địa hình mới
+function cactusDeco(o: Graphics, x: number, y: number, s: number) {
+  const col = 0x58a84a;
+  o.ellipse(x, y + 1, s * 0.22, s * 0.05).fill({ color: INK, alpha: 0.2 });
+  rrect(o, x - s * 0.07, y - s * 0.62, s * 0.14, s * 0.62, s * 0.07, col);
+  rrect(o, x - s * 0.25, y - s * 0.34, s * 0.16, s * 0.07, s * 0.035, col);
+  rrect(o, x - s * 0.25, y - s * 0.5, s * 0.07, s * 0.2, s * 0.035, col);
+  rrect(o, x + s * 0.09, y - s * 0.42, s * 0.16, s * 0.07, s * 0.035, col);
+  rrect(o, x + s * 0.18, y - s * 0.56, s * 0.07, s * 0.19, s * 0.035, col);
+  o.circle(x, y - s * 0.64, s * 0.04).fill(0xff8aa8);
+}
+
+function palmDeco(o: Graphics, x: number, y: number, s: number) {
+  o.ellipse(x, y + 1, s * 0.25, s * 0.05).fill({ color: INK, alpha: 0.2 });
+  poly(o, [x - s * 0.04, y, x + s * 0.02, y - s * 0.72, x + s * 0.1, y - s * 0.72, x + s * 0.06, y], 0x9a6a3a, 1.2);
+  const tx = x + s * 0.06;
+  const ty = y - s * 0.72;
+  for (let i = 0; i < 6; i++) {
+    const a = -Math.PI + (i / 5) * Math.PI;
+    const lx = tx + Math.cos(a) * s * 0.42;
+    const ly = ty + Math.sin(a) * s * 0.18 + s * 0.12;
+    poly(o, [tx, ty, (tx + lx) / 2, (ty + ly) / 2 - s * 0.14, lx, ly, (tx + lx) / 2, (ty + ly) / 2 - s * 0.04], i % 2 ? 0x3aa860 : 0x2a8850, 1.1);
+  }
+  ball(o, tx - 2, ty + 3, s * 0.05, 0x6a4a2a);
+  ball(o, tx + 3, ty + 4, s * 0.05, 0x6a4a2a);
+}
+
+function deadTree(o: Graphics, x: number, y: number, s: number) {
+  o.ellipse(x, y + 1, s * 0.2, s * 0.05).fill({ color: INK, alpha: 0.25 });
+  const b = 0x3a2a24;
+  o.moveTo(x, y).lineTo(x, y - s * 0.5).stroke({ width: s * 0.09, color: b, cap: 'round' });
+  o.moveTo(x, y - s * 0.3).lineTo(x - s * 0.22, y - s * 0.55).stroke({ width: s * 0.05, color: b, cap: 'round' });
+  o.moveTo(x, y - s * 0.4).lineTo(x + s * 0.2, y - s * 0.66).stroke({ width: s * 0.05, color: b, cap: 'round' });
+  o.moveTo(x, y - s * 0.5).lineTo(x - s * 0.08, y - s * 0.78).stroke({ width: s * 0.04, color: b, cap: 'round' });
+}
+
+function dunes(o: Graphics, W: number, baseY: number, P: number, rand: () => number, th: ThemeDef) {
+  softRidge(o, W, baseY, P * 0.42, Math.max(140, W / 4), rand, vgrad(mix(th.ground[0], th.fog, 0.5), mix(th.ground[0], th.fog, 0.2)));
+  softRidge(o, W, baseY + P * 0.03, P * 0.3, Math.max(110, W / 5), rand, vgrad(mix(th.ground[0], 0xffffff, 0.2), th.ground[1]));
+  for (let i = 0; i < Math.round(W / 40); i++) {
+    const x = rand() * W;
+    const y = baseY - rand() * P * 0.26;
+    o.moveTo(x, y).quadraticCurveTo(x + 18, y - 4, x + 36, y).stroke({ width: 1, color: 0xffffff, alpha: 0.28 });
+  }
+}
+
+function volcanoCones(o: Graphics, W: number, baseY: number, P: number, rand: () => number, th: ThemeDef) {
+  const n = Math.max(3, Math.round(W / 320));
+  for (let i = 0; i < n; i++) {
+    const cx = ((i + 0.3 + rand() * 0.4) / n) * W;
+    const h = P * (0.55 + rand() * 0.35);
+    const w = h * (1.5 + rand() * 0.6);
+    const top = baseY - h;
+    o.poly([cx - w / 2, baseY + 4, cx - w * 0.1, top, cx + w * 0.1, top, cx + w / 2, baseY + 4]).fill(vgrad(mix(th.karst[0], th.fog, 0.2), th.karst[1]));
+    o.poly([cx + w * 0.1, top, cx + w / 2, baseY + 4, cx + w * 0.12, baseY + 4]).fill({ color: INK, alpha: 0.2 });
+    o.ellipse(cx, top, w * 0.1, h * 0.035).fill(0xff7a2a);
+    o.ellipse(cx, top - 2, w * 0.18, h * 0.12).fill({ color: 0xff7a2a, alpha: 0.2 });
+    for (let k = 0; k < 3; k++) {
+      const dx = (k - 1) * w * 0.06;
+      o.moveTo(cx + dx, top + 2).lineTo(cx + dx * 2.4 + (rand() - 0.5) * 8, top + h * (0.35 + rand() * 0.3)).stroke({ width: 2.4, color: 0xff6a20, alpha: 0.85, cap: 'round' });
+    }
+  }
+}
+
+function cloudSea(o: Graphics, W: number, horizon: number, P: number, rand: () => number, th: ThemeDef) {
+  // đảo mây nổi với cung điện vàng
+  const n = Math.max(2, Math.round(W / 420));
+  for (let i = 0; i < n; i++) {
+    const x = ((i + 0.3 + rand() * 0.4) / n) * W * 0.6 + W * 0.05;
+    const y = horizon - P * (0.1 + rand() * 0.18);
+    cloudBlob(o, x, y + P * 0.1, P * 0.17, 0xffffff, 0.95);
+    pagodaHall(o, x, y + P * 0.04, P * 0.22, P * (0.24 + rand() * 0.1), 3, PAL_GOLD);
+  }
+  for (let i = 0; i < Math.round(W / 130); i++) cloudBlob(o, rand() * W, horizon - P * rand() * 0.12, P * (0.09 + rand() * 0.08), mix(0xffffff, th.sky[2], 0.3), 0.85);
+}
 
 export interface Battlefield {
   back: Container;
@@ -118,7 +243,7 @@ function snowPeaks(o: Graphics, W: number, baseY: number, amp: number, step: num
 }
 
 /** Chiến trường liền mạch: toàn cảnh phía trên + 3 làn đường đất ngăn bằng hàng rào */
-export function buildBattlefield(themeKey: ThemeKey, W: number, H: number, panoH: number, laneH: number, seed: number): Battlefield {
+export function buildBattlefield(themeKey: ThemeKey, W: number, H: number, panoH: number, laneH: number, seed: number, laneCount = 3): Battlefield {
   const th = THEMES[themeKey];
   const rand = rng(seed);
   const P = panoH;
@@ -184,7 +309,10 @@ export function buildBattlefield(themeKey: ThemeKey, W: number, H: number, panoH
   const o = g();
   scene.addChild(o);
 
-  if (th.snowPeaks) {
+  if (th.terrain === 'dunes') dunes(o, W, horizon + 6, P, rand, th);
+  else if (th.terrain === 'cones') volcanoCones(o, W, horizon + 6, P, rand, th);
+  else if (th.terrain === 'clouds') cloudSea(o, W, horizon + 4, P, rand, th);
+  else if (th.snowPeaks) {
     snowPeaks(o, W, horizon + 4, P * 0.62, Math.max(90, W / 6), rand, th.karst[0], th.fog);
     snowPeaks(o, W, horizon + 6, P * 0.4, Math.max(64, W / 9), rand, th.karst[1], th.fog);
   } else {
@@ -204,7 +332,7 @@ export function buildBattlefield(themeKey: ThemeKey, W: number, H: number, panoH
     if (themeKey === 'plains') pagodaHall(o, W * 0.17, horizon + P * 0.05, P * 0.2, P * 0.3, 3, th.pal);
     o.rect(0, horizon - P * 0.05, W, P * 0.16).fill(vgradA({ c: th.fog, a: 0 }, { c: th.fog, a: 0.4 }, { c: th.fog, a: 0 }));
   }
-  if (!th.snowPeaks) {
+  if (!th.snowPeaks && !th.terrain) {
     // núi gần (có thác ở bên trái)
     const nNear = Math.max(3, Math.round(W / 300));
     for (let i = 0; i < nNear; i++) {
@@ -222,9 +350,12 @@ export function buildBattlefield(themeKey: ThemeKey, W: number, H: number, panoH
     const s = P * (0.18 + rand() * 0.16);
     const y = horizon + P * (0.1 + rand() * 0.05);
     const r = rand();
-    if (th.sakura && r < 0.28) treeBall(o, x, y, s, [0xf6a8c8, 0xffc4dc, 0xe888b0]);
+    if (th.deco === 'cactus' && r < 0.7) cactusDeco(o, x, y, s);
+    else if (th.deco === 'palm' && r < 0.75) palmDeco(o, x, y, s);
+    else if (th.deco === 'dead' && r < 0.8) deadTree(o, x, y, s);
+    else if (th.sakura && r < 0.28) treeBall(o, x, y, s, [0xf6a8c8, 0xffc4dc, 0xe888b0]);
     else if (th.pines && r < 0.55) pine(o, x, y, s, [th.trees[0], th.trees[1], th.trees[2]], themeKey === 'stone');
-    else if (r < 0.62 && themeKey !== 'throne') house(o, x, y, s * 0.6, th.pal.roof);
+    else if (r < 0.62 && themeKey !== 'throne' && themeKey !== 'volcano' && themeKey !== 'night') house(o, x, y, s * 0.6, th.pal.roof);
     else treeBall(o, x, y, s, th.trees);
   }
 
@@ -255,7 +386,7 @@ export function buildBattlefield(themeKey: ThemeKey, W: number, H: number, panoH
     o.poly([x + 0.8, y, x + 2.2, y - hgt * 0.7, x + 3, y]).fill({ color: col, alpha: 0.9 });
   };
   const pathBand: { top: number; bot: number }[] = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < laneCount; i++) {
     const top = laneTop(i) + laneH * 0.2;
     const bot = laneTop(i) + laneH * 0.84;
     pathBand.push({ top, bot });
@@ -296,7 +427,7 @@ export function buildBattlefield(themeKey: ThemeKey, W: number, H: number, panoH
     o.moveTo(0, y - 3).lineTo(W, y - 3).stroke({ width: 2.6, color: col, cap: 'round' });
     for (let x = 14; x < W; x += wide ? 46 : 38) rrect(o, x - 2.6, y - 14, 5.2, 18, 1.4, col);
   };
-  for (let i = 1; i < 3; i++) {
+  for (let i = 1; i < laneCount; i++) {
     const y = laneTop(i) + laneH * 0.07;
     fence(y, i === 1);
     for (let k = 0; k < Math.round(W / 90); k++) {
@@ -307,7 +438,7 @@ export function buildBattlefield(themeKey: ThemeKey, W: number, H: number, panoH
     }
   }
   // cây to/bụi hoa rải ở dải cỏ giữa các làn
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < laneCount; i++) {
     const zones: [number, number][] = [[laneTop(i) + laneH * 0.07, pathBand[i].top - 2], [pathBand[i].bot + 4, laneTop(i) + laneH - 2]];
     zones.forEach(([y0, y1], zi) => {
       if (y1 - y0 < 6) return;
@@ -337,7 +468,7 @@ export function buildBattlefield(themeKey: ThemeKey, W: number, H: number, panoH
   // đá rải rác
   for (let k = 0; k < Math.round(W / 140); k++) {
     const x = rand() * W;
-    const y = laneTop(Math.floor(rand() * 3)) + laneH * (0.9 + rand() * 0.07);
+    const y = laneTop(Math.floor(rand() * laneCount)) + laneH * (0.9 + rand() * 0.07);
     const s = laneH * (0.06 + rand() * 0.05);
     poly(o, [x - s, y, x - s * 0.7, y - s * 0.7, x + s * 0.2, y - s, x + s, y - s * 0.3, x + s * 1.1, y], mix(0x8c919c, 0x6e7380, rand()), 1.2);
   }
@@ -367,7 +498,7 @@ export function buildBattlefield(themeKey: ThemeKey, W: number, H: number, panoH
   for (let i = 0; i < nSway; i++) {
     const c = new Container();
     const o2 = g();
-    const lane = Math.floor(rand() * 3);
+    const lane = Math.floor(rand() * laneCount);
     const above = rand() < 0.5;
     const y0 = above ? laneTop(lane) + laneH * 0.1 : pathBand[lane].bot + 6;
     const y1 = above ? pathBand[lane].top - 4 : laneTop(lane) + laneH - 6;
@@ -428,11 +559,12 @@ export function buildBattlefield(themeKey: ThemeKey, W: number, H: number, panoH
     const kind = th.ambient;
     if (kind === 'petal' || kind === 'leaf') p.ellipse(0, 0, 3.4, 1.7).fill(i % 5 === 0 && kind === 'petal' ? 0xffffff : th.ambientColor);
     else if (kind === 'dust') p.circle(0, 0, 1.4).fill({ color: th.ambientColor, alpha: 0.6 });
+    else if (kind === 'snow') p.circle(0, 0, 1.6 + (i % 3) * 0.7).fill({ color: 0xffffff, alpha: 0.9 });
     else {
       p.circle(0, 0, 4.5).fill({ color: th.ambientColor, alpha: 0.18 });
       p.circle(0, 0, 1.6).fill(th.ambientColor);
     }
-    const vy = kind === 'ember' ? -(10 + rand() * 16) : kind === 'dust' ? -(2 + rand() * 4) : kind === 'firefly' ? 0 : 6 + rand() * 8;
+    const vy = kind === 'ember' ? -(10 + rand() * 16) : kind === 'dust' ? -(2 + rand() * 4) : kind === 'firefly' ? 0 : kind === 'snow' ? 14 + rand() * 14 : 6 + rand() * 8;
     const vx = kind === 'petal' || kind === 'leaf' ? 10 + rand() * 14 : (rand() - 0.5) * 6;
     amb.addChild(p);
     parts.push({ g: p, x: rand() * W, y: rand() * H, vx, vy, ph: rand() * 6.28 });

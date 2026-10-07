@@ -1,4 +1,5 @@
 import './ui/style.css';
+import './ui/admin.css';
 import { Application } from 'pixi.js';
 import { createBackend } from './backend';
 import { normalizeSave } from './backend/save';
@@ -13,6 +14,8 @@ import { renderAuth } from './ui/auth';
 import { focusStation, renderHome } from './ui/home';
 import { BattleScreen, type ExitAction } from './ui/battle';
 import { toast } from './ui/common';
+import { loadNotices, unread } from './notices';
+import { openInbox } from './ui/inbox';
 import { STATIONS } from './data/campaign';
 
 const root = document.getElementById('app')!;
@@ -25,8 +28,16 @@ function splash(msg: string, extra?: HTMLElement[]) {
   );
 }
 
+/** Trang quản trị nằm ở /admin, tách khỏi game (không nạp PixiJS) */
+async function bootAdmin() {
+  const [{ createAdminApi }, { renderAdmin }] = await Promise.all([import('./backend/admin'), import('./ui/admin')]);
+  const api = await createAdminApi();
+  renderAdmin(root, api);
+}
+
 async function boot() {
   splash(t('boot.loading'));
+  if (/^\/admin(\/|$)/.test(location.pathname)) return bootAdmin();
 
   const app = new Application();
   await app.init({
@@ -113,14 +124,29 @@ async function boot() {
     }
     splash(t('boot.loadingSave'));
     try {
-      const raw = await backend.loadSave(user.uid);
+      const [raw, acct] = await Promise.all([backend.loadSave(user.uid), backend.getAccount(user.uid)]);
       if (my !== token) return;
+      if (acct.locked) {
+        state.user = null;
+        state.save = null;
+        const extra: HTMLElement[] = [h('p', { text: t('lock.body') })];
+        if (acct.reason) extra.push(h('p', { class: 'err', text: t('lock.reason', { reason: acct.reason }) }));
+        extra.push(h('button', { class: 'btn ghost', text: t('settings.logout'), attrs: { type: 'button' }, on: { click: () => void backend.logout() } }));
+        splash(t('lock.title'), extra);
+        return;
+      }
       state.user = user;
       state.save = normalizeSave(raw, user.name);
       setBase(state.save);
       if (!raw) mutate(() => {}, true);
+      await loadNotices().catch(() => {});
+      if (my !== token) return;
       screen = 'home';
       redraw();
+      if (unread().length) {
+        toast(t('inbox.newToast', { n: unread().length }), 'info');
+        openInbox(() => screen === 'home' && redraw());
+      }
     } catch (e) {
       console.error(e);
       if (my !== token) return;

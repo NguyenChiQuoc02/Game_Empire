@@ -7,6 +7,7 @@ import { roof } from './landmarks';
 import { Vfx, textStyle } from './vfx';
 import { INK, ball, darker, g, lighter, mix, poly, rrect } from './draw';
 import { getLang, t, unitName } from '../i18n';
+import { UNITS } from '../data/units';
 
 const easeOutBack = (k: number) => {
   const c1 = 1.70158;
@@ -19,6 +20,8 @@ interface UV {
   aura: Graphics;
   name?: Text;
   nameLang?: string;
+  nameText?: string;
+  formId: string | null;
   lastPct: number;
   seed: number;
   born: number;
@@ -60,6 +63,7 @@ export class BattleView {
   private clock = 0;
   private dragging = false;
   private hoverLane = -1;
+  private hoverX = -1;
   private toast: Text | null = null;
   private toastT = 0;
   W = 0;
@@ -99,10 +103,15 @@ export class BattleView {
   }
   /** hệ số phối cảnh theo làn (làn gần người xem to hơn) */
   depth(lane: number) {
-    return 0.92 + 0.08 * lane;
+    return this.battle.lanes.length === 1 ? 1.05 : 0.92 + 0.08 * lane;
   }
   laneAt(localY: number) {
-    return Math.max(0, Math.min(LANE_COUNT - 1, Math.floor((localY - this.panoH) / this.laneH)));
+    return Math.max(0, Math.min(this.battle.lanes.length - 1, Math.floor((localY - this.panoH) / this.laneH)));
+  }
+
+  /** đổi toạ độ ngang trên màn hình sang toạ độ lane (0..1000) */
+  toLaneX(px: number): number {
+    return ((px - this.padL) / (this.W - this.padL * 2)) * LANE_LEN;
   }
 
   /** đơn vị (còn sống) nằm dưới điểm (px, py) trong hệ tọa độ của chiến trường */
@@ -139,9 +148,10 @@ export class BattleView {
     return { x: this.sx(u.x), top: y - v.art.height * s - extra, bottom: y + 8 * s };
   }
 
-  setDrag(active: boolean, lane: number) {
+  setDrag(active: boolean, lane: number, laneX = -1) {
     this.dragging = active;
     this.hoverLane = lane;
+    this.hoverX = laneX;
   }
 
   // ───────────────────────── dựng cảnh ─────────────────────────
@@ -149,8 +159,15 @@ export class BattleView {
     if (W < 10 || H < 10) return;
     this.W = W;
     this.H = H;
-    this.panoH = Math.max(86, Math.min(240, H * 0.27));
-    this.laneH = (H - this.panoH) / LANE_COUNT;
+    const n = this.battle.lanes.length;
+    if (n === 1) {
+      // màn Boss: một lane lớn, phần toàn cảnh phía trên cao hơn
+      this.laneH = Math.max(170, Math.min(300, H * 0.46));
+      this.panoH = H - this.laneH;
+    } else {
+      this.panoH = Math.max(86, Math.min(240, H * 0.27));
+      this.laneH = (H - this.panoH) / n;
+    }
     this.padL = Math.max(54, Math.min(140, W * 0.13));
     this.us = Math.max(0.5, Math.min(1.7, Math.min(this.laneH * 0.52, W * 0.135) / 60));
 
@@ -168,11 +185,11 @@ export class BattleView {
       this.bf.back.destroy({ children: true });
       this.bf.front.destroy({ children: true });
     }
-    this.bf = buildBattlefield(this.station.theme, W, H, this.panoH, this.laneH, 9100 + this.station.id * 13);
+    this.bf = buildBattlefield(this.station.theme, W, H, this.panoH, this.laneH, 9100 + this.station.id * 13, n);
     this.root.addChildAt(this.bf.back, 0);
     this.root.addChildAt(this.bf.front, this.root.children.indexOf(this.overlays));
 
-    for (let i = 0; i < LANE_COUNT; i++) {
+    for (let i = 0; i < n; i++) {
       const row: TowerView[] = [];
       for (const side of [0, 1] as const) {
         const tv = this.makeTower(i, side);
@@ -336,7 +353,10 @@ export class BattleView {
     const evs = this.battle.events;
     for (const e of evs) {
       if (e.t === 'overtime') this.showToast(t('hud.overtime'));
-      else {
+      else if (e.t === 'boss') {
+        this.showToast(t('hud.bossAppear', { name: unitName(UNITS[e.id]) }));
+        this.vfx.handle(e);
+      } else {
         if (e.t === 'laneEnd') this.showLaneBanner(e.lane, e.winner);
         this.vfx.handle(e);
       }
@@ -366,25 +386,53 @@ export class BattleView {
     }
   }
 
-  private makeUnitView(u: UnitInst): UV {
-    const art = buildUnitArt(u.def, u.side);
+  private nameFor(u: UnitInst): string {
+    return u.form ? `${unitName(u.def)} · ${unitName(UNITS[u.form])}` : unitName(u.def);
+  }
+
+  /** gắn hào quang + tên (tướng/boss) vào art hiện tại của đơn vị */
+  private attachExtras(v: UV, u: UnitInst) {
     const aura = g();
-    art.root.addChildAt(aura, 1);
-    const v: UV = { art, aura, lastPct: -1, seed: u.uid * 0.77, born: this.clock, prevAtk: 0, swooshAt: 0, dustT: Math.random() * 0.2, lineT: 0 };
-    if (u.def.kind !== 'troop') {
-      const tx = new Text({ text: unitName(u.def), style: textStyle(11, u.def.kind === 'boss' ? 0xff9a9a : 0xffe08a) });
+    v.art.root.addChildAt(aura, 1);
+    v.aura = aura;
+    v.name = undefined;
+    v.lastPct = -1;
+    if (u.def.kind === 'general' || u.def.kind === 'boss') {
+      const text = this.nameFor(u);
+      const tx = new Text({ text, style: textStyle(11, u.def.kind === 'boss' ? 0xff9a9a : 0xffe08a) });
       tx.anchor.set(0.5, 1);
-      tx.position.set(0, -art.height - 12);
-      art.root.addChild(tx);
+      tx.position.set(0, -v.art.height - 12);
+      v.art.root.addChild(tx);
       v.name = tx;
+      v.nameText = text;
       v.nameLang = getLang();
     }
+  }
+
+  /** Tôn Ngộ Không hóa thân: đổi hình theo tướng được mượn */
+  private swapForm(v: UV, u: UnitInst, formId: string | null) {
+    const old = v.art.root;
+    const parent = old.parent;
+    const art = buildUnitArt(formId ? UNITS[formId] : u.def, u.side);
+    parent?.addChild(art.root);
+    old.destroy({ children: true });
+    v.art = art;
+    v.formId = formId;
+    this.attachExtras(v, u);
+  }
+
+  private makeUnitView(u: UnitInst): UV {
+    const art = buildUnitArt(u.def, u.side);
+    const v: UV = { art, aura: g(), formId: null, lastPct: -1, seed: u.uid * 0.77, born: this.clock, prevAtk: 0, swooshAt: 0, dustT: Math.random() * 0.2, lineT: 0 };
+    this.attachExtras(v, u);
     this.vfx.ring(this.sx(u.x), this.gy(u.lane, u.yOff), 24 * this.us * u.def.scale, SIDE_COLOR[u.side], 0.45, 2.5);
-    art.root.scale.set(0.01);
+    v.art.root.scale.set(0.01);
     return v;
   }
 
   private updateUnitView(v: UV, u: UnitInst, dt: number) {
+    const formId = u.form ?? null;
+    if (formId !== v.formId) this.swapForm(v, u, formId);
     const a = v.art;
     const us = this.us * this.depth(u.lane);
     const dir = u.side === 0 ? 1 : -1;
@@ -392,9 +440,13 @@ export class BattleView {
     const y = this.gy(u.lane, u.yOff);
     a.root.position.set(sxp, y);
     a.root.zIndex = y;
-    if (v.name && v.nameLang !== getLang()) {
-      v.name.text = unitName(u.def);
-      v.nameLang = getLang();
+    if (v.name) {
+      const text = this.nameFor(u);
+      if (v.nameLang !== getLang() || v.nameText !== text) {
+        v.name.text = text;
+        v.nameText = text;
+        v.nameLang = getLang();
+      }
     }
 
     const age = this.clock - v.born;
@@ -410,7 +462,7 @@ export class BattleView {
     v.prevAtk = u.attackAnim;
     if (v.swooshAt > 0 && this.clock >= v.swooshAt) {
       v.swooshAt = 0;
-      const col = u.def.kind === 'troop' ? 0xffffff : u.def.id === 'quanvu' ? 0x9dffc8 : 0xfff0b0;
+      const col = u.def.kind === 'general' || u.def.kind === 'boss' ? (u.def.id === 'quanvu' ? 0x9dffc8 : 0xfff0b0) : 0xffffff;
       this.vfx.swoosh(sxp, y - 28 * us * u.def.scale, dir, a.mode === 'swing' ? 'swing' : 'thrust', us * Math.min(1.5, u.def.scale), col);
     }
 
@@ -422,6 +474,11 @@ export class BattleView {
       if (u.vanish) {
         a.root.alpha = Math.max(0, u.deadTimer / 0.9);
         a.art.rotation = 0;
+      } else if (u.def.kind === 'defense') {
+        const p = 1 - Math.max(0, u.deadTimer) / 0.7;
+        a.art.y = p * 10;
+        a.art.rotation = 0;
+        a.root.alpha = Math.max(0, 1 - p * p);
       } else {
         const p = 1 - Math.max(0, u.deadTimer) / 0.7;
         a.art.rotation = (u.side === 0 ? -1 : 1) * Math.min(1.5, p * 2.2);
@@ -438,7 +495,8 @@ export class BattleView {
     a.art.x = -dir * 3 * hk;
     const base = a.baseScale;
     a.art.scale.set(dir * base * (1 + hk * 0.06), base * (1 - hk * 0.08));
-    a.art.tint = u.hitFlash > 0 ? 0xff8f8f : u.invuln > 0 ? 0xfff2a0 : 0xffffff;
+    a.art.tint = u.hitFlash > 0 ? 0xff8f8f : u.invuln > 0 ? 0xfff2a0 : u.poison ? 0xc4ffa8 : u.stunT > 0 ? 0xd0d8ff : 0xffffff;
+    a.hpBar.visible = !u.ghost;
 
     if (u.moving) {
       v.dustT -= dt;
@@ -491,6 +549,17 @@ export class BattleView {
     if (u.def.skill === 'heal') {
       const rx = (120 / LANE_LEN) * (this.W - this.padL * 2) / this.us;
       o.ellipse(0, 1.5, rx, rx * 0.3).stroke({ width: 1.2, color: 0x7dffb0, alpha: 0.12 + pulse * 0.1 });
+    }
+    if (u.shield > 0) o.ellipse(0, -22 * s, 22 * s, 34 * s).fill({ color: 0x9ad0ff, alpha: 0.1 }).stroke({ width: 1.6, color: 0xcfe8ff, alpha: 0.7 });
+    if (u.buffs.length) {
+      if (u.buffs.some((b) => b.mul > 1)) o.ellipse(0, 1.5, 24 * s, 7 * s).stroke({ width: 2, color: 0xffd34d, alpha: 0.55 + pulse * 0.35 });
+      if (u.buffs.some((b) => b.mul < 1)) o.ellipse(0, 1.5, 24 * s, 7 * s).stroke({ width: 2, color: 0x7ad0ff, alpha: 0.55 + pulse * 0.35 });
+    }
+    // công trình có vùng tác dụng: vẽ vòng mờ
+    if (u.def.kind === 'defense' && ['thorns', 'drum', 'altar', 'frost', 'firepit'].includes(u.def.skill)) {
+      const rx = (u.def.range / LANE_LEN) * (this.W - this.padL * 2) / (this.us * this.depth(u.lane) * u.def.scale);
+      const col = u.def.skill === 'frost' ? 0x9ad8ff : u.def.skill === 'altar' ? 0x7dffb0 : u.def.skill === 'firepit' ? 0xff7a2a : 0xffd34d;
+      o.ellipse(0, 1.5, rx, rx * 0.28).fill({ color: col, alpha: u.def.skill === 'firepit' ? 0.16 : 0.05 }).stroke({ width: 1.2, color: col, alpha: 0.18 + pulse * 0.12 });
     }
   }
 
@@ -551,7 +620,7 @@ export class BattleView {
   }
 
   private updateOverlays(dt: number) {
-    for (let i = 0; i < LANE_COUNT; i++) {
+    for (let i = 0; i < this.battle.lanes.length; i++) {
       const lane = this.battle.lanes[i];
       const hl = this.hl[i];
       const y0 = this.laneTop(i);
@@ -565,9 +634,16 @@ export class BattleView {
           .rect(2, y0 + 2, this.W - 4, this.laneH - 4)
           .stroke({ width: hot ? 3 : 1.5, color: 0xffd34d, alpha: hot ? 0.95 : 0.35 });
         if (hot) {
-          const zone = this.sx(180) - this.padL + 10;
-          hl.rect(0, y0, this.padL + zone, this.laneH).fill({ color: 0x3d8bff, alpha: 0.14 });
-          for (let k = 0; k < 3; k++) {
+          if (this.hoverX >= 0) {
+            // vị trí đặt công trình phòng thủ
+            const mx = this.sx(this.hoverX);
+            hl.roundRect(mx - 20 * this.us, y0 + this.laneH * 0.18, 40 * this.us, this.laneH * 0.66, 8).fill({ color: 0x3d8bff, alpha: 0.22 }).stroke({ width: 2, color: 0xffd34d, alpha: 0.95 });
+            hl.moveTo(mx, y0 + this.laneH * 0.1).lineTo(mx, y0 + this.laneH * 0.9).stroke({ width: 1.5, color: 0xffd34d, alpha: 0.7 });
+          } else {
+            const zone = this.sx(180) - this.padL + 10;
+            hl.rect(0, y0, this.padL + zone, this.laneH).fill({ color: 0x3d8bff, alpha: 0.14 });
+          }
+          for (let k = 0; k < (this.hoverX >= 0 ? 0 : 3); k++) {
             const ax = this.padL + 20 + k * 22 + ((this.clock * 40) % 22);
             const ay = y0 + this.laneH * 0.55;
             hl.poly([ax, ay - 8, ax + 10, ay, ax, ay + 8]).fill({ color: 0xffd34d, alpha: 0.5 - k * 0.12 });

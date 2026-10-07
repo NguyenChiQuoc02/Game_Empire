@@ -8,6 +8,8 @@ type Bot = (b: Battle, deck: string[]) => void;
 
 /** Bot "khá": giữ vàng cho thẻ đắt, dồn vào lane đang bị đe dọa nhất */
 const smartBot: Bot = (b, deck) => {
+  const cc = b.capUpgradeCost();
+  if (cc !== null && b.gold[0] >= cc && b.gold[0] >= b.goldCap(0) - 15) b.upgradeCap();
   const open = b.lanes.filter((l) => l.winner === null);
   if (!open.length) return;
   const threat = (l: (typeof open)[number]) =>
@@ -40,11 +42,13 @@ function run(stationIdx: number, deck: string[], levels: Record<string, number>,
   return { win: b.winner === 0, time: b.time, wins: b.wins };
 }
 
-const N = 60;
+const N = 20;
 const profiles: { name: string; deck: string[]; lv: number }[] = [
-  { name: 'Khởi đầu (4 lính + Dương Quá, lv1)', deck: [...STARTERS], lv: 1 },
-  { name: 'Giữa game (lv3)', deck: ['samurai', 'archer', 'shield', 'knight', 'duongqua', 'truongphi'], lv: 3 },
-  { name: 'Cuối game (lv5)', deck: ['samurai', 'knight', 'shield', 'trebuchet', 'lubo', 'quanvu'], lv: 5 },
+  { name: 'Khởi đầu (lv1)', deck: [...STARTERS], lv: 1 },
+  { name: 'Map 1 (lv3)', deck: ['samurai', 'archer', 'shield', 'knight', 'duongqua', 'truongphi'], lv: 3 },
+  { name: 'Map 2 (lv4)', deck: ['samurai', 'crossbow', 'monk', 'knight', 'quanvu', 'tieulongnu'], lv: 4 },
+  { name: 'Map 3 mạnh (lv5)', deck: ['elephant', 'crossbow', 'monk', 'tonngokhong', 'duongtien', 'quanvu'], lv: 5 },
+  { name: 'Map 3 (lv5)', deck: ['samurai', 'knight', 'elephant', 'trebuchet', 'lubo', 'quanvu'], lv: 5 },
 ];
 for (const p of profiles) {
   const levels = Object.fromEntries(p.deck.map((id) => [id, p.lv]));

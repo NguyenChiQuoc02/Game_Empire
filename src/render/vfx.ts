@@ -1,6 +1,7 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
 import { LANE_LEN, type Side, type SimEvent } from '../game/sim';
-import { t } from '../i18n';
+import { t, unitName } from '../i18n';
+import { UNITS } from '../data/units';
 import { INK, g, mix, vgradA } from './draw';
 
 export interface VfxHost {
@@ -31,6 +32,7 @@ export function textStyle(size: number, fill: number, bold = true): TextStyle {
   return s;
 }
 
+const GOLD = 0xffd34d;
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const easeOut = (k: number) => 1 - Math.pow(1 - clamp01(k), 3);
 const easeOutBack = (k: number) => {
@@ -288,8 +290,22 @@ export class Vfx {
         if (e.amount >= 3) this.floatText(`+${Math.round(e.amount)}`, x + (Math.random() - 0.5) * 12, y - 14, 0x7dffb0, 11, 0.7);
         break;
       }
-      case 'text':
-        this.floatText(t(e.key, e.p), h.sx(e.x), h.gy(e.lane, 0) - 62 * us, e.color, e.big ? 17 : 13, e.big ? 1.3 : 0.9);
+      case 'text': {
+        const p = e.p ? { ...e.p } : undefined;
+        if (p && typeof p.id === 'string' && UNITS[p.id]) p.name = unitName(UNITS[p.id]);
+        this.floatText(t(e.key, p), h.sx(e.x), h.gy(e.lane, 0) - 62 * us, e.color, e.big ? 17 : 13, e.big ? 1.3 : 0.9);
+        break;
+      }
+      case 'absorb':
+        this.floatText(`-${Math.round(e.amount)}`, h.sx(e.x) + (Math.random() - 0.5) * 14, h.gy(e.lane, 0) - 40 * us, 0x9ad0ff, 11, 0.6);
+        break;
+      case 'bounty':
+        if (e.side === 0) this.floatText(`+${e.amount}`, h.sx(e.x), h.gy(e.lane, 0) - 14 * us, 0xffd34d, 13, 0.9);
+        break;
+      case 'boss':
+        this.shake = Math.max(this.shake, 12);
+        this.ring(h.sx(940), h.gy(e.lane, 0), 90 * us, 0xff4d4d, 0.9, 4);
+        this.spark(h.sx(940), h.gy(e.lane, 0) - 40 * us, 0xff7a5a, 20, 200);
         break;
       case 'spawn':
         this.dust(h.sx(e.x), h.gy(e.lane, 0), 4, 0.9);
@@ -349,6 +365,20 @@ export class Vfx {
       case 'pair': return this.fxPair(x, h.sx(e.x2 ?? e.x), gyy);
       case 'healwave': return this.fxHealWave(x, gyy, px(e.r ?? 120));
       case 'armor': return this.fxArmor(x, gyy);
+      case 'transform': return this.fxTransform(x, gyy);
+      case 'hound': return this.fxHound(x, gyy);
+      case 'warcry': return this.fxWarcry(x, gyy, dir);
+      case 'melody': return this.fxMelody(x, gyy, px(e.r ?? 140));
+      case 'dash': return this.fxDash(x, h.sx(e.x2 ?? e.x), gyy);
+      case 'snipe': return this.fxSnipe(x, gyy);
+      case 'stun': return this.fxStun(x, gyy);
+      case 'shield': return this.fxShield(x, gyy);
+      case 'dragon': return this.fxDragon(x, gyy, dir, px(e.r ?? 200));
+      case 'poisoncloud': return this.fxPoisonCloud(x, gyy, px(e.r ?? 100));
+      case 'inferno': return this.fxInferno(x, gyy, dir, px(e.r ?? 260));
+      case 'bolt': return this.fxBolt(x, gyy);
+      case 'thorns': return this.fxThorns(x, gyy, px(e.r ?? 70));
+      case 'frost': return this.fxFrost(x, gyy, px(e.r ?? 150));
     }
     void us;
   }
@@ -708,6 +738,272 @@ export class Vfx {
       const a = (i / 4) * Math.PI * 2;
       s.position.set(x + Math.cos(a) * 14 * us, gy - 26 * us + Math.sin(a) * 18 * us);
       this.part(s, Math.cos(a) * 30, Math.sin(a) * 30 - 10, 0.5);
+    }
+  }
+
+  /** Biến hóa: mây khói + sao vàng */
+  private fxTransform(x: number, gy: number) {
+    const us = this.h.us;
+    const y = gy - 28 * us;
+    for (let i = 0; i < 9; i++) {
+      const p = g().circle(0, 0, (7 + Math.random() * 6) * us).fill({ color: i % 3 ? 0xffffff : 0xfff0b0, alpha: 0.85 });
+      p.position.set(x, y);
+      const a = (i / 9) * Math.PI * 2;
+      this.part(p, Math.cos(a) * 70, Math.sin(a) * 40 - 10, 0.7, { grow: 0.9, hold: 0.2 });
+    }
+    this.spark(x, y, 0xffd34d, 14, 160);
+    for (let i = 0; i < 6; i++) {
+      const sp = g();
+      star(sp, 0, 0, 4, 5, 1.8, 0xffe27a);
+      sp.position.set(x + (Math.random() - 0.5) * 30 * us, y);
+      this.part(sp, (Math.random() - 0.5) * 50, -60 - Math.random() * 50, 0.9, { spin: 5 });
+    }
+    this.ring(x, gy, 46 * us, 0xffd34d, 0.5, 3);
+  }
+
+  /** Hao Thiên Khuyển xuất hiện: cột sáng xanh */
+  private fxHound(x: number, gy: number) {
+    const us = this.h.us;
+    const o = new Container();
+    o.position.set(x, gy);
+    const pil = g();
+    pillar(pil, 0x7ad0ff, 40 * us, 150 * us);
+    o.addChild(pil);
+    this.anim(o, 0.9, (k) => {
+      o.alpha = k < 0.25 ? k / 0.25 : 1 - (k - 0.25) / 0.75;
+    });
+    this.ring(x, gy, 54 * us, 0x7ad0ff, 0.7, 3.5);
+    this.ring(x, gy, 34 * us, 0xffffff, 0.5, 2);
+    this.spark(x, gy - 30 * us, 0x9ad8ff, 12, 150);
+  }
+
+  /** Lệnh kỳ: cờ chiến và mũi tên vàng bay lên khắp lane */
+  private fxWarcry(x: number, gy: number, dir: number) {
+    const us = this.h.us;
+    const kx = (this.h.W - this.h.padL * 2) / LANE_LEN;
+    const flag = new Container();
+    const fg = g();
+    fg.moveTo(0, 0).lineTo(0, -38 * us).stroke({ width: 2.6, color: 0x3a2a1c, cap: 'round' });
+    fg.poly([0, -38 * us, 24 * us, -32 * us, 0, -24 * us]).fill(0xd23a2a).stroke({ width: 1.4, color: GOLD });
+    flag.addChild(fg);
+    flag.position.set(x, gy);
+    this.anim(flag, 1.0, (k) => {
+      flag.y = gy - 22 * us * easeOut(k);
+      flag.alpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+      flag.scale.set(0.6 + 0.5 * easeOutBack(k * 2.5));
+    });
+    for (let i = 0; i < 11; i++) {
+      const c = g();
+      c.poly([-5, 3, 0, -3, 5, 3, 5, 6, 0, 0, -5, 6]).fill(GOLD).stroke({ width: 1, color: 0x9a6a10 });
+      c.scale.set(us);
+      c.position.set(x + dir * (-40 + Math.random() * 300) * kx, gy - (10 + Math.random() * 30) * us);
+      this.part(c, 0, -55, 0.9, { hold: 0.3 });
+    }
+    this.ring(x, gy, 70 * us, GOLD, 0.7, 3);
+  }
+
+  /** Khúc nhạc dẫn hồn: nốt nhạc tím và vòng sóng */
+  private fxMelody(x: number, gy: number, r: number) {
+    const us = this.h.us;
+    this.ring(x, gy, r, 0xb8a0ff, 0.8, 3);
+    this.ring(x, gy, r * 0.55, 0xe0d4ff, 0.6, 2);
+    for (let i = 0; i < 8; i++) {
+      const tx = new Text({ text: i % 2 ? '♪' : '♫', style: textStyle(Math.round(16 * Math.max(0.9, us)), i % 3 ? 0xc8b0ff : 0xffffff) });
+      tx.anchor.set(0.5);
+      tx.position.set(x + (Math.random() - 0.5) * r * 1.5, gy - (10 + Math.random() * 24) * us);
+      this.part(tx, (Math.random() - 0.5) * 30, -50 - Math.random() * 30, 1.0, { hold: 0.3, spin: (Math.random() - 0.5) * 1.2 });
+    }
+  }
+
+  /** Lướt xuyên đội hình: vệt sáng dọc đường đi */
+  private fxDash(x0: number, x1: number, gy: number) {
+    const us = this.h.us;
+    const y = gy - 26 * us;
+    const o = g();
+    this.anim(o, 0.4, (k) => {
+      o.clear();
+      const end = x0 + (x1 - x0) * Math.min(1, k * 3);
+      for (let i = 0; i < 3; i++) {
+        const yy = y + (i - 1) * 9 * us;
+        o.moveTo(x0, yy).lineTo(end, yy).stroke({ width: 5 * us * (1 - k * 0.5), color: 0xfff0b0, alpha: (1 - k) * (0.95 - i * 0.22), cap: 'round' });
+      }
+    });
+    const n = Math.max(2, Math.round(Math.abs(x1 - x0) / (50 * us)));
+    for (let i = 0; i <= n; i++) this.dust(x0 + ((x1 - x0) * i) / n, gy, 1, 0.9);
+    this.spark(x1, y, 0xffd34d, 10, 150);
+    this.ring(x1, gy, 40 * us, 0xfff0b0, 0.4, 2.5);
+  }
+
+  /** Bách bộ xuyên dương: tâm ngắm */
+  private fxSnipe(x: number, gy: number) {
+    const us = this.h.us;
+    const o = g();
+    o.circle(0, 0, 16 * us).stroke({ width: 2.4, color: 0xff3a3a });
+    o.circle(0, 0, 8 * us).stroke({ width: 1.6, color: 0xffd34d });
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) o.moveTo(dx * 10 * us, dy * 10 * us).lineTo(dx * 24 * us, dy * 24 * us).stroke({ width: 2, color: 0xff3a3a });
+    o.position.set(x, gy - 28 * us);
+    this.anim(o, 0.4, (k) => {
+      o.scale.set(1.8 - 0.8 * easeOut(k * 1.5));
+      o.alpha = 1 - k * k;
+    });
+    this.spark(x, gy - 28 * us, 0xffffff, 8, 130);
+  }
+
+  /** Choáng: sao xoay quanh đầu */
+  private fxStun(x: number, gy: number) {
+    const us = this.h.us;
+    const o = new Container();
+    const stars: Graphics[] = [];
+    for (let i = 0; i < 3; i++) {
+      const st = g();
+      star(st, 0, 0, 5, 5, 2, 0xffe27a);
+      o.addChild(st);
+      stars.push(st);
+    }
+    o.position.set(x, gy - 60 * us);
+    this.anim(o, 2.0, (k) => {
+      stars.forEach((st, i) => {
+        const a = k * 14 + (i / 3) * Math.PI * 2;
+        st.position.set(Math.cos(a) * 14 * us, Math.sin(a) * 4 * us);
+        st.rotation = a;
+      });
+      o.alpha = k > 0.85 ? (1 - k) / 0.15 : 1;
+    });
+    this.spark(x, gy - 40 * us, 0xe8e0ff, 4, 60);
+  }
+
+  /** Khiên khí quanh đồng đội */
+  private fxShield(x: number, gy: number) {
+    const us = this.h.us;
+    const o = g();
+    o.ellipse(0, 0, 19 * us, 32 * us).fill({ color: 0x9ad0ff, alpha: 0.16 }).stroke({ width: 2, color: 0xcfe8ff, alpha: 0.9 });
+    o.position.set(x, gy - 26 * us);
+    this.anim(o, 0.9, (k) => {
+      o.scale.set(0.5 + 0.5 * easeOutBack(k * 2));
+      o.alpha = k < 0.5 ? 1 : 1 - (k - 0.5) / 0.5;
+    });
+  }
+
+  /** Hàng Long Thập Bát Chưởng: rồng khí xanh lao tới */
+  private fxDragon(x: number, gy: number, dir: number, dist: number) {
+    const us = this.h.us;
+    const y = gy - 28 * us;
+    const o = g();
+    this.anim(o, 0.7, (k) => {
+      o.clear();
+      const hx = x + dir * dist * easeOut(Math.min(1, k * 1.15));
+      const N = 14;
+      for (let i = N; i >= 0; i--) {
+        const tt = i / N;
+        const px = hx - dir * tt * 80 * us;
+        const py = y + Math.sin(k * 11 + tt * 6) * 9 * us;
+        const r = (11 - tt * 7) * us;
+        o.circle(px, py, r).fill({ color: i % 2 ? 0x4ab0ff : 0x7ad0ff, alpha: (1 - k * k) * 0.95 }).stroke({ width: 1.4 * us, color: GOLD, alpha: 1 - k });
+      }
+      // đầu rồng: sừng + mắt
+      const a = 1 - k * k;
+      o.poly([hx, y - 12 * us, hx + dir * 8 * us, y - 22 * us, hx + dir * 2 * us, y - 9 * us]).fill({ color: GOLD, alpha: a });
+      o.circle(hx + dir * 5 * us, y - 3 * us, 2 * us).fill({ color: 0xffffff, alpha: a });
+    });
+    this.ring(x + dir * dist, gy, 70 * us, 0x4ab0ff, 0.6, 3.5);
+    this.dust(x + dir * dist * 0.8, gy, 6, 1.2);
+    this.spark(x + dir * dist, y, 0x9ad8ff, 12, 160);
+  }
+
+  /** Hà Mô Công: đám mây độc xanh lục */
+  private fxPoisonCloud(x: number, gy: number, r: number) {
+    const us = this.h.us;
+    this.ring(x, gy, r, 0x7aff5a, 0.7, 3);
+    for (let i = 0; i < 8; i++) {
+      const p = g().circle(0, 0, (10 + Math.random() * 10) * us).fill({ color: i % 2 ? 0x6ae04a : 0x3a9a30, alpha: 0.45 });
+      p.position.set(x + (Math.random() - 0.5) * r * 1.4, gy - (6 + Math.random() * 22) * us);
+      this.part(p, (Math.random() - 0.5) * 14, -10 - Math.random() * 14, 1.5, { grow: 0.5, hold: 0.5 });
+    }
+    for (let i = 0; i < 8; i++) {
+      const b = g().circle(0, 0, 2.2 * us).fill({ color: 0xb8ff9a, alpha: 0.9 });
+      b.position.set(x + (Math.random() - 0.5) * r * 1.2, gy - 4 * us);
+      this.part(b, 0, -36 - Math.random() * 30, 1.0);
+    }
+  }
+
+  /** Hỏa Diệm Vương: sóng lửa lan về phía trước */
+  private fxInferno(x: number, gy: number, dir: number, dist: number) {
+    const us = this.h.us;
+    const n = 8;
+    for (let i = 0; i < n; i++) {
+      const fx = x + dir * (i / (n - 1)) * dist;
+      const delay = i * 0.05;
+      const o = new Container();
+      o.position.set(fx, gy + 2);
+      const fl = flame(11 * us, 54 * us * (0.8 + Math.random() * 0.5));
+      o.addChild(fl);
+      this.anim(o, 0.9 + delay, (k0) => {
+        const t0 = k0 * (0.9 + delay) - delay;
+        if (t0 < 0) {
+          o.alpha = 0;
+          return;
+        }
+        o.alpha = 1;
+        const k = t0 / 0.9;
+        const grow = k < 0.25 ? easeOutBack(k / 0.25) : 1 - ((k - 0.25) / 0.75) * 0.7;
+        fl.scale.set((0.9 + Math.sin(k * 40 + i) * 0.08) * grow, grow * (1 + Math.sin(k * 33 + i * 2) * 0.1));
+        fl.alpha = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
+      });
+    }
+    this.ring(x + dir * dist * 0.5, gy, dist * 0.6, 0xff6a3d, 0.6, 4);
+    this.dust(x, gy, 4, 1.3, 0x4a3a30);
+  }
+
+  /** Lôi phù: tia sét từ trời */
+  private fxBolt(x: number, gy: number) {
+    const us = this.h.us;
+    const pts: [number, number][] = [];
+    const top = gy - 210 * us;
+    const bot = gy - 18 * us;
+    for (let i = 0; i <= 8; i++) pts.push([x + (i === 0 || i === 8 ? 0 : (Math.random() - 0.5) * 26 * us), top + ((bot - top) * i) / 8]);
+    const o = g();
+    this.anim(o, 0.28, (k) => {
+      o.clear();
+      o.poly(pts.flatMap((p) => p), false).stroke({ width: 6 * us, color: 0x7ad0ff, alpha: (1 - k) * 0.7, join: 'round' });
+      o.poly(pts.flatMap((p) => p), false).stroke({ width: 2.2 * us, color: 0xffffff, alpha: 1 - k, join: 'round' });
+    });
+    this.ring(x, gy, 40 * us, 0x9ad8ff, 0.35, 2.5);
+    this.spark(x, gy - 20 * us, 0xcfe8ff, 8, 140);
+  }
+
+  /** Gai nhọn trồi lên từ mặt đất */
+  private fxThorns(x: number, gy: number, r: number) {
+    const us = this.h.us;
+    const o = g();
+    o.position.set(x, gy + 2);
+    const n = Math.max(3, Math.round((r * 2) / (14 * us)));
+    this.anim(o, 0.4, (k) => {
+      o.clear();
+      const hgt = 30 * us * Math.sin(Math.PI * Math.min(1, k * 1.1));
+      for (let i = 0; i < n; i++) {
+        const px = -r + ((i + 0.5) / n) * r * 2;
+        o.poly([px - 4 * us, 0, px, -hgt * (0.7 + 0.3 * ((i * 7) % 3) / 2), px + 4 * us, 0]).fill(0xc9ced8).stroke({ width: 1.2, color: 0x3a3a44 });
+      }
+    });
+    this.dust(x, gy, 3, 0.9);
+  }
+
+  /** Hàn băng: sóng lạnh và tinh thể băng */
+  private fxFrost(x: number, gy: number, r: number) {
+    const us = this.h.us;
+    this.ring(x, gy, r, 0x9ad8ff, 0.7, 3);
+    this.ring(x, gy, r * 0.5, 0xffffff, 0.5, 2);
+    for (let i = 0; i < 6; i++) {
+      const c = g();
+      c.poly([-4, 0, 0, -16, 4, 0]).fill(0xbfe8ff).stroke({ width: 1.2, color: 0x3a7aaa });
+      c.scale.set(us * (0.8 + Math.random() * 0.6));
+      c.position.set(x + (Math.random() - 0.5) * r * 1.6, gy);
+      this.part(c, 0, -8, 0.7, { hold: 0.4 });
+    }
+    for (let i = 0; i < 10; i++) {
+      const f = g().circle(0, 0, 1.8).fill(0xffffff);
+      f.position.set(x + (Math.random() - 0.5) * r * 1.6, gy - (20 + Math.random() * 30) * us);
+      this.part(f, (Math.random() - 0.5) * 14, 24, 0.9);
     }
   }
 

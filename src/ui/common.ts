@@ -78,6 +78,17 @@ export function statLine(def: UnitDef, lv: number): HTMLElement {
   const m = levelMul(lv);
   const item = (icon: string, val: string, tip: string) =>
     h('span', { class: 'stat', attrs: { title: tip } }, h('i', { text: icon }), val);
+  if (def.kind === 'defense') {
+    return h(
+      'div',
+      { class: 'stats' },
+      item('❤', def.hp > 1 ? fmt(def.hp * m) : '—', t('stat.hp')),
+      def.skill === 'altar' ? item('✚', fmt(def.dmg * m), t('stat.heal')) : def.dmg > 0 ? item('⚔', fmt(def.dmg * m), t('stat.atk')) : null,
+      def.dmg > 0 || def.skill === 'altar' ? item('⏱', `${def.cd}s`, t('stat.cd')) : null,
+      def.range > 0 ? item('🎯', String(def.range), t('stat.rng')) : null,
+      def.armor > 0 ? item('🛡', String(def.armor), t('stat.armor')) : null,
+    );
+  }
   return h(
     'div',
     { class: 'stats' },

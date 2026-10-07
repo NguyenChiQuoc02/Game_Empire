@@ -1,5 +1,6 @@
 import { Container, Graphics } from 'pixi.js';
 import { INK, ball, darker, dome, g, lighter, limb, lineOf, outline, poly, rrect } from './draw';
+import { buildDefenseArt, buildElephant, buildHound } from './extraArt';
 import type { UnitDef } from '../data/units';
 import type { Side } from '../game/sim';
 
@@ -9,10 +10,12 @@ const GOLD = 0xffd34d;
 // ───────────────────────── kiểu dáng từng đơn vị ─────────────────────────
 type Hat =
   | 'kabuto' | 'hood' | 'helm' | 'greathelm' | 'cap' | 'straw' | 'horns' | 'topknot' | 'scholar'
-  | 'plumes' | 'bun' | 'turban' | 'tyrant' | 'band' | 'blackhelm' | 'guanyu';
+  | 'plumes' | 'bun' | 'turban' | 'tyrant' | 'band' | 'blackhelm' | 'guanyu'
+  | 'bald' | 'wukong' | 'erlang' | 'mien' | 'bullhorns';
 type Weapon =
   | 'katana' | 'bow' | 'spear' | 'sword' | 'lance' | 'dagger' | 'axe' | 'staff' | 'bomb'
-  | 'needle' | 'serpent' | 'glaive' | 'fan' | 'halberd' | 'cleaver';
+  | 'needle' | 'serpent' | 'glaive' | 'fan' | 'halberd' | 'cleaver'
+  | 'pole' | 'talisman' | 'crossbow' | 'vial' | 'ruyi' | 'trident' | 'fist' | 'snakestaff';
 
 interface Style {
   skin: number;
@@ -29,6 +32,8 @@ interface Style {
   cape?: boolean;
   bulk?: number;
   boss?: boolean;
+  /** màu riêng cho vũ khí (lưỡi kiếm, quạt, quyền khí...) */
+  wc?: number;
 }
 
 const SK = 0xffd2a8;
@@ -50,13 +55,33 @@ const STYLES: Record<string, Style> = {
   giacatluong: { skin: SK, cloth: 0xeaf0fa, pants: 0xaebbd8, armor: 0x5a86d8, hat: 'scholar', hatColor: 0x34456a, weapon: 'fan', beard: { color: 0x2a2a2a, len: 8 }, cape: true },
   lubo: { skin: SK, cloth: 0xa82a2a, pants: 0x4a1a1a, armor: 0xd9a24a, hat: 'plumes', hatColor: 0xd9a24a, weapon: 'halberd', mount: { body: 0xc2342a, mane: 0x2a0f0c }, cape: true },
   dongtrac: { skin: 0xe0a47c, cloth: 0x5a2a5a, pants: 0x2a1a2a, armor: 0x8a3f8a, hat: 'tyrant', hatColor: GOLD, weapon: 'cleaver', beard: { color: 0x2a1a1a, len: 14 }, cape: true, bulk: 1.45, boss: true },
+
+  monk: { skin: SK, cloth: 0xe08a2a, pants: 0x8a5a2b, armor: 0xf0b050, hat: 'bald', hatColor: SK, weapon: 'pole', bulk: 1.1 },
+  taoist: { skin: SK, cloth: 0x4a6aa0, pants: 0x2a3a60, armor: 0x8aa0d0, hat: 'scholar', hatColor: 0x34456a, weapon: 'talisman' },
+  crossbow: { skin: SK, cloth: 0x7a6a3a, pants: 0x4a3a28, armor: 0x9a7a3a, hat: 'cap', hatColor: 0x6a5a30, weapon: 'crossbow' },
+  poisoner: { skin: 0xd8c8a0, cloth: 0x7a3aa0, pants: 0x3a2050, armor: 0x5aa04a, hat: 'cap', hatColor: 0x5a2a80, weapon: 'vial' },
+  khicon: { skin: 0xd9a05a, cloth: 0xd9a63a, pants: 0xb02a22, armor: 0xffd34d, hat: 'wukong', hatColor: 0xffd34d, weapon: 'staff' },
+  tonngokhong: { skin: 0xd9a05a, cloth: 0xd9a63a, pants: 0xb02a22, armor: 0xffd34d, hat: 'wukong', hatColor: 0xffd34d, weapon: 'ruyi', cape: true },
+  duongtien: { skin: SK, cloth: 0xdfe8f6, pants: 0x3a5a9a, armor: 0xaabee6, hat: 'erlang', hatColor: 0xcfd8ec, weapon: 'trident', cape: true },
+  taothao: { skin: SK, cloth: 0x1f2a4a, pants: 0x141a30, armor: 0x3a4a8a, hat: 'mien', hatColor: 0x2a2a3a, weapon: 'sword', beard: { color: 0x1a1a1a, len: 8 }, cape: true, bulk: 1.1 },
+  chudu: { skin: SK, cloth: 0x4aa0a0, pants: 0x2a6060, armor: 0x7ad0d0, hat: 'scholar', hatColor: 0x2a5a5a, weapon: 'sword', wc: 0xe8f4ff, cape: true },
+  masieu: { skin: SK, cloth: 0xf0f3fa, pants: 0xb0b8cc, armor: 0xd8dfee, hat: 'helm', hatColor: 0xe6ecf6, weapon: 'lance', mount: { body: 0xf6f6f6, mane: 0xcdd3de }, cape: true },
+  hoangtrung: { skin: 0xe0b890, cloth: 0xa83a2a, pants: 0x4a2a22, armor: 0xc8602a, hat: 'cap', hatColor: 0xa83a2a, weapon: 'bow', beard: { color: 0xf0f0f0, len: 12 }, cape: true },
+  tumayi: { skin: SK, cloth: 0x4a4a5a, pants: 0x2a2a38, armor: 0x7a7a90, hat: 'scholar', hatColor: 0x2a2a38, weapon: 'fan', wc: 0xb8bccb, beard: { color: 0x2a2a2a, len: 8 }, cape: true },
+  quachtinh: { skin: 0xe0b890, cloth: 0x6a5a3a, pants: 0x3a2e1e, armor: 0x8a7a4a, hat: 'topknot', hatColor: 0x2a1a12, weapon: 'fist', wc: 0x7ad0ff, bulk: 1.2 },
+  kieuphong: { skin: 0xd8a070, cloth: 0x3a6aa8, pants: 0x1f3a6a, armor: 0x5a8ad0, hat: 'band', hatColor: 0xd23a2a, weapon: 'fist', wc: 0xffb23d, beard: { color: 0x1a1a1a, len: 9 }, bulk: 1.3, cape: true },
+  lenhhoxung: { skin: SK, cloth: 0xf0f0f4, pants: 0x8a90a0, armor: 0xcdd4e4, hat: 'topknot', hatColor: 0x1d1a2a, weapon: 'sword', wc: 0xdfe8f6, cape: true },
+  truongvoky: { skin: SK, cloth: 0xeaf0ff, pants: 0x3a4a8a, armor: 0xf0c85a, hat: 'topknot', hatColor: 0x1d1a2a, weapon: 'sword', wc: 0xffe27a, cape: true },
+  auduongphong: { skin: 0xe0c8a0, cloth: 0x5a8a3a, pants: 0x2a4a22, armor: 0xb0c850, hat: 'band', hatColor: 0xe8e8e8, weapon: 'snakestaff', beard: { color: 0xeeeeee, len: 12 }, cape: true },
+  dongphuongbatbai: { skin: 0xf6dcc8, cloth: 0xc02a3a, pants: 0x4a1020, armor: 0xe84a5a, hat: 'bun', hatColor: 0x1a1a22, weapon: 'needle', wc: 0xffb0c8, cape: true, boss: true, bulk: 1.1 },
+  nguumavuong: { skin: 0x8a5a3a, cloth: 0x7a2018, pants: 0x3a1010, armor: 0xc03a28, hat: 'bullhorns', hatColor: 0xf0e0b8, weapon: 'axe', beard: { color: 0x2a1410, len: 6 }, cape: true, boss: true, bulk: 1.5 },
 };
 
 // ───────────────────────── vũ khí ─────────────────────────
 // 'swing': vẽ hướng lên (-y), 'thrust': vẽ hướng +x
 type Mode = 'swing' | 'thrust' | 'bow' | 'cast' | 'hold';
 
-function drawWeapon(kind: Weapon, accent: number): { g: Graphics; mode: Mode; rest: number } {
+function drawWeapon(kind: Weapon, accent: number, wc?: number): { g: Graphics; mode: Mode; rest: number } {
   const w = g();
   const metal = 0xe9f0f8;
   switch (kind) {
@@ -69,7 +94,7 @@ function drawWeapon(kind: Weapon, accent: number): { g: Graphics; mode: Mode; re
     case 'sword':
       rrect(w, -1.8, -3, 3.6, 10, 1, 0x2a2430);
       rrect(w, -5.5, -5.8, 11, 3.2, 1.2, 0x5a6684);
-      poly(w, [-3, -5.8, 3, -5.8, 2.7, -33, 0, -39, -2.7, -33], 0xa9bad8);
+      poly(w, [-3, -5.8, 3, -5.8, 2.7, -33, 0, -39, -2.7, -33], wc ?? 0xa9bad8);
       w.moveTo(0, -8).lineTo(0, -34).stroke({ width: 1, color: 0xffffff, alpha: 0.75 });
       return { g: w, mode: 'swing', rest: 0.35 };
     case 'dagger':
@@ -97,7 +122,7 @@ function drawWeapon(kind: Weapon, accent: number): { g: Graphics; mode: Mode; re
       rrect(w, -1.2, -2, 2.4, 9, 1, 0x9a7440);
       for (let i = -2; i <= 2; i++) {
         const a = i * 0.36;
-        w.ellipse(Math.sin(a) * 7, -9 - Math.cos(a) * 7, 2.8, 8.5).fill(0xffffff);
+        w.ellipse(Math.sin(a) * 7, -9 - Math.cos(a) * 7, 2.8, 8.5).fill(wc ?? 0xffffff);
         outline(w, 0x6b84c0, 1.1);
       }
       return { g: w, mode: 'cast', rest: 0.9 };
@@ -147,8 +172,57 @@ function drawWeapon(kind: Weapon, accent: number): { g: Graphics; mode: Mode; re
       poly(w, [41, -3.4, 45, -16, 52, -12, 48, -3.4], GOLD);
       poly(w, [41, 3.4, 45, 16, 52, 12, 48, 3.4], GOLD);
       return { g: w, mode: 'thrust', rest: -0.12 };
+    case 'pole':
+      rrect(w, -1.7, -42, 3.4, 56, 1.4, 0x9a6a38);
+      for (const y of [-34, -6]) rrect(w, -2.4, y, 4.8, 4, 1, 0x6a4a28);
+      return { g: w, mode: 'swing', rest: 0.2 };
+    case 'talisman':
+      rrect(w, -5.5, -19, 11, 15, 1.2, 0xf8e070);
+      w.moveTo(-3, -16).lineTo(3, -16).moveTo(0, -16).lineTo(0, -8).moveTo(-3, -11).lineTo(3, -11).stroke({ width: 1.2, color: 0xc02a2a });
+      w.circle(0, -12, 11).fill({ color: 0x9ad0ff, alpha: 0.22 });
+      return { g: w, mode: 'cast', rest: 0.1 };
+    case 'crossbow':
+      rrect(w, -3, -2.4, 24, 4.8, 1.6, 0x7a5028);
+      w.moveTo(14, -14).quadraticCurveTo(24, 0, 14, 14).stroke({ width: 4, color: 0x3a2412, cap: 'round' });
+      w.moveTo(14, -14).quadraticCurveTo(24, 0, 14, 14).stroke({ width: 2.4, color: 0xb87a3c, cap: 'round' });
+      w.moveTo(14, -14).lineTo(2, 0).lineTo(14, 14).stroke({ width: 0.9, color: 0xf0e8d0 });
+      poly(w, [18, -2, 28, 0, 18, 2], 0xdfe6f0, 1);
+      return { g: w, mode: 'bow', rest: 0 };
+    case 'vial':
+      ball(w, 0, -7, 6, 0x6ae04a);
+      rrect(w, -2, -17, 4, 6, 1, 0xdfe6f0);
+      rrect(w, -2.6, -19, 5.2, 3, 1, 0x7a4a28);
+      w.circle(0, -7, 11).fill({ color: 0x7aff5a, alpha: 0.22 });
+      return { g: w, mode: 'cast', rest: 0.1 };
+    case 'ruyi':
+      rrect(w, -2.4, -50, 4.8, 66, 2, 0xd9a63a);
+      rrect(w, -3.4, -52, 6.8, 10, 2.5, 0xc02a2a);
+      rrect(w, -3.4, 8, 6.8, 10, 2.5, 0xc02a2a);
+      w.moveTo(-2.4, -30).lineTo(2.4, -30).moveTo(-2.4, -12).lineTo(2.4, -12).stroke({ width: 1, color: 0xfff0b0 });
+      return { g: w, mode: 'swing', rest: 0.3 };
+    case 'trident':
+      rrect(w, -9, -1.7, 46, 3.4, 1.4, 0x8a98b0);
+      poly(w, [35, -2.4, 40, -9, 44, -2.4, 48, 0, 44, 2.4, 40, 9, 35, 2.4], 0xe0e8f4, 1.3);
+      poly(w, [37, -2, 54, 0, 37, 2], 0xe0e8f4, 1.2);
+      w.circle(34, 0, 3).fill(0x3ab0ff);
+      return { g: w, mode: 'thrust', rest: -0.12 };
+    case 'fist': {
+      const c = wc ?? 0x7ad0ff;
+      w.circle(2, -2, 12).fill({ color: c, alpha: 0.2 });
+      w.circle(2, -2, 7).fill({ color: c, alpha: 0.5 });
+      ball(w, 2, -2, 4.4, c);
+      return { g: w, mode: 'cast', rest: 0 };
+    }
+    case 'snakestaff':
+      rrect(w, -1.7, -40, 3.4, 56, 1.4, 0x6a4a28);
+      w.moveTo(0, -38).bezierCurveTo(10, -34, -10, -26, 8, -20).bezierCurveTo(14, -17, 4, -10, 0, -8).stroke({ width: 4.4, color: 0x1a3a14, cap: 'round' });
+      w.moveTo(0, -38).bezierCurveTo(10, -34, -10, -26, 8, -20).bezierCurveTo(14, -17, 4, -10, 0, -8).stroke({ width: 2.6, color: 0x6ae04a, cap: 'round' });
+      poly(w, [-4, -44, 4, -44, 6, -38, 0, -34, -6, -38], 0x6ae04a, 1.1);
+      w.circle(-1.5, -41, 1).fill(0xff3a3a);
+      w.circle(2, -41, 1).fill(0xff3a3a);
+      return { g: w, mode: 'swing', rest: 0.3 };
     case 'needle':
-      w.moveTo(-2, 0).lineTo(26, 0).stroke({ width: 3.2, color: 0x9aa4d0, cap: 'round' });
+      w.moveTo(-2, 0).lineTo(26, 0).stroke({ width: 3.2, color: wc ?? 0x9aa4d0, cap: 'round' });
       w.moveTo(-2, 0).lineTo(26, 0).stroke({ width: 1.6, color: 0xffffff, cap: 'round' });
       w.circle(26, 0, 5).fill({ color: 0xcfe8ff, alpha: 0.4 });
       w.circle(26, 0, 2.2).fill(0xffffff);
@@ -314,6 +388,68 @@ const HATS: Record<Hat, { back?: HatFn; front: HatFn }> = {
       ball(h, 0, -9, 2.2, 0xff3d3d);
       ball(h, -7.5, -8, 1.5, 0x57c4ff);
       ball(h, 7.5, -8, 1.5, 0x57ffb0);
+    },
+  },
+  bald: {
+    front: (h, st) => {
+      for (const [x, y] of [[-3.5, -R + 2.6], [0.5, -R + 0.8], [4, -R + 2.6]] as const) h.circle(x, y, 1.3).fill(darker(st.skin, 0.35));
+      h.moveTo(-8, -1).quadraticCurveTo(0, -R - 1, 8, -1).stroke({ width: 1, color: 0xffffff, alpha: 0.3 });
+    },
+  },
+  wukong: {
+    back: (h) => {
+      poly(h, [-R + 1, -2, -R - 8, 4, -R - 5, 11, -R + 2, 6], 0xb87a30);
+    },
+    front: (h, st) => {
+      // lông mày/tóc lông quanh mặt + vòng vàng + hai lông phượng
+      poly(h, [-R, -6, -R + 4, -R + 2, 2, -R, 6, -R + 4, R - 1, -5, 4, -4, -4, -4], 0xb87a30);
+      rrect(h, -R - 1, -6.5, 2 * R + 2, 3.4, 1.4, GOLD);
+      for (const [dx, k] of [[-2, 1], [3, 1.2]] as const) {
+        h.moveTo(dx, -R + 1).quadraticCurveTo(dx - 6 * k, -R - 22 * k, dx - 22 * k, -R - 20 * k).stroke({ width: 5, color: lineOf(0xd23a2a), cap: 'round' });
+        h.moveTo(dx, -R + 1).quadraticCurveTo(dx - 6 * k, -R - 22 * k, dx - 22 * k, -R - 20 * k).stroke({ width: 3, color: 0xd23a2a, cap: 'round' });
+        h.moveTo(dx, -R + 1).quadraticCurveTo(dx - 6 * k, -R - 22 * k, dx - 22 * k, -R - 20 * k).stroke({ width: 0.9, color: GOLD, cap: 'round' });
+      }
+      ball(h, 0, -R - 1, 3, 0xff5a3a);
+      void st;
+    },
+  },
+  erlang: {
+    front: (h, st) => {
+      dome(h, 0, 0, R + 1.5, st.hatColor);
+      rrect(h, -R - 2, -4, 2 * R + 4, 3.6, 1.5, 0x3ab0ff);
+      // cánh hai bên mũ + mào vàng
+      poly(h, [-R - 1, -3, -R - 13, -12, -R - 7, -2], 0xe8f0ff);
+      poly(h, [-R - 1, -7, -R - 12, -19, -R - 5, -8], 0xcfe0ff);
+      poly(h, [-2, -R - 1, 0, -R - 9, 3, -R - 1], GOLD);
+      // mắt thứ ba dọc giữa trán
+      h.ellipse(5.5, -2.5, 1.5, 3.6).fill(0xff2a2a).stroke({ width: 1, color: 0xffd34d });
+    },
+  },
+  mien: {
+    front: (h, st) => {
+      dome(h, 0, 0, R, st.hatColor);
+      poly(h, [-R - 5, -R - 2, R + 6, -R - 4, R + 6, -R + 1, -R - 5, -R + 3], 0x23232e, 1.4);
+      rrect(h, -R, -R + 2, 2 * R, 3, 1, GOLD);
+      for (let i = -3; i <= 3; i++) {
+        const bx = i * 3.4 + 1;
+        h.moveTo(bx, -R - 0.5).lineTo(bx, -R + 6).stroke({ width: 0.9, color: 0xf0e8c0 });
+        ball(h, bx, -R + 6.5, 1.2, 0xf0e8c0);
+      }
+    },
+  },
+  bullhorns: {
+    back: (h) => {
+      poly(h, [-R + 1, -3, -R - 7, 4, -R + 1, 12], 0x3a1a10);
+    },
+    front: (h, st) => {
+      dome(h, 0, 0, R + 1.5, 0x4a2a18);
+      // cặp sừng trâu khổng lồ cong lên
+      for (const sgn of [-1, 1]) {
+        h.moveTo(sgn * 7, -5).bezierCurveTo(sgn * 18, -6, sgn * 24, -16, sgn * 15, -28).bezierCurveTo(sgn * 18, -17, sgn * 12, -11, sgn * 3, -10).closePath().fill(st.hatColor);
+        outline(h, st.hatColor);
+      }
+      // khuyên mũi vàng
+      h.circle(R - 1, 7, 2.6).stroke({ width: 1.6, color: GOLD });
     },
   },
   guanyu: {
@@ -536,7 +672,7 @@ function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container
   const armC = new Container();
   const shoulderX = 6 * bulk;
   armC.position.set(shoulderX, -29);
-  const wd = drawWeapon(st.weapon, accent);
+  const wd = drawWeapon(st.weapon, accent, st.wc);
   const hand = { x: 7, y: 5 };
   const armG = g();
   limb(armG, 0, 0, hand.x, hand.y, 5.4, st.cloth);
@@ -605,10 +741,20 @@ function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container
 
 export function buildUnitArt(def: UnitDef, side: Side, withSquad = false): UnitArt {
   const accent = SIDE_COLOR[side];
+  if (def.kind === 'defense') {
+    const d = buildDefenseArt(def, side);
+    const bar = g();
+    bar.position.set(0, -d.height - 8);
+    d.root.addChild(bar);
+    return {
+      root: d.root, art: d.art, hpBar: bar, height: d.height, barW: 38, mode: 'hold', baseScale: def.scale,
+      face: { x: 0, y: -d.height * 0.6 }, update: (clock, _moving, atk) => d.update(clock, atk),
+    };
+  }
   const sc = def.scale;
   const root = new Container();
   const art = new Container();
-  const elite = def.kind !== 'troop';
+  const elite = def.kind === 'general' || def.kind === 'boss';
 
   const base = g();
   base.ellipse(0, 1.5, 21 * sc, 6 * sc).fill({ color: 0x000000, alpha: 0.34 });
@@ -642,6 +788,11 @@ export function buildUnitArt(def: UnitDef, side: Side, withSquad = false): UnitA
       arm.rotation = rot;
       body.y = moving ? Math.sin(clock * 6) * 0.6 : 0;
     };
+  } else if (def.id === 'elephant' || def.id === 'haothienkhuyen') {
+    const b = def.id === 'elephant' ? buildElephant(accent) : buildHound(accent);
+    art.addChild(b.body);
+    height = b.height * sc;
+    tick = b.tick;
   } else {
     const squad = withSquad && def.kind === 'troop' && !STYLES[def.id].mount ? (def.id === 'bomber' || def.id === 'healer' ? 1 : 2) : 0;
     const spots: [number, number, number][] = [[-22, -8, 0.94], [-14, 9, 0.97]];

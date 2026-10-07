@@ -1,9 +1,34 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Mỗi tài khoản chỉ đọc/ghi được save của chính mình
+    // Tài khoản quản trị: đăng nhập tại trang /admin bằng admin / mật khẩu quản trị (email admin@gameempire.app)
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'admin@gameempire.app';
+    }
+
+    // Tài khoản bị admin khóa (accounts/{uid}.locked == true) thì không ghi được save
+    function isLocked(uid) {
+      return exists(/databases/$(database)/documents/accounts/$(uid))
+        && get(/databases/$(database)/documents/accounts/$(uid)).data.locked == true;
+    }
+
+    // Người chơi đọc/ghi save của chính mình; admin đọc/ghi mọi save
     match /saves/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
+      allow write: if request.auth != null && ((request.auth.uid == uid && !isLocked(uid)) || isAdmin());
+    }
+
+    // Trạng thái khóa: người chơi chỉ đọc của mình, chỉ admin được ghi
+    match /accounts/{uid} {
+      allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // Thông báo: gửi tất cả (to == 'all') hoặc riêng (uid nằm trong uids); chỉ admin được tạo/xóa
+    match /notices/{id} {
+      allow read: if isAdmin()
+        || (request.auth != null && (resource.data.to == 'all' || request.auth.uid in resource.data.uids));
+      allow write: if isAdmin();
     }
   }
 }

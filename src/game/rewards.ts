@@ -10,8 +10,8 @@ export function rewardFor(st: Station, win: boolean, firstClear: boolean): numbe
 export const FAST_WIN_SEC = 100;
 
 /** 1★ thắng · 2★ không thua lane nào · 3★ thắng nhanh */
-export function starsFor(win: boolean, lanesLost: number, seconds: number): number {
+export function starsFor(win: boolean, lanesLost: number, seconds: number, fastSec = FAST_WIN_SEC): number {
   if (!win) return 0;
   if (lanesLost > 0) return 1;
-  return seconds <= FAST_WIN_SEC ? 3 : 2;
+  return seconds <= fastSec ? 3 : 2;
 }

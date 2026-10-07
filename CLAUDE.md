@@ -10,6 +10,8 @@ Game chiến thuật TypeScript + Vite + PixiJS 8, lưu tài khoản/tiến trì
 - `.playwright-mcp/` (log, snapshot trình duyệt) có thể chứa cấu hình Firebase: luôn để trong `.gitignore`, không commit.
 - Trước mỗi lần commit/push: chạy `git status` và `git diff --cached`, tìm `AIzaSy` và các giá trị trong `.env` để chắc chắn không lộ. Không dùng `git add -f` cho `.env`.
 - Nếu lỡ push key: báo ngay cho chủ dự án để xoay (rotate) key trong Firebase/Google Cloud Console; xoá khỏi lịch sử Git là chưa đủ.
+- không push những ảnh chụp màn hình chứa nội dung game.
+- các ảnh chứa nội dung game chỉ được lưu trong `image/screenshoot/`
 
 ## Đồng bộ dữ liệu
 

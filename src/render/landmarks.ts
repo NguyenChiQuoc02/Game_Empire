@@ -12,6 +12,7 @@ export interface Palette {
 
 export const PAL_BLUE: Palette = { roof: 0x3e6a86, wall: 0xf1e6cc, pillar: 0xc03a30, fog: 0xdcecff };
 export const PAL_WARM: Palette = { roof: 0x8a4a3a, wall: 0xf0dcc0, pillar: 0xb8342a, fog: 0xffe0b8 };
+export const PAL_GOLD: Palette = { roof: 0xd9a63a, wall: 0xfff0d0, pillar: 0xc8402a, fog: 0xfff0ff };
 export const PAL_DARK: Palette = { roof: 0x3a2a4a, wall: 0x8a7a92, pillar: 0x8a2a3a, fog: 0x8a2c52 };
 
 /** mái chùa cong vút hai đầu */

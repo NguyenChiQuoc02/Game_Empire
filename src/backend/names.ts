@@ -10,6 +10,7 @@ export function emailFor(input: string): string {
 export function validName(input: string): string | null {
   const s = input.trim();
   if (s.length < 3) return 'err.nameShort';
+  if (s.toLowerCase() === 'admin' || emailFor(s) === emailFor('admin')) return 'err.reserved';
   if (s.includes('@')) return null; // chấp nhận email thật
   if (!/^[a-zA-Z0-9._-]+$/.test(s)) return 'err.nameChars';
   return null;

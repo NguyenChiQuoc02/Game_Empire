@@ -1,9 +1,12 @@
-import { AuthError, type AuthUser, type Backend, type SaveData } from './types';
+import { AuthError, type Account, type AuthUser, type Backend, type Notice, type SaveData } from './types';
 
 // Chế độ offline: tài khoản + save nằm trong localStorage của trình duyệt.
 const USERS = 'empire.users';
 const SESSION = 'empire.session';
 const saveKey = (uid: string) => `empire.save.${uid}`;
+export const ACCT_PREFIX = 'empire.acct.';
+export const NOTICES = 'empire.notices';
+export const readNotices = (): Notice[] => JSON.parse(localStorage.getItem(NOTICES) || '[]');
 
 const readUsers = (): Record<string, string> => JSON.parse(localStorage.getItem(USERS) || '{}');
 const enc = (pw: string) => btoa(encodeURIComponent(pw));
@@ -44,6 +47,15 @@ export function createLocalBackend(): Backend {
     async writeSave(uid, data) {
       localStorage.setItem(saveKey(uid), JSON.stringify(data));
       return data;
+    },
+    async getAccount(uid) {
+      const s = localStorage.getItem(ACCT_PREFIX + uid);
+      return s ? (JSON.parse(s) as Account) : { locked: false };
+    },
+    async listNotices(uid) {
+      return readNotices()
+        .filter((n) => n.to === 'all' || n.uids.includes(uid))
+        .sort((a, b) => b.createdAt - a.createdAt);
     },
   };
 }
