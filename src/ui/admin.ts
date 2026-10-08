@@ -4,7 +4,7 @@ import { getLang, onLang, stationName, t } from '../i18n';
 import { AuthError, type Notice } from '../backend/types';
 import type { AdminApi, PlayerRow } from '../backend/admin';
 import { STATIONS, stationLabel } from '../data/campaign';
-import { DEFENSES, PLAYABLE } from '../data/units';
+import { DEFENSES, PETS, PLAYABLE } from '../data/units';
 
 type Tab = 'players' | 'notices';
 
@@ -236,7 +236,7 @@ export function renderAdmin(root: HTMLElement, api: AdminApi) {
             class: 'btn small',
             text: t('adm.unlockAll'),
             attrs: { type: 'button' },
-            on: { click: () => void apply(close, (x) => { for (const d of [...PLAYABLE, ...DEFENSES]) x.unlocked[d.id] = Math.max(1, x.unlocked[d.id] ?? 0); }) },
+            on: { click: () => void apply(close, (x) => { for (const d of [...PLAYABLE, ...DEFENSES, ...PETS]) x.unlocked[d.id] = Math.max(1, x.unlocked[d.id] ?? 0); }) },
           }),
           h('button', {
             class: 'btn small danger',

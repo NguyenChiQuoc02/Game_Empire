@@ -1,6 +1,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { INK, ball, darker, dome, g, lighter, limb, lineOf, outline, poly, rrect } from './draw';
 import { buildDefenseArt, buildElephant, buildHound } from './extraArt';
+import { buildBeast, hasBeastArt } from './beastArt';
 import type { UnitDef } from '../data/units';
 import type { Side } from '../game/sim';
 
@@ -788,8 +789,8 @@ export function buildUnitArt(def: UnitDef, side: Side, withSquad = false): UnitA
       arm.rotation = rot;
       body.y = moving ? Math.sin(clock * 6) * 0.6 : 0;
     };
-  } else if (def.id === 'elephant' || def.id === 'haothienkhuyen') {
-    const b = def.id === 'elephant' ? buildElephant(accent) : buildHound(accent);
+  } else if (def.id === 'elephant' || def.id === 'haothienkhuyen' || hasBeastArt(def.id)) {
+    const b = def.id === 'elephant' ? buildElephant(accent) : def.id === 'haothienkhuyen' ? buildHound(accent) : buildBeast(def.id, accent);
     art.addChild(b.body);
     height = b.height * sc;
     tick = b.tick;

@@ -42,7 +42,7 @@ function run(stationIdx: number, deck: string[], levels: Record<string, number>,
   return { win: b.winner === 0, time: b.time, wins: b.wins };
 }
 
-const N = 20;
+const N = Number(process.env.N) || 20;
 const profiles: { name: string; deck: string[]; lv: number }[] = [
   { name: 'Khởi đầu (lv1)', deck: [...STARTERS], lv: 1 },
   { name: 'Map 1 (lv3)', deck: ['samurai', 'archer', 'shield', 'knight', 'duongqua', 'truongphi'], lv: 3 },
@@ -50,7 +50,7 @@ const profiles: { name: string; deck: string[]; lv: number }[] = [
   { name: 'Map 3 mạnh (lv5)', deck: ['elephant', 'crossbow', 'monk', 'tonngokhong', 'duongtien', 'quanvu'], lv: 5 },
   { name: 'Map 3 (lv5)', deck: ['samurai', 'knight', 'elephant', 'trebuchet', 'lubo', 'quanvu'], lv: 5 },
 ];
-for (const p of profiles) {
+for (const p of profiles.filter((q) => !process.env.ONLY || q.name.includes(process.env.ONLY))) {
   const levels = Object.fromEntries(p.deck.map((id) => [id, p.lv]));
   console.log(`\n== ${p.name} ==`);
   STATIONS.forEach((st, i) => {

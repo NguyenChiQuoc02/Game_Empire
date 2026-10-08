@@ -91,3 +91,36 @@ export function attachUnitTip(el: HTMLElement, def: UnitDef, side: 0 | 1, pow = 
   el.addEventListener('focus', () => showMapTip(el, def, side, pow));
   el.addEventListener('blur', hideMapTip);
 }
+
+/** Tooltip nội dung tuỳ ý (ô nâng cấp...): rê chuột để xem; trên điện thoại chạm giữ/nhấn cũng hiện vài giây */
+export function attachInfoTip<T extends HTMLElement>(el: T, build: () => HTMLElement[]): T {
+  const show = () => {
+    if (!mapTip) {
+      mapTip = h('div', { class: 'unit-tip map-tip' });
+      document.body.append(mapTip);
+    }
+    const tipEl = mapTip;
+    tipEl.className = 'unit-tip map-tip info-tip ally';
+    tipEl.replaceChildren(...build());
+    tipEl.style.display = 'block';
+    const r = el.getBoundingClientRect();
+    const w = tipEl.offsetWidth;
+    const hh = tipEl.offsetHeight;
+    const left = Math.max(6, Math.min(window.innerWidth - w - 6, r.left + r.width / 2 - w / 2));
+    let top = r.top - hh - 8;
+    if (top < 6) top = Math.min(window.innerHeight - hh - 6, r.bottom + 8);
+    tipEl.style.left = `${left}px`;
+    tipEl.style.top = `${top}px`;
+  };
+  el.addEventListener('pointerenter', (e) => e.pointerType === 'mouse' && show());
+  el.addEventListener('pointerleave', hideMapTip);
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return;
+    show();
+    clearTimeout(mapTipTimer);
+    mapTipTimer = setTimeout(hideMapTip, 3200);
+  });
+  el.addEventListener('focus', show);
+  el.addEventListener('blur', hideMapTip);
+  return el;
+}

@@ -130,6 +130,8 @@ export interface BattleConfig {
   levels: Record<string, number>;
   /** cấp nâng cấp máu thành trì của người chơi (0..10) */
   flagLevel?: number;
+  /** số tướng tối đa của người chơi cùng lúc trên chiến trường (bỏ trống = không giới hạn) */
+  generalCap?: number;
 }
 
 interface SpawnOpts {
@@ -203,7 +205,7 @@ export class Battle {
   /** số quân địch còn sống trên chiến trường (không tính công trình) */
   get enemyAlive() {
     let n = 0;
-    for (const l of this.lanes) for (const u of l.units) if (u.alive && u.side === 1 && !u.ghost && (u.def.kind === 'troop' || u.def.kind === 'general')) n++;
+    for (const l of this.lanes) for (const u of l.units) if (u.alive && u.side === 1 && !u.ghost && (u.def.kind === 'troop' || u.def.kind === 'beast' || u.def.kind === 'general')) n++;
     return n;
   }
 
@@ -238,6 +240,13 @@ export class Battle {
     return false;
   }
 
+  /** số tướng đang sống trên chiến trường của một bên */
+  generalsAlive(side: Side): number {
+    let n = 0;
+    for (const l of this.lanes) for (const u of l.units) if (u.alive && u.side === side && u.def.kind === 'general' && !u.owner) n++;
+    return n;
+  }
+
   /** số công trình phòng thủ còn sống của một bên trong lane */
   defensesIn(side: Side, lane: number): number {
     return this.lanes[lane].units.filter((u) => u.alive && u.side === side && u.def.kind === 'defense').length;
@@ -250,9 +259,10 @@ export class Battle {
     if (!l || l.winner !== null) return false;
     if (this.gold[side] < def.cost) return false;
     if (def.kind === 'defense') return this.defensesIn(side, lane) < MAX_DEFENSES_PER_LANE;
-    if (def.kind !== 'troop' && def.kind !== 'general') return false;
+    if (def.kind !== 'troop' && def.kind !== 'general' && def.kind !== 'beast' && def.kind !== 'pet') return false;
     if (side === 1 && this.enemyLeft <= 0) return false;
     if (def.kind === 'general' && this.generalOnField(side, id)) return false;
+    if (def.kind === 'general' && side === 0 && this.generalsAlive(0) >= (this.cfg.generalCap ?? 99)) return false;
     return true;
   }
 
@@ -388,7 +398,8 @@ export class Battle {
   private bountyOf(v: UnitInst): number {
     if (v.noBounty) return 0;
     switch (v.def.kind) {
-      case 'troop': return Math.max(1, Math.round(v.def.cost * BOUNTY_TROOP));
+      case 'troop':
+      case 'beast': return Math.max(1, Math.round(v.def.cost * BOUNTY_TROOP));
       case 'general': return Math.round(v.def.cost * BOUNTY_GENERAL);
       case 'boss': return BOUNTY_BOSS;
       default: return 0;
@@ -712,7 +723,7 @@ export class Battle {
 
   private onKill(a: UnitInst, v: UnitInst) {
     if (this.has(a, 'ironWill')) {
-      const g = v.def.kind === 'troop' ? 2 : 5;
+      const g = v.def.kind === 'troop' || v.def.kind === 'beast' ? 2 : 5;
       a.armor += g;
       this.emit({ t: 'text', lane: a.lane, x: a.x, key: 'fx.armor', p: { n: g }, color: 0x9ad0ff });
       this.emit({ t: 'fx', kind: 'armor', lane: a.lane, x: a.x, dir: a.side === 0 ? 1 : -1 });

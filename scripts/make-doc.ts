@@ -7,7 +7,7 @@ import {
 } from 'docx';
 import {
   UNIT_LIST, UNITS, DEFENSES, levelMul, upgradeCost, DECK_SIZE, DEFENSE_DECK_SIZE, MAX_DEFENSES_PER_LANE, MAX_GENERALS_IN_DECK, MAX_LEVEL,
-  STARTER_DEFENSES, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, FLAG_MAX_LV, flagHpMul, flagUpgradeCost, type UnitDef,
+  STARTER_DEFENSES, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, GENERAL_EXTRA_COSTS, FLAG_MAX_LV, flagHpMul, flagUpgradeCost, type UnitDef,
 } from '../src/data/units';
 import { CHAPTERS, STATIONS, STATIONS_PER_MAP, stationLabel } from '../src/data/campaign';
 import {
@@ -46,7 +46,7 @@ const note = (title: string, text: string) => B.push({ k: 'note', title, text })
 const f = (n: number, d = 1) => (Number.isInteger(n) ? String(n) : n.toFixed(d));
 const dps = (u: UnitDef) => (u.dmg > 0 ? f(u.dmg / u.cd, 1) : '—');
 const rangeText = (u: UnitDef) => (u.range > 70 ? `${u.range} (tầm xa)` : u.range === 0 ? '—' : `${u.range} (cận chiến)`);
-const KIND: Record<UnitDef['kind'], string> = { troop: 'Lính', general: 'Tướng', boss: 'Boss', summon: 'Triệu hồi', defense: 'Đồ phòng thủ' };
+const KIND: Record<UnitDef['kind'], string> = { troop: 'Lính', general: 'Tướng', boss: 'Boss', summon: 'Triệu hồi', defense: 'Đồ phòng thủ', beast: 'Quái thú', pet: 'Thú cưng' };
 const kindName = (u: UnitDef) => KIND[u.kind];
 const THEME: Record<string, string> = {
   plains: 'Đồng bằng', bamboo: 'Rừng trúc', stone: 'Núi đá', castle: 'Thành lũy', throne: 'Hoàng thành', sea: 'Biển',
@@ -188,6 +188,20 @@ const UNIT_STORY: Record<string, string> = {
 };
 
 const STORY2: Record<string, string> = {
+  soihoang: "Sói rừng thành bầy, cắn xé không ngừng.",
+  lonrung: "Lợn lòi nổi điên, húc đổ cả hàng rào.",
+  gauden: "Gấu đen vùng núi, to khỏe và nóng tính.",
+  hocnui: "Hổ vằn chúa sơn lâm, một vồ quét cả hàng quân.",
+  mangxa: "Mãng xà ngàn năm phun nọc độc.",
+  baoden: "Báo đen lặng lẽ, lướt như bóng đêm.",
+  tegiac: "Tê giác da sắt, sừng nhọn như mũi giáo.",
+  honglong: "Hỏa long con của núi lửa, thở ra lửa nóng.",
+  silverwolf: "Chú sói bạc trung thành, người bạn đầu tiên của chủ nhân.",
+  panda: "Gấu trúc mũm mĩm, bền bỉ và hiền lành.",
+  tigercub: "Hổ con tinh nghịch nhưng móng vuốt đã sắc.",
+  jadesnake: "Rắn ngọc xanh biếc, nọc độc ngọt như hoa.",
+  babydragon: "Rồng con ấp từ trứng, vừa biết phun lửa.",
+  qilin: "Kỳ lân mang phúc khí, đi đến đâu thương tích lành đến đó.",
   monk: 'Võ tăng Thiếu Lâm, mình đồng da sắt với Kim Chung Tráo.',
   taoist: 'Đạo sĩ Võ Đang, tay vẽ phù, gọi sấm xuống chiến trường.',
   crossbow: 'Xạ thủ nỏ liên châu, mũi tên xuyên cả giáp dày.',
@@ -242,6 +256,20 @@ const NEW_INFO: Record<string, { numbers: string; tip: string; weak?: string }> 
   auduongphong: { numbers: 'Cứ 9 giây: đám mây độc lên cụm địch, 30 sát thương rồi 12 máu/giây trong 6 giây (xuyên giáp). Tầm 150.', tip: 'Rất hiệu quả trước Voi chiến, tướng và boss.', weak: 'Máu 460, giáp 6.' },
   dongphuongbatbai: { numbers: 'Máu 3.250, né 25% đòn đơn mục tiêu; mỗi 7 giây lướt xuyên đội hình gây 90 sát thương mọi kẻ trên đường. Tốc độ 46, nhịp đánh 0,7 giây.', tip: 'Dùng sát thương lan (không bị né) và tướng làm chậm/choáng (Chu Du, Tư Mã Ý).', weak: 'Máu thấp hơn Ngưu Ma Vương.' },
   nguumavuong: { numbers: 'Máu 3.450, giáp 14, tốc độ chậm (22). Mỗi 10 giây phun sóng lửa 85 sát thương diện rộng + thiêu 10 máu/giây trong 4 giây; dưới 50% máu sát thương +30%.', tip: 'Phân tán đội hình, có Y sư/Tế đàn, dùng xuyên giáp (Nỏ, Hoàng Trung, Lệnh Hồ Xung).', weak: 'Rất chậm; có thể bị kéo dài bằng tường/chặn đường.' },
+  soihoang: { numbers: "Máu 95, chạy 72 (rất nhanh), đánh 0,5 giây/đòn.", tip: "Dùng Tường/Lính khiên chặn rồi bắn từ xa; chúng thường lao thẳng vào cờ.", weak: "Mỏng máu, sát thương lan hạ cả bầy." },
+  lonrung: { numbers: "Máu 190, xung phong: đòn đầu cộng thêm theo quãng đường chạy (tối đa ×5).", tip: "Đặt Tường hoặc Lính giáo phía trước để chặn cú húc đầu.", weak: "Sau cú húc đầu khá yếu." },
+  gauden: { numbers: "Máu 480, giáp 8; càng mất máu càng điên (tối đa +120% sát thương).", tip: "Hạ nhanh bằng sát thương cao hoặc xuyên giáp; độc rất hiệu quả.", weak: "Chậm (30), dễ bị kéo dài bằng tường." },
+  hocnui: { numbers: "Máu 330, sát thương 30; mỗi đòn thứ 3 vồ quét diện rộng ×1,8.", tip: "Đừng để quân mỏng đứng gần nhau; dùng Lính khiên đứng đầu.", weak: "Giáp trung bình (6)." },
+  mangxa: { numbers: "Tầm 120; mỗi đòn gây độc 9 máu/giây trong 5 giây (xuyên giáp).", tip: "Dùng Y sư/Tế đàn và hạ nhanh bằng cung/nỏ.", weak: "Máu 120, sát thương đòn thường thấp." },
+  baoden: { numbers: "Máu 110, chạy 82; né 30% đòn đơn mục tiêu, phá cờ gấp đôi.", tip: "Dùng sát thương lan (không bị né); giữ lính canh cờ.", weak: "Mỏng máu; sát thương lan hạ nhanh." },
+  tegiac: { numbers: "Máu 520, giáp 14, sát thương lan bán kính 55, rất chậm (26).", tip: "Xuyên giáp (Nỏ, Hoàng Trung, Lệnh Hồ Xung) và độc.", weak: "Rất chậm; bị tường chặn lâu." },
+  honglong: { numbers: "Tầm 230; mỗi 8 giây phun lửa 130 sát thương (xuyên giáp) vào chỗ ta đông nhất lane.", tip: "Đừng dồn quân thành cụm; dùng Mã Siêu/Ninja áp sát.", weak: "Máu 320, chạy chậm." },
+  silverwolf: { numbers: "Máu 110, chạy 74, đánh 0,55 giây/đòn. Có sẵn từ đầu.", tip: "Cắn nhanh, rẻ (14 vàng): hợp để lấp lane và dọn xạ thủ.", weak: "Mỏng máu." },
+  panda: { numbers: "Máu 360, giáp 10; khí giáp hấp thụ 80 sát thương (× cấp), dựng lại sau 8 giây.", tip: "Tuyến đầu bền để che cho xạ thủ.", weak: "Sát thương thấp (14), chậm." },
+  tigercub: { numbers: "Máu 230, sát thương 26; mỗi đòn thứ 3 vồ quét ×1,8.", tip: "Sát thương cao so với giá; đặt sau Gấu trúc.", weak: "Giáp thấp." },
+  jadesnake: { numbers: "Tầm 120; độc 9 máu/giây trong 5 giây (xuyên giáp).", tip: "Hạ tướng và boss giáp dày từ xa; độc cộng dồn.", weak: "Máu 100, sát thương đòn thường thấp." },
+  babydragon: { numbers: "Tầm 220; mỗi 8 giây phun lửa 130 sát thương xuyên giáp vào chỗ địch đông nhất lane.", tip: "Đứng sau tuyến đầu, dọn cụm địch; hợp với Tường chặn.", weak: "Máu 280, đắt (34 vàng)." },
+  qilin: { numbers: "Không tấn công; mỗi 2 giây hồi 15 máu (× cấp) cho đồng đội trong bán kính 120.", tip: "Đi cùng đội cận chiến để kéo dài giao tranh; tốt cho trạm Boss.", weak: "Không gây sát thương, dễ bị bắn trước." },
   wall: { numbers: 'Máu 900, giáp 20, không tấn công. Địch buộc phải phá tường mới đi tiếp.', tip: 'Đặt phía trước Cung/Nỏ/Tháp để câu giờ.', weak: 'Không gây sát thương.' },
   spikewall: { numbers: 'Máu 480, mỗi 1,2 giây gây 16 sát thương (xuyên 50% giáp) lên mọi địch trong 70 đơn vị.', tip: 'Chắn đường và bào mòn địch đang đập tường; mạnh nhất ở lane địch dồn đông.', weak: 'Máu thấp hơn Tường đá.' },
   archertower: { numbers: 'Máu 360, bắn 14 sát thương mỗi giây vào địch gần nhất trong tầm 260.', tip: 'Đặt sau tường; có sẵn từ đầu game.', weak: 'Sát thương thấp, ưu tiên bảo vệ bằng tường.' },
@@ -259,6 +287,8 @@ const troops = UNIT_LIST.filter((x) => x.kind === 'troop');
 const generals = UNIT_LIST.filter((x) => x.kind === 'general');
 const bosses = UNIT_LIST.filter((x) => x.kind === 'boss');
 const summons = UNIT_LIST.filter((x) => x.kind === 'summon');
+const beasts = UNIT_LIST.filter((x) => x.kind === 'beast');
+const pets = UNIT_LIST.filter((x) => x.kind === 'pet');
 const stationsOf = (ch: number) => STATIONS.filter((s) => s.chapter === ch);
 
 function build() {
@@ -279,6 +309,8 @@ function build() {
     `Danh sách lính (${troops.length} loại)`,
     `Danh sách tướng (${generals.length} vị)`,
     `Đồ phòng thủ (${DEFENSES.length} loại)`,
+    `Thú cưng (${pets.length} loài) — tab riêng của người chơi`,
+    `Quái thú (${beasts.length} loài) — quân địch`,
     `Boss (${bosses.length}) và quân triệu hồi`,
     'Tổng hợp chiêu thức và hiệu ứng',
     'Chiến thuật, khắc chế và mẹo',
@@ -295,6 +327,7 @@ function build() {
   ul(
     `${STATIONS.length} trạm trên ${CHAPTERS.length} bản đồ (Tam Quốc · Kim Dung · Tây Du/Phong Thần) với 11 loại địa hình khác nhau; phải hoàn thành đủ ${STATIONS_PER_MAP} trạm của bản đồ trước mới mở bản đồ kế tiếp, nhưng được XEM TRƯỚC mọi trạm (trạm đang khóa chưa chơi được).`,
     `${troops.length} loại lính, ${generals.length} vị tướng (Tam Quốc, Kim Dung, Tây Du) và ${DEFENSES.length} loại đồ phòng thủ (tường, tường gai, tháp cung, nỏ thần, pháo đá, bẫy, hố lửa, trống trận, tế đàn, trụ băng).`,
+    `${pets.length} thú cưng (tab riêng trong Binh đoàn, xuất trận như lính) và ${beasts.length} loài quái thú xuất hiện ở phía địch (sói, lợn rừng, gấu, hổ, mãng xà, báo đen, tê giác, hỏa long).`,
     `${bosses.length} Boss: Đổng Trác, Đông Phương Bất Bại, Ngưu Ma Vương; mỗi trạm Boss chỉ có 1 lane, Boss xuất hiện gần cuối trận và rất trâu.`,
     'Số quân địch của mỗi trạm là cố định và tăng dần theo độ sâu của trạm; hạ quân địch được thưởng vàng; có thể nâng cấp giới hạn vàng để thả được nhiều quân hơn.',
     'Hệ thống binh đoàn: mở khóa thẻ mới, nâng cấp tối đa 5 cấp, chọn bộ bài 6 thẻ (tối đa 2 tướng) và bộ đồ phòng thủ 3 món.',
@@ -310,7 +343,7 @@ function build() {
       ['Nền tảng', 'Web (trình duyệt); bố cục thích ứng laptop và điện thoại'],
       ['Số lane', `${LANE_COUNT} lane mỗi trận thường; 1 lane ở trạm Boss`],
       ['Điều kiện thắng', 'Phá cờ đối phương ở 2/3 lane; trạm Boss: hạ gục Boss'],
-      ['Nội dung', `${STATIONS.length} trạm (${CHAPTERS.length} bản đồ), ${troops.length} lính, ${generals.length} tướng, ${DEFENSES.length} đồ phòng thủ, ${bosses.length} boss`],
+      ['Nội dung', `${STATIONS.length} trạm (${CHAPTERS.length} bản đồ), ${troops.length} lính, ${generals.length} tướng, ${DEFENSES.length} đồ phòng thủ, ${pets.length} thú cưng, ${beasts.length} quái thú, ${bosses.length} boss`],
       ['Ngôn ngữ', 'Tiếng Việt, English (đổi trong Cài đặt)'],
       ['Lưu trữ', 'Firebase (tài khoản và tiến trình trên cloud) hoặc chế độ offline trong trình duyệt'],
     ],
@@ -377,6 +410,7 @@ function build() {
     `Bắt đầu trận với ${PLAYER_START_GOLD} vàng, sản xuất ${f(PLAYER_INCOME)} vàng mỗi giây, mức tối đa ban đầu ${CAP_STEPS[0]}.`,
     'Lưu ý: "vàng" trong trận chỉ dùng để xuất quân và nâng cấp kho vàng; hoàn toàn tách biệt với "xu" (tiền ngoài trận) dùng để mở khóa/nâng cấp thẻ, ô bộ bài và thành trì.',
     'Triển khai quân tốn vàng (lính 10–34, đồ phòng thủ 12–32, tướng 45–75). Địch cũng có vàng riêng, thu nhập tăng dần theo trạm; đầu trận địch vào chậm hơn một chút.',
+    'Số tướng cùng lúc trên chiến trường bị giới hạn bởi "Số tướng tối đa" (ban đầu 2, nâng cấp bằng xu tới tối đa 5); thẻ tướng xám đi khi đã đủ số. Huy hiệu 👑 trên thẻ tướng đầu tiên hiển thị số tướng đang có / tối đa.',
     'Mỗi tướng chỉ xuất hiện ở MỘT lane tại một thời điểm. Khi tướng chết hoặc lane của tướng đã kết thúc (thắng/thua), tướng biến khỏi chiến trường và nếu đủ vàng bạn có thể thả lại.',
     'Không đủ vàng: thanh vàng rung nhẹ, quân không được thả.',
   );
@@ -449,7 +483,7 @@ function build() {
     'Chỉ có MỘT lane: toàn bộ quân hai bên dồn vào một đường nên không thể bỏ lane để cứu lane khác. Cờ nhà được tăng độ bền.',
     `Boss không xuất hiện ngay: nó chỉ vào trận khi cờ địch còn ≤ ${Math.round(BOSS_AT_HP * 100)}% máu hoặc sau ${BOSS_AT_TIME} giây (không sớm hơn 25 giây), kèm cảnh báo trên màn hình. Trước đó bạn đối đầu quân thường của địch.`,
     `Khi Boss còn sống, cờ địch chỉ nhận ${Math.round(BOSS_FLAG_GUARD * 100)}% sát thương: bắt buộc phải hạ Boss. Hạ gục Boss là chiến thắng ngay lập tức.`,
-    'Boss có nhiều máu hơn hẳn tướng thường (3.150–3.450) và chiêu thức riêng (xem mục 9).',
+    'Boss có nhiều máu hơn hẳn tướng thường (3.150–3.450) và chiêu thức riêng (xem mục 11).',
   );
   B.push({ k: 'break' });
 
@@ -491,9 +525,11 @@ function build() {
     'Mở khóa thẻ bằng xu (giá mỗi loại ở phần danh sách). Thẻ mới mở ở cấp 1. Tab Binh đoàn chia ba mục: Lính · Phòng thủ · Tướng.',
     `Nâng cấp tối đa ${MAX_LEVEL} cấp: mỗi cấp tăng 12% máu và 12% sát thương (kể cả sát thương kỹ năng, hồi máu...) so với cấp 1. Cấp 5 = +48%.`,
     'Giá nâng cấp: lính = 60 × cấp hiện tại; đồ phòng thủ = 70 × cấp; tướng = 140 × cấp (ví dụ lính từ cấp 2 lên 3 tốn 120 xu).',
+    'Tab THÚ CƯNG: mở khóa/nâng cấp thú cưng bằng xu (giá nâng cấp 80 × cấp), chọn tối đa 2 thú mang vào trận (mở thêm ô thứ 3 với 500 xu). Thú cưng xuất trận như lính (tốn vàng trong trận); có sẵn Sói Bạc miễn phí.',
     'Ô BỘ BÀI và ô ĐỒ PHÒNG THỦ mở thêm bằng xu (xem bảng dưới): nhấn ô "+" viền vàng cuối hàng ô trong tab Binh đoàn.',
+    'Rê chuột vào mọi nút nâng cấp/mở khóa trong tab Binh đoàn (thẻ, ô bộ bài, thành trì, số tướng) để xem chi tiết chỉ số tăng thêm: từ giá trị hiện tại → kế tiếp, chi phí và ghi chú.',
     'THÀNH TRÌ: nâng cấp máu cờ nhà bằng xu (mỗi cấp +12% máu, tối đa 10 cấp), áp dụng cho mọi trận.',
-    'Trong trận, thẻ xếp theo thứ tự: lính | đồ phòng thủ | tướng; thẻ lính nền xanh, đồ phòng thủ nền nâu, thẻ tướng nền đỏ thẫm viền vàng với chân dung lớn.',
+    'Trong trận, thẻ xếp theo thứ tự: lính | đồ phòng thủ | thú cưng | tướng; thẻ lính nền xanh, đồ phòng thủ nền nâu, thú cưng nền xanh ngọc, thẻ tướng nền đỏ thẫm viền vàng với chân dung lớn.',
   );
   table(
     ['Cấp', 'Hệ số máu/sát thương', 'Giá lên cấp (lính)', 'Giá lên cấp (phòng thủ)', 'Giá lên cấp (tướng)'],
@@ -510,6 +546,7 @@ function build() {
     ['Hạng mục', 'Giới hạn', 'Chi phí (xu)'],
     [
       ['Ô bộ bài ra trận (6 → 9 ô)', `+${DECK_EXTRA_COSTS.length} ô`, DECK_EXTRA_COSTS.map((c, i) => `ô ${7 + i}: ${c}`).join(' · ')],
+      ['Số tướng tối đa (2 → 5; mang vào trận và cùng lúc trên chiến trường)', `+${GENERAL_EXTRA_COSTS.length} bậc`, GENERAL_EXTRA_COSTS.map((c, i) => `tướng ${3 + i}: ${c}`).join(' · ')],
       ['Ô bộ đồ phòng thủ (3 → 5 ô)', `+${DEF_EXTRA_COSTS.length} ô`, DEF_EXTRA_COSTS.map((c, i) => `ô ${4 + i}: ${c}`).join(' · ')],
       ['Máu thành trì', `${FLAG_MAX_LV} cấp`, `cấp 1: ${flagUpgradeCost(0)} → cấp ${FLAG_MAX_LV}: ${flagUpgradeCost(FLAG_MAX_LV - 1)} (mỗi cấp +12% máu cờ nhà: ${PLAYER_FLAG_HP} → ${Math.round(PLAYER_FLAG_HP * flagHpMul(FLAG_MAX_LV))})`],
     ],
@@ -541,8 +578,22 @@ function build() {
   B.push({ k: 'break' });
 
   // 9
-  h1(`9. Boss (${bosses.length}) và quân triệu hồi`);
-  p('Mỗi bản đồ kết thúc bằng một trạm Boss (1 lane). Boss chỉ vào trận khi gần cuối (xem mục 3.9) và không thể triển khai bởi người chơi.');
+  h1(`9. Thú cưng (${pets.length} loài)`);
+  p('Thú cưng là đồng đội của người chơi, quản lý ở tab riêng "Thú cưng" trong Binh đoàn. Mỗi trận mang tối đa 2 thú cưng (mở thêm ô thứ 3 bằng 500 xu); thú cưng xuất trận như lính: kéo thẻ xanh ngọc vào lane và tốn vàng trong trận. Nâng cấp bằng xu (80 × cấp), mỗi cấp +12% máu và sát thương như thẻ khác.');
+  img('shot-army-pets.png', 560, 'Tab Thú cưng: bộ thú cưng (ô "+" mở thêm), danh sách thú, mở khóa và nâng cấp');
+  for (const u of pets) unitCard(u);
+  B.push({ k: 'break' });
+
+  // 10
+  h1(`10. Quái thú (${beasts.length} loài) — quân địch`);
+  p('Quái thú chỉ xuất hiện ở phía địch, nằm trong bộ quân của nhiều trạm (rừng núi, Tây Du...). Chúng được tính như lính thường: hạ một quái thú nhận 25% giá vàng, và hệ số sức mạnh của trạm nhân vào máu/sát thương. Rê chuột vào quân địch trong bảng trạm để xem thông số.');
+  img('shot-beasts.png', 560, 'Các loài quái thú (địch) và thú cưng (ta) trong game');
+  for (const u of beasts) unitCard(u);
+  B.push({ k: 'break' });
+
+  // 11
+  h1(`11. Boss (${bosses.length}) và quân triệu hồi`);
+  p('Mỗi bản đồ kết thúc bằng một trạm Boss (1 lane). Boss chỉ vào trận khi gần cuối (xem mục 3.10) và không thể triển khai bởi người chơi.');
   for (const u of bosses) unitCard(u);
   ul(
     'Gợi ý chung: giữ vàng ở mức cao trước khi Boss xuất hiện (nâng giới hạn vàng), xây tường chặn ở lane để câu giờ rồi dồn tướng xuyên giáp; Y sư/Tế đàn giúp chống sóng lửa và độc.',
@@ -553,7 +604,7 @@ function build() {
   B.push({ k: 'break' });
 
   // 10
-  h1('10. Tổng hợp chiêu thức và hiệu ứng');
+  h1('12. Tổng hợp chiêu thức và hiệu ứng');
   p('Mỗi kỹ năng đều có hiệu ứng hình ảnh riêng để người chơi nhận biết ngay trong trận. Bảng dưới tóm tắt các chiêu chủ động của tướng, boss và đồ phòng thủ.');
   const activeRows = [...generals, ...bosses, ...DEFENSES].map((u): string[] => [u.skillName, u.name, u.desc]);
   table(['Chiêu thức', 'Chủ sở hữu', 'Hiệu ứng'], activeRows, [2200, 1700, 5400]);
@@ -562,8 +613,8 @@ function build() {
   B.push({ k: 'break' });
 
   // 11
-  h1('11. Chiến thuật, khắc chế và mẹo');
-  h2('11.1. Bảng khắc chế nhanh');
+  h1('13. Chiến thuật, khắc chế và mẹo');
+  h2('13.1. Bảng khắc chế nhanh');
   table(
     ['Đối thủ', 'Nên dùng', 'Vì sao'],
     [
@@ -579,7 +630,7 @@ function build() {
     ],
     [2500, 3200, 3600],
   );
-  h2('11.2. Lời khuyên');
+  h2('13.2. Lời khuyên');
   ul(
     'Đừng thả hết vàng cùng lúc: giữ lại 20–30 vàng để phản ứng khi địch dồn quân sang lane khác.',
     'Chỉ cần thắng 2/3 lane (trạm thường): có thể bỏ một lane để dồn lực thắng hai lane còn lại.',
@@ -594,8 +645,8 @@ function build() {
   B.push({ k: 'break' });
 
   // 12
-  h1('12. Đồ họa, hoạt ảnh và đa ngôn ngữ');
-  h2('12.1. Đồ họa');
+  h1('14. Đồ họa, hoạt ảnh và đa ngôn ngữ');
+  h2('14.1. Đồ họa');
   ul(
     'Nhân vật vẽ bằng code theo phong cách chibi cel-shading: viền đậm theo màu gốc, mảng sáng/tối cứng, mắt to; mỗi nhân vật có trang phục, mũ và vũ khí riêng; kỵ binh có ngựa; Voi chiến, Hao Thiên Khuyển và công trình có hình vẽ riêng.',
     'Vòng màu dưới chân giúp phân biệt phe: xanh dương = quân ta, đỏ = quân địch; tướng có thêm vòng vàng, boss có vòng đỏ.',
@@ -603,13 +654,13 @@ function build() {
     'Tháp canh kiểu chùa có mái cong, đèn lồng, cờ dài đổi màu theo phe; khi cờ sụp, tháp đổ, bốc khói và lửa.',
     'Bản đồ chiến dịch vẽ riêng cho từng chương (rừng/hồ, sa mạc, mây thiên đình, núi lửa...) và từng kích thước màn hình (ngang cho laptop, dọc cho điện thoại).',
   );
-  h2('12.2. Hoạt ảnh');
+  h2('14.2. Hoạt ảnh');
   ul(
     'Nhân vật: hít thở, đung đưa khi đi, nghiêng người khi chạy, vung vũ khí theo từng loại, giật lùi và bẹp khi bị đánh, bật nảy khi xuất hiện, ngã xuống khi chết, bụi chân.',
     'Bối cảnh: mây trôi, chim (dơi ở màn đêm) đập cánh, quầng sáng mặt trời/trăng thở nhẹ, cỏ và hoa đung đưa, cánh hoa/lá/đom đóm/tàn lửa/tuyết rơi, ánh nắng, nước lấp lánh, đuốc/đèn lồng chập chờn, cờ bay.',
     'Hiệu ứng: số sát thương nảy lên, vệt chém, tên/đá/phép có vệt đuôi, rung màn hình khi va chạm mạnh, pháo giấy khi thắng lane, cảnh báo Boss xuất hiện, hiệu ứng riêng cho mỗi chiêu của tướng, boss và công trình (sóng lửa, mây độc, sấm sét, trụ băng, hóa thân, phân thân...).',
   );
-  h2('12.3. Điện thoại: dọc và ngang');
+  h2('14.3. Điện thoại: dọc và ngang');
   ul(
     'Điện thoại dọc: bản đồ dọc + thanh trạm gọn ở dưới; thẻ bài xếp một hàng (tối đa 9 thẻ, nhiều hơn chia hai hàng), nút tốc độ dạng gọn.',
     'Điện thoại NẰM NGANG: bản đồ ngang bên trái + bảng thông tin trạm bên phải (nút Ra trận cố định ở đáy), thanh điều hướng mỏng, HUD thấp, khung thẻ một hàng gọn để chiến trường rộng nhất có thể. Xoay máy là bố cục tự đổi.',
@@ -617,13 +668,13 @@ function build() {
   );
   img('shot-mobile-land-map.png', 440, 'Điện thoại nằm ngang: bản đồ bên trái, bảng trạm bên phải, nút Ra trận cố định');
   img('shot-mobile-land-battle.png', 440, 'Điện thoại nằm ngang: chiến trường rộng, khung thẻ một hàng gọn, nút tốc độ gọn dưới chân dung chỉ huy địch');
-  h2('12.4. Đa ngôn ngữ');
+  h2('14.4. Đa ngôn ngữ');
   p('Có thể chuyển giữa tiếng Việt và tiếng Anh ở: màn hình đăng nhập (nút VI/EN), Cài đặt (⚙) trong màn hình chính, menu Tạm dừng khi đang chơi và trang quản trị. Lựa chọn được ghi nhớ trên trình duyệt; lần đầu mở game, ngôn ngữ chọn theo trình duyệt. Tên lính/tướng, mô tả kỹ năng, tên trạm và chữ nổi trong trận đều được dịch (tên tướng tiếng Anh dùng phiên âm Pinyin như Yang Guo, Zhang Fei...).');
   img('shot-mobile-battle.png', 300, 'Giao diện điện thoại (iPhone 15): thẻ bài thu nhỏ, bảng vàng có nút nâng giới hạn, chỉ huy ở trên');
   B.push({ k: 'break' });
 
   // 13
-  h1('13. Trang quản trị (/admin) và hệ thống thông báo');
+  h1('15. Trang quản trị (/admin) và hệ thống thông báo');
   p('Trang quản trị nằm ở địa chỉ /admin của game (ví dụ https://tên-miền-của-bạn/admin), tách khỏi giao diện người chơi. Đăng nhập bằng tài khoản quản trị:');
   table(
     ['Thông tin', 'Giá trị'],
@@ -635,7 +686,7 @@ function build() {
     [3000, 6300],
   );
   note('Lưu ý', 'Mật khẩu quản trị được ghi cố định trong mã nguồn phía trình duyệt (phù hợp game cá nhân, yêu cầu bảo mật thấp). Nếu cần bảo mật cao hơn, hãy đổi mật khẩu của tài khoản admin trong Firebase và chuyển việc xác thực sang máy chủ. Tên "admin" bị chặn khi người chơi đăng ký.');
-  h2('13.1. Quản lý người chơi');
+  h2('15.1. Quản lý người chơi');
   ul(
     'Danh sách toàn bộ người chơi: tên, trạm hiện tại (ví dụ 2-5), số trạm đã qua trên 30, tổng số sao, số vàng, thắng/thua, lần cập nhật cuối, trạng thái (Hoạt động / Đã khóa). Có ô tìm theo tên và thống kê tổng người chơi, số tài khoản bị khóa, tổng vàng.',
     'Sửa thông tin: tên hiển thị, số vàng, trạm hiện tại (các trạm trước đó tính là đã qua; có thể đánh dấu hoàn thành cả 30 trạm), số trận thắng/thua; nút nhanh "Mở khóa mọi thẻ" và "Đặt lại tiến trình".',
@@ -644,14 +695,14 @@ function build() {
   );
   img('shot-admin.png', 560, 'Trang quản trị: danh sách người chơi (tiếng Việt)');
   img('shot-admin-edit.png', 420, 'Hộp thoại sửa thông tin người chơi');
-  h2('13.2. Thông báo');
+  h2('15.2. Thông báo');
   ul(
     'Tab "Thông báo": nhập tiêu đề và nội dung, chọn gửi tới "Toàn bộ người chơi" hoặc "Người chơi được chọn" (tích chọn trong danh sách, hoặc bấm biểu tượng chuông ở từng dòng người chơi).',
     'Danh sách thông báo đã gửi, có nút xóa.',
     'Phía người chơi: biểu tượng chuông 🔔 ở thanh trên cùng màn hình chính hiện số thông báo chưa đọc; khi đăng nhập, thông báo mới tự mở ra một lần. Trạng thái đã đọc lưu trên thiết bị của người chơi.',
   );
   img('shot-admin-notices.png', 560, 'Tab Thông báo: tạo thông báo mới và lịch sử thông báo đã gửi');
-  h2('13.3. Triển khai quyền admin trên Firebase');
+  h2('15.3. Triển khai quyền admin trên Firebase');
   ol(
     'Cập nhật Firestore Rules bằng nội dung file firestore.rules mới (có thêm quy tắc admin, accounts và notices) rồi bấm Publish.',
     'Mở https://tên-miền/admin, đăng nhập bằng admin và mật khẩu của tài khoản admin@gameempire.app (tạo tay trước trong Firebase Console: Authentication → Users → Add user).',
@@ -660,7 +711,7 @@ function build() {
   B.push({ k: 'break' });
 
   // 14
-  h1('14. Thông tin kỹ thuật & triển khai');
+  h1('16. Thông tin kỹ thuật & triển khai');
   table(
     ['Hạng mục', 'Chi tiết'],
     [
@@ -741,7 +792,7 @@ function unitCard(u: UnitDef) {
     if (sk.counter !== '—') lines.push(['Điểm yếu', sk.counter]);
   }
   const story = UNIT_STORY[u.id] ?? STORY2[u.id] ?? '';
-  const accent = u.kind === 'troop' ? '3D6FB0' : u.kind === 'general' ? 'B8860B' : u.kind === 'defense' ? '8A5A2B' : u.kind === 'summon' ? '4A8A6A' : 'A02020';
+  const accent = u.kind === 'pet' ? '2F8F86' : u.kind === 'beast' ? '8A5A2B' : u.kind === 'troop' ? '3D6FB0' : u.kind === 'general' ? 'B8860B' : u.kind === 'defense' ? '8A5A2B' : u.kind === 'summon' ? '4A8A6A' : 'A02020';
   B.push({ k: 'card', img: `${u.id}_full.png`, title: u.name, sub: `${kindName(u)} · ${story}`, lines, accent });
 }
 

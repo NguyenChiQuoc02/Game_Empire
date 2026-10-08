@@ -7,6 +7,12 @@ export interface SaveData {
   deck: string[];
   /** bộ đồ phòng thủ mang vào trận (tối đa 3) */
   defDeck: string[];
+  /** bộ thú cưng mang vào trận */
+  petDeck?: string[];
+  /** số bậc nâng cấp "số tướng tối đa" (0..3, ngoài 2 tướng gốc) */
+  genSlots?: number;
+  /** số ô thú cưng mở thêm (0..1, ngoài 2 ô gốc) */
+  petSlots?: number;
   /** trạm cao nhất đã mở (0..STATIONS.length-1) */
   progress: number;
   cleared: boolean[];

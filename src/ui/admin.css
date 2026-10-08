@@ -9,9 +9,9 @@
 .inbox-item p { margin: 6px 0; white-space: pre-wrap; font-size: 13.5px; color: #dfe4f5; }
 .inbox-item small { color: var(--muted); }
 .inbox-empty { text-align: center; color: var(--muted); }
-.pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; background: rgba(255, 211, 77, .18); color: var(--gold); border: 1px solid rgba(255, 211, 77, .4); }
-.pill.ok { background: rgba(80, 200, 120, .15); color: #8fe3ab; border-color: rgba(80, 200, 120, .4); }
-.pill.bad { background: rgba(226, 75, 75, .15); color: #ff9a9a; border-color: rgba(226, 75, 75, .45); }
+.adm .pill, .inbox .pill, .adm-notice .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; background: rgba(255, 211, 77, .18); color: var(--gold); border: 1px solid rgba(255, 211, 77, .4); }
+.adm .pill.ok { background: rgba(80, 200, 120, .15); color: #8fe3ab; border-color: rgba(80, 200, 120, .4); }
+.adm .pill.bad { background: rgba(226, 75, 75, .15); color: #ff9a9a; border-color: rgba(226, 75, 75, .45); }
 
 /* ───────── trang quản trị (/admin) ───────── */
 .adm { height: 100%; overflow: auto; padding-bottom: 40px; }

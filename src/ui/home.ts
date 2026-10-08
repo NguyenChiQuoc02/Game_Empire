@@ -5,23 +5,24 @@ import { getApp } from '../render/app';
 import { peekMapArt, renderMapArt, type MapSpec } from '../render/mapArt';
 import { CHAPTERS, STATIONS, STATIONS_PER_MAP, stationLabel, stationPos } from '../data/campaign';
 import {
-  DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, DEFENSES, FLAG_MAX_LV, MAX_GENERALS_IN_DECK, MAX_LEVEL, PLAYABLE, UNITS, flagHpMul, flagUpgradeCost, upgradeCost,
+  DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, GENERAL_EXTRA_COSTS, PET_EXTRA_COSTS, PETS, DEFENSES, FLAG_MAX_LV, MAX_LEVEL, PLAYABLE, UNITS, flagHpMul, flagUpgradeCost, upgradeCost,
   type UnitDef,
 } from '../data/units';
-import { deckSizeOf, defSizeOf } from '../backend/save';
+import { deckSizeOf, defSizeOf, generalCapOf, petSizeOf } from '../backend/save';
 import { PLAYER_FLAG_HP } from '../game/sim';
+import { DECK_SIZE, DEFENSE_DECK_SIZE, PET_DECK_SIZE, MAX_GENERALS_IN_DECK, levelMul } from '../data/units';
 import { mutate, state } from '../state';
 import { fmt, portrait, statLine, toast } from './common';
 import { openSettings } from './settings';
 import { openInbox } from './inbox';
-import { attachUnitTip, hideMapTip } from './tip';
+import { attachInfoTip, attachUnitTip, hideMapTip } from './tip';
 import { unread } from '../notices';
 import { rewardFor } from '../game/rewards';
 
 type Tab = 'campaign' | 'army';
 let tab: Tab = 'campaign';
 let selected = -1;
-let armyFilter: 'troop' | 'defense' | 'general' = 'troop';
+let armyFilter: 'troop' | 'defense' | 'pet' | 'general' = 'troop';
 
 /** Chọn sẵn một trạm khi quay lại màn chiến dịch */
 export function focusStation(i: number) {
@@ -283,18 +284,20 @@ function army(ctx: HomeCtx): HTMLElement {
   defSlots.style.setProperty('--cols', String(Math.min(defN + (extraDef < DEF_EXTRA_COSTS.length ? 1 : 0), 6)));
   wrap.append(
     castlePanel(ctx),
+    generalCapPanel(ctx),
     h('h2', { class: 'section-title', text: t('army.deck') }),
-    h('div', { class: 'deck' }, slots, h('div', { class: 'deck-info', text: t('army.deckInfo', { n: save.deck.length, max: deckN, g: gens, gmax: MAX_GENERALS_IN_DECK }) })),
+    h('div', { class: 'deck' }, slots, h('div', { class: 'deck-info', text: t('army.deckInfo', { n: save.deck.length, max: deckN, g: gens, gmax: generalCapOf(save) }) })),
     h('h2', { class: 'section-title', text: t('army.defDeck') }),
     h('div', { class: 'deck' }, defSlots, h('div', { class: 'deck-info', text: t('army.defDeckInfo', { n: save.defDeck.length, max: defN }) })),
   );
 
-  const filt = (k: 'troop' | 'defense' | 'general', label: string) =>
+  const filt = (k: 'troop' | 'defense' | 'pet' | 'general', label: string) =>
     h('button', { class: `pill${armyFilter === k ? ' active' : ''}`, text: label, attrs: { type: 'button' }, on: { click: () => { armyFilter = k; ctx.redraw(); } } });
-  wrap.append(h('div', { class: 'pills' }, filt('troop', t('army.troops')), filt('defense', t('army.defenses')), filt('general', t('army.generals'))));
+  wrap.append(h('div', { class: 'pills' }, filt('troop', t('army.troops')), filt('defense', t('army.defenses')), filt('pet', t('army.pets')), filt('general', t('army.generals'))));
+  if (armyFilter === 'pet') wrap.append(petPanel(ctx));
 
   const grid = h('div', { class: 'cards' });
-  const list = armyFilter === 'defense' ? DEFENSES : PLAYABLE.filter((u) => u.kind === armyFilter);
+  const list = armyFilter === 'defense' ? DEFENSES : armyFilter === 'pet' ? PETS : PLAYABLE.filter((u) => u.kind === armyFilter);
   for (const d of list) grid.append(unitCard(d, ctx));
   wrap.append(grid);
   return wrap;
@@ -304,10 +307,32 @@ function army(ctx: HomeCtx): HTMLElement {
 const slotCols = (n: number) => (n <= 8 ? n : Math.ceil(n / 2));
 
 /** ô "mở thêm" trong bộ bài / bộ đồ phòng thủ: trả xu để thêm một ô */
-function slotBuy(key: 'deckSlots' | 'defSlots', cost: number, ctx: HomeCtx): HTMLElement {
+/** bộ thú cưng: chọn thú mang vào trận (xuất trận như lính) */
+function petPanel(ctx: HomeCtx): HTMLElement {
+  const save = state.save!;
+  const petN = petSizeOf(save);
+  const slots = h('div', { class: 'deck-slots pets' });
+  const pd = save.petDeck ?? [];
+  for (let i = 0; i < petN; i++) {
+    const id = pd[i];
+    if (id) {
+      const d = UNITS[id];
+      slots.append(h('button', { class: 'slot filled pet', attrs: { type: 'button', title: t('army.removeFromDeck') }, on: { click: () => toggleDeck(d, ctx) } }, portrait(id), h('span', { class: 'cost', text: String(d.cost) })));
+    } else slots.append(h('div', { class: 'slot empty', text: '+' }));
+  }
+  const extra = save.petSlots ?? 0;
+  if (extra < PET_EXTRA_COSTS.length) slots.append(slotBuy('petSlots', PET_EXTRA_COSTS[extra], ctx));
+  slots.style.setProperty('--cols', String(Math.min(petN + (extra < PET_EXTRA_COSTS.length ? 1 : 0), 6)));
+  return h('div', { class: 'deck pet-deck' }, h('h2', { class: 'section-title', text: t('army.petDeck') }), slots, h('div', { class: 'deck-info', text: t('army.petDeckInfo', { n: pd.length, max: petN }) }));
+}
+
+function slotBuy(key: 'deckSlots' | 'defSlots' | 'petSlots', cost: number, ctx: HomeCtx): HTMLElement {
   const save = state.save!;
   const can = save.coins >= cost;
-  return h('button', {
+  const now = key === 'deckSlots' ? deckSizeOf(save) : key === 'defSlots' ? defSizeOf(save) : petSizeOf(save);
+  const max = key === 'deckSlots' ? DECK_SIZE + DECK_EXTRA_COSTS.length : key === 'defSlots' ? DEFENSE_DECK_SIZE + DEF_EXTRA_COSTS.length : PET_DECK_SIZE + PET_EXTRA_COSTS.length;
+  const label = key === 'deckSlots' ? t('up.slotDeck') : key === 'defSlots' ? t('up.slotDef') : t('up.slotPet');
+  return attachInfoTip(h('button', {
     class: `slot buy${can ? '' : ' poor'}`,
     attrs: { type: 'button', title: t('army.slotBuyTip', { cost: fmt(cost) }), 'aria-label': t('army.slotBuyTip', { cost: fmt(cost) }) },
     on: {
@@ -318,7 +343,49 @@ function slotBuy(key: 'deckSlots' | 'defSlots', cost: number, ctx: HomeCtx): HTM
         ctx.redraw();
       },
     },
-  }, h('b', { text: '+' }), h('small', { text: `🪙 ${fmt(cost)}` }));
+  }, h('b', { text: '+' }), h('small', { text: `🪙 ${fmt(cost)}` })), () => [
+    h('div', { class: 'tip-head' }, h('b', { text: `＋ ${label}` }), h('em', { text: `${now} → ${now + 1}` })),
+    h('div', { class: 'up-body' }, upRow(label, `${now} → ${now + 1} (${t('up.max', { n: max })})`, 'up'), costRow(cost)),
+    h('p', { class: 'cap-note', text: t('up.slotNote') }),
+  ]);
+}
+
+/** nâng cấp số tướng tối đa (mang vào trận và cùng lúc trên chiến trường) bằng xu */
+function generalCapPanel(ctx: HomeCtx): HTMLElement {
+  const save = state.save!;
+  const extra = save.genSlots ?? 0;
+  const maxed = extra >= GENERAL_EXTRA_COSTS.length;
+  const cap = generalCapOf(save);
+  const cost = GENERAL_EXTRA_COSTS[extra] ?? 0;
+  const can = save.coins >= cost;
+  return h('section', { class: 'castle gen-cap' },
+    h('div', { class: 'castle-ico', text: '👑' }),
+    h('div', { class: 'castle-info' },
+      h('b', { text: t('army.genCap') }),
+      h('div', { class: 'castle-hp gen' }, h('span', { text: t('army.genCapNow', { n: cap }) }), maxed ? h('em', { text: t('army.castleMax') }) : h('em', { text: `→ ${cap + 1}` })),
+      h('div', { class: 'castle-bar' }, h('i', { attrs: { style: `width:${(extra / GENERAL_EXTRA_COSTS.length) * 100}%` } })),
+      h('small', { text: t('army.genCapNote') })),
+    attachInfoTip(h('button', {
+      class: `btn gold${maxed || !can ? ' disabled' : ''}`,
+      text: maxed ? t('army.maxLevel') : `⬆ ${t('army.upgrade')} · 🪙 ${fmt(cost)}`,
+      attrs: { type: 'button' },
+      on: {
+        click: () => {
+          if (maxed) return;
+          if (state.save!.coins < cost) return toast(t('army.needCoins'), 'error');
+          mutate((s) => { s.coins -= cost; s.genSlots = (s.genSlots ?? 0) + 1; }, true);
+          toast(t('army.genCapUp', { n: cap + 1 }), 'good');
+          ctx.redraw();
+        },
+      },
+    }), () => [
+      h('div', { class: 'tip-head' }, h('b', { text: `👑 ${t('army.genCap')}` }), h('em', { text: t('up.level', { a: extra + 1, b: GENERAL_EXTRA_COSTS.length + 1 }) })),
+      maxed
+        ? h('div', { class: 'cap-max', text: t('up.maxedVal', { v: cap }) })
+        : h('div', { class: 'up-body' }, upRow(t('up.genOnField'), `${cap} → ${cap + 1} (+1)`, 'up'), upRow(t('up.genInDeck'), `${MAX_GENERALS_IN_DECK + extra} → ${MAX_GENERALS_IN_DECK + extra + 1} (+1)`, 'up'), costRow(cost)),
+      h('p', { class: 'cap-note', text: t('army.genCapNote') }),
+    ]),
+  );
 }
 
 /** nâng cấp máu thành trì (cờ nhà) bằng xu */
@@ -336,7 +403,7 @@ function castlePanel(ctx: HomeCtx): HTMLElement {
       h('div', { class: 'castle-hp' }, h('span', { text: `❤ ${hp(lv)}` }), maxed ? h('em', { text: t('army.castleMax') }) : h('em', { text: `→ ${hp(lv + 1)} (+${hp(lv + 1) - hp(lv)})` })),
       h('div', { class: 'castle-bar' }, h('i', { attrs: { style: `width:${(lv / FLAG_MAX_LV) * 100}%` } })),
       h('small', { text: t('army.castleLv', { lv, max: FLAG_MAX_LV }) + ' · ' + t('army.castleNote') })),
-    h('button', {
+    attachInfoTip(h('button', {
       class: `btn gold${maxed || !can ? ' disabled' : ''}`,
       text: maxed ? t('army.maxLevel') : `⬆ ${t('army.upgrade')} · 🪙 ${fmt(cost)}`,
       attrs: { type: 'button' },
@@ -349,21 +416,65 @@ function castlePanel(ctx: HomeCtx): HTMLElement {
           ctx.redraw();
         },
       },
-    }),
+    }), () => [
+      h('div', { class: 'tip-head' }, h('b', { text: `🏯 ${t('army.castle')}` }), h('em', { text: t('up.level', { a: lv, b: lv + 1 }) })),
+      maxed
+        ? h('div', { class: 'cap-max', text: t('up.maxedVal', { v: hp(lv) }) })
+        : h('div', { class: 'up-body' }, upRow(`❤ ${t('up.hp')}`, `${hp(lv)} → ${hp(lv + 1)} (+${hp(lv + 1) - hp(lv)})`, 'up'), upRow(t('up.bossHp'), `${Math.round(hp(lv) * 1.8)} → ${Math.round(hp(lv + 1) * 1.8)}`, 'up'), costRow(cost)),
+      h('p', { class: 'cap-note', text: t('army.castleNote') }),
+    ]),
   );
+}
+
+// ───────────────────────── tooltip ô nâng cấp ─────────────────────────
+const upRow = (label: string, val: string, cls = '') => h('div', { class: `up-row ${cls}` }, h('span', { text: label }), h('b', { text: val }));
+const costRow = (cost: number) => upRow(t('up.cost'), `🪙 ${fmt(cost)}`, state.save!.coins >= cost ? 'ok' : 'poor');
+
+/** các chỉ số tăng theo cấp: máu, sát thương (hoặc hồi máu / sức nổ) */
+function scaledStats(d: UnitDef, mul: number): { key: string; icon: string; label: string; val: number }[] {
+  const out: { key: string; icon: string; label: string; val: number }[] = [];
+  if (d.hp > 1) out.push({ key: 'hp', icon: '❤', label: t('up.hp'), val: d.hp * mul });
+  if (d.skill === 'heal' && d.kind !== 'defense') out.push({ key: 'heal', icon: '✚', label: t('up.heal'), val: 15 * mul });
+  else if (d.kind === 'defense' && d.skill === 'altar') out.push({ key: 'heal', icon: '✚', label: t('up.heal'), val: d.dmg * mul });
+  else if (d.dmg > 0) out.push({ key: 'atk', icon: d.skill === 'bomb' ? '💥' : '⚔', label: d.skill === 'bomb' ? t('up.blast') : t('up.atk'), val: d.dmg * mul });
+  return out;
+}
+
+function unitUpgradeTip(d: UnitDef, lv: number): HTMLElement[] {
+  const head = h('div', { class: 'tip-head' }, h('b', { text: `⬆ ${unitName(d)}` }), h('em', { text: lv >= MAX_LEVEL ? `Lv${lv} MAX` : `Lv${lv} → Lv${lv + 1}` }));
+  if (lv >= MAX_LEVEL) return [head, h('div', { class: 'cap-max', text: t('up.maxed', { n: lv }) })];
+  const a = scaledStats(d, levelMul(lv));
+  const b = scaledStats(d, levelMul(lv + 1));
+  const rows = b.map((s, i) => upRow(`${s.icon} ${s.label}`, `${Math.round(a[i].val)} → ${Math.round(s.val)} (+${Math.round(s.val - a[i].val)})`, 'up'));
+  return [
+    head,
+    h('div', { class: 'up-body' }, ...rows, upRow(t('up.pct'), `+${Math.round((levelMul(lv + 1) / levelMul(lv) - 1) * 100)}%`, 'up'), costRow(upgradeCost(d, lv))),
+    h('p', { class: 'cap-note', text: t('up.skillNote') }),
+  ];
+}
+
+function unitUnlockTip(d: UnitDef): HTMLElement[] {
+  const rows = scaledStats(d, 1).map((s) => upRow(`${s.icon} ${s.label}`, String(Math.round(s.val))));
+  if (d.kind !== 'defense') rows.push(upRow(`👟 ${t('stat.spd')}`, String(d.speed)), upRow(`🎯 ${t('stat.rng')}`, d.range > 70 ? String(d.range) : t('stat.melee')));
+  rows.push(upRow(`🛡 ${t('stat.armor')}`, String(d.armor)), upRow(t('up.cost'), `🪙 ${fmt(d.unlockCost)}`, state.save!.coins >= d.unlockCost ? 'ok' : 'poor'));
+  return [
+    h('div', { class: 'tip-head' }, h('b', { text: `🔓 ${unitName(d)}` }), h('em', { text: t('up.lv1') })),
+    h('div', { class: 'up-body' }, ...rows),
+    h('div', { class: 'tip-skill' }, h('b', { text: `✦ ${unitSkill(d)}` }), h('p', { text: unitDesc(d) })),
+  ];
 }
 
 function unitCard(d: UnitDef, ctx: HomeCtx): HTMLElement {
   const save = state.save!;
   const lv = save.unlocked[d.id];
   const owned = lv !== undefined;
-  const inDeck = save.deck.includes(d.id) || save.defDeck.includes(d.id);
+  const inDeck = save.deck.includes(d.id) || save.defDeck.includes(d.id) || (save.petDeck ?? []).includes(d.id);
   const actions = h('div', { class: 'card-actions' });
 
   if (!owned) {
     const can = save.coins >= d.unlockCost;
     actions.append(
-      h('button', {
+      attachInfoTip(h('button', {
         class: `btn gold${can ? '' : ' disabled'}`,
         text: `🔓 ${t('army.unlock')} · 🪙 ${fmt(d.unlockCost)}`,
         attrs: { type: 'button' },
@@ -375,14 +486,14 @@ function unitCard(d: UnitDef, ctx: HomeCtx): HTMLElement {
             ctx.redraw();
           },
         },
-      }),
+      }), () => unitUnlockTip(d)),
     );
   } else {
     const maxed = lv >= MAX_LEVEL;
     const cost = upgradeCost(d, lv);
     actions.append(
       h('button', { class: `btn ${inDeck ? 'ghost' : 'primary'}`, text: inDeck ? t('army.remove') : t('army.add'), attrs: { type: 'button' }, on: { click: () => toggleDeck(d, ctx) } }),
-      h('button', {
+      attachInfoTip(h('button', {
         class: `btn gold${maxed || save.coins < cost ? ' disabled' : ''}`,
         text: maxed ? t('army.maxLevel') : `⬆ ${t('army.upgrade')} · 🪙 ${fmt(cost)}`,
         attrs: { type: 'button' },
@@ -394,7 +505,7 @@ function unitCard(d: UnitDef, ctx: HomeCtx): HTMLElement {
             ctx.redraw();
           },
         },
-      }),
+      }), () => unitUpgradeTip(d, lv)),
     );
   }
 
@@ -417,6 +528,15 @@ function unitCard(d: UnitDef, ctx: HomeCtx): HTMLElement {
 
 function toggleDeck(d: UnitDef, ctx: HomeCtx) {
   const save = state.save!;
+  if (d.kind === 'pet') {
+    const pd = save.petDeck ?? [];
+    if (pd.includes(d.id)) mutate((s) => { s.petDeck = (s.petDeck ?? []).filter((x) => x !== d.id); });
+    else {
+      if (pd.length >= petSizeOf(save)) return toast(t('army.petDeckFull', { n: petSizeOf(save) }), 'error');
+      mutate((s) => { (s.petDeck ??= []).push(d.id); });
+    }
+    return ctx.redraw();
+  }
   if (d.kind === 'defense') {
     if (save.defDeck.includes(d.id)) mutate((s) => { s.defDeck = s.defDeck.filter((x) => x !== d.id); });
     else {
@@ -431,7 +551,7 @@ function toggleDeck(d: UnitDef, ctx: HomeCtx) {
     mutate((s) => { s.deck = s.deck.filter((x) => x !== d.id); });
   } else {
     if (save.deck.length >= deckSizeOf(save)) return toast(t('army.deckFull'), 'error');
-    if (d.kind === 'general' && save.deck.filter((x) => UNITS[x].kind === 'general').length >= MAX_GENERALS_IN_DECK) {
+    if (d.kind === 'general' && save.deck.filter((x) => UNITS[x].kind === 'general').length >= generalCapOf(save)) {
       return toast(t('army.generalsFull'), 'error');
     }
     mutate((s) => { s.deck.push(d.id); });

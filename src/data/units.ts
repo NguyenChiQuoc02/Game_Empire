@@ -48,7 +48,7 @@ export type SkillId =
   | 'altar'
   | 'frost';
 
-export type UnitKind = 'troop' | 'general' | 'boss' | 'summon' | 'defense';
+export type UnitKind = 'troop' | 'general' | 'boss' | 'summon' | 'defense' | 'beast' | 'pet';
 
 export interface UnitDef {
   id: string;
@@ -81,7 +81,7 @@ export interface UnitDef {
 export const MAX_LEVEL = 5;
 export const levelMul = (lv: number) => 1 + 0.12 * (lv - 1);
 export const upgradeCost = (def: UnitDef, lv: number) =>
-  Math.round((def.kind === 'general' ? 140 : def.kind === 'defense' ? 70 : 60) * lv);
+  Math.round((def.kind === 'general' ? 140 : def.kind === 'defense' ? 70 : def.kind === 'pet' ? 80 : 60) * lv);
 
 const U = (d: UnitDef) => d;
 
@@ -433,6 +433,107 @@ export const UNIT_LIST: UnitDef[] = [
     desc: 'Phân thân lông khỉ của Ngộ Không: 30% máu, sát thương và giáp của chủ, tồn tại 5 giây.',
     unlockCost: 0, scale: 0.72, life: 5,
   }),
+  // ───────────── QUÁI THÚ (địch) ─────────────
+  U({
+    id: 'soihoang', name: 'Sói Hoang', kind: 'beast', cost: 12,
+    hp: 95, dmg: 12, cd: 0.5, speed: 72, range: 26, armor: 1,
+    skill: 'quick', skillName: 'Vồ Nhanh',
+    desc: 'Sói rừng nhanh nhẹn, cắn liên tục. Mỏng máu nhưng lao tới rất nhanh.',
+    unlockCost: 0, scale: 1,
+  }),
+  U({
+    id: 'lonrung', name: 'Lợn Rừng', kind: 'beast', cost: 16,
+    hp: 190, dmg: 14, cd: 1, speed: 50, range: 28, armor: 4,
+    skill: 'charge', skillName: 'Húc Xung Phong',
+    desc: 'Lợn lòi húc thẳng vào đội hình: đòn đầu tiên cộng thêm sát thương theo quãng đường đã chạy.',
+    unlockCost: 0, scale: 1,
+  }),
+  U({
+    id: 'gauden', name: 'Gấu Đen', kind: 'beast', cost: 28,
+    hp: 480, dmg: 24, cd: 1.1, speed: 30, range: 32, armor: 8,
+    skill: 'berserk', skillName: 'Gấu Điên',
+    desc: 'Gấu núi to khỏe, càng mất máu càng điên cuồng (sát thương tăng theo máu đã mất).',
+    unlockCost: 0, scale: 1.1,
+  }),
+  U({
+    id: 'hocnui', name: 'Hổ Núi', kind: 'beast', cost: 30,
+    hp: 330, dmg: 30, cd: 0.9, speed: 54, range: 32, armor: 6,
+    skill: 'sweep', skillName: 'Vồ Quét',
+    desc: 'Chúa sơn lâm: mỗi đòn thứ 3 vồ quét diện rộng, gây x1.8 sát thương.',
+    unlockCost: 0, scale: 1.1,
+  }),
+  U({
+    id: 'mangxa', name: 'Mãng Xà', kind: 'beast', cost: 18,
+    hp: 120, dmg: 8, cd: 1, speed: 36, range: 120, armor: 2,
+    skill: 'poisoner', skillName: 'Nọc Rắn',
+    desc: 'Rắn lớn phun nọc độc từ xa: mục tiêu trúng đòn mất 9 máu mỗi giây trong 5 giây (xuyên giáp).',
+    unlockCost: 0, scale: 1,
+  }),
+  U({
+    id: 'baoden', name: 'Báo Đen', kind: 'beast', cost: 20,
+    hp: 110, dmg: 14, cd: 0.6, speed: 82, range: 28, armor: 2,
+    skill: 'ninja', skillName: 'Thân Pháp Báo',
+    desc: 'Báo đen lướt như bóng: 30% né đòn đơn mục tiêu, phá cờ gấp đôi sát thương.',
+    unlockCost: 0, scale: 1,
+  }),
+  U({
+    id: 'tegiac', name: 'Tê Giác Sắt', kind: 'beast', cost: 34,
+    hp: 520, dmg: 28, cd: 1.5, speed: 26, range: 34, armor: 14,
+    skill: 'trample', skillName: 'Giậm Sừng',
+    desc: 'Tê giác da sắt, giáp rất dày. Mỗi đòn húc gây sát thương lan bán kính 55.',
+    unlockCost: 0, scale: 1.15,
+  }),
+  U({
+    id: 'honglong', name: 'Hỏa Long', kind: 'beast', cost: 38,
+    hp: 320, dmg: 16, cd: 1.2, speed: 34, range: 230, armor: 6,
+    skill: 'fireAttack', skillName: 'Long Hỏa',
+    desc: 'Rồng lửa nhỏ: mỗi 8 giây phun lửa xuống chỗ địch đông nhất lane (130 sát thương, xuyên giáp).',
+    unlockCost: 0, scale: 1.1,
+  }),
+
+  // ───────────── THÚ CƯNG (ta) ─────────────
+  U({
+    id: 'silverwolf', name: 'Sói Bạc', kind: 'pet', cost: 14,
+    hp: 110, dmg: 13, cd: 0.55, speed: 74, range: 26, armor: 1,
+    skill: 'quick', skillName: 'Vuốt Bạc',
+    desc: 'Thú cưng nhanh nhẹn, cắn liên tục. Có sẵn từ đầu.',
+    unlockCost: 0, scale: 1,
+  }),
+  U({
+    id: 'panda', name: 'Gấu Trúc', kind: 'pet', cost: 22,
+    hp: 360, dmg: 14, cd: 1.1, speed: 32, range: 28, armor: 10,
+    skill: 'monk', skillName: 'Khí Giáp Trúc',
+    desc: 'Gấu trúc mũm mĩm có lớp khí giáp hấp thụ 80 sát thương, tự dựng lại sau 8 giây khi vỡ.',
+    unlockCost: 250, scale: 1.05,
+  }),
+  U({
+    id: 'tigercub', name: 'Hổ Con', kind: 'pet', cost: 24,
+    hp: 230, dmg: 26, cd: 0.85, speed: 56, range: 30, armor: 5,
+    skill: 'sweep', skillName: 'Vồ Quét',
+    desc: 'Hổ con hung dữ: mỗi đòn thứ 3 vồ quét diện rộng, gây x1.8 sát thương.',
+    unlockCost: 400, scale: 1,
+  }),
+  U({
+    id: 'jadesnake', name: 'Rắn Ngọc', kind: 'pet', cost: 16,
+    hp: 100, dmg: 8, cd: 1, speed: 38, range: 120, armor: 1,
+    skill: 'poisoner', skillName: 'Nọc Ngọc',
+    desc: 'Rắn ngọc phun độc từ xa: mục tiêu mất 9 máu mỗi giây trong 5 giây (xuyên giáp).',
+    unlockCost: 300, scale: 1,
+  }),
+  U({
+    id: 'babydragon', name: 'Rồng Con', kind: 'pet', cost: 34,
+    hp: 280, dmg: 16, cd: 1.2, speed: 36, range: 220, armor: 5,
+    skill: 'fireAttack', skillName: 'Hỏa Tức',
+    desc: 'Rồng con phun lửa: mỗi 8 giây thiêu chỗ địch đông nhất lane (130 sát thương, xuyên giáp).',
+    unlockCost: 700, scale: 1.05,
+  }),
+  U({
+    id: 'qilin', name: 'Kỳ Lân', kind: 'pet', cost: 30,
+    hp: 300, dmg: 0, cd: 1, speed: 38, range: 0, armor: 6,
+    skill: 'heal', skillName: 'Phúc Khí',
+    desc: 'Linh thú chữa lành: mỗi 2 giây hồi máu cho đồng đội trong bán kính 120. Không tấn công.',
+    unlockCost: 600, scale: 1.05,
+  }),
   U({
     id: 'haothienkhuyen', name: 'Hao Thiên Khuyển', kind: 'summon', cost: 0,
     hp: 300, dmg: 20, cd: 0.7, speed: 78, range: 28, armor: 6,
@@ -455,9 +556,19 @@ export const DEF_EXTRA_COSTS = [300, 700];
 export const FLAG_MAX_LV = 10;
 export const flagUpgradeCost = (lv: number) => 100 * (lv + 1);
 export const flagHpMul = (lv: number) => 1 + 0.12 * lv;
+/** quái thú: chỉ xuất hiện ở phía địch */
+export const BEASTS = UNIT_LIST.filter((u) => u.kind === 'beast');
+/** thú cưng của người chơi (tab Thú cưng): xuất trận như lính nhưng chọn bộ riêng */
+export const PETS = UNIT_LIST.filter((u) => u.kind === 'pet');
+export const PET_DECK_SIZE = 2;
+/** mở thêm ô thú cưng: 2 → 3 ô */
+export const PET_EXTRA_COSTS = [500];
+export const STARTER_PETS = PETS.filter((u) => u.unlockCost === 0).map((u) => u.id);
 export const STARTER_DEFENSES = DEFENSES.filter((u) => u.unlockCost === 0).map((u) => u.id);
 /** mỗi lane mỗi bên tối đa số công trình */
 export const MAX_DEFENSES_PER_LANE = 3;
 export const STARTERS = PLAYABLE.filter((u) => u.unlockCost === 0).map((u) => u.id);
 export const DECK_SIZE = 6;
 export const MAX_GENERALS_IN_DECK = 2;
+/** nâng cấp số tướng tối đa (mang vào trận và cùng lúc trên chiến trường): 2 → 5, giá xu mỗi bậc */
+export const GENERAL_EXTRA_COSTS = [600, 1200, 2000];

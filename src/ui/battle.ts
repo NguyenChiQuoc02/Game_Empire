@@ -11,6 +11,7 @@ import { langSwitch, openModal, portrait, toast, fmt, type Modal } from './commo
 import { faceUrl, iconUrl } from '../render/icons';
 import { rewardFor, starsFor } from '../game/rewards';
 import { tipBody } from './tip';
+import { generalCapOf } from '../backend/save';
 
 export type ExitAction = 'menu' | 'retry' | 'next';
 
@@ -34,6 +35,7 @@ export class BattleScreen {
   private paused = false;
   private speed = 1;
   private speedBtns: HTMLElement[] = [];
+  private genBadge: HTMLElement | null = null;
   private lastW = 0;
   private lastH = 0;
   private mq = window.matchMedia('(max-width: 760px), (max-height: 520px)');
@@ -69,9 +71,10 @@ export class BattleScreen {
     this.deck = [
       ...save.deck.filter((id) => UNITS[id]?.kind === 'troop'),
       ...save.defDeck.filter((id) => UNITS[id]?.kind === 'defense'),
+      ...(save.petDeck ?? []).filter((id) => UNITS[id]?.kind === 'pet'),
       ...save.deck.filter((id) => UNITS[id]?.kind === 'general'),
     ];
-    this.battle = new Battle({ station: this.station, levels: { ...save.unlocked }, flagLevel: save.flagLv ?? 0 });
+    this.battle = new Battle({ station: this.station, levels: { ...save.unlocked }, flagLevel: save.flagLv ?? 0, generalCap: generalCapOf(save) });
     this.ai = new EnemyAI(this.battle, this.station.deck);
     this.view = new BattleView(app, this.battle, this.station);
 
@@ -194,6 +197,7 @@ export class BattleScreen {
     // số cột lưới thẻ trên màn nhỏ: một hàng nếu ≤ 9 thẻ, ngược lại chia hai hàng
     hand.style.setProperty('--cols', String(this.deck.length <= 9 ? this.deck.length : Math.ceil(this.deck.length / 2)));
     let prevKind = '';
+    this.genBadge = null;
     this.deck.forEach((id, i) => {
       const d = UNITS[id];
       if (i > 0 && d.kind !== prevKind) hand.append(h('span', { class: 'hand-sep' }));
@@ -207,6 +211,10 @@ export class BattleScreen {
       c.addEventListener('pointerenter', (e) => e.pointerType === 'mouse' && this.showCardTip(id, c));
       c.addEventListener('pointerleave', () => this.hideCardTip());
       c.addEventListener('contextmenu', (e) => e.preventDefault());
+      if (d.kind === 'general' && !this.genBadge) {
+        this.genBadge = h('span', { class: 'gen-badge', attrs: { title: t('hud.generalCapTip') } });
+        c.append(this.genBadge);
+      }
       cards.set(id, c);
       hand.append(c);
     });
@@ -268,10 +276,11 @@ export class BattleScreen {
     e.capBtn!.classList.toggle('max', upCost === null);
     e.capBtn!.classList.toggle('poor', upCost !== null && b.gold[0] < upCost);
     e.foeLeft!.textContent = String(b.enemyLeft + b.enemyAlive);
+    if (this.genBadge) this.genBadge.textContent = `👑 ${b.generalsAlive(0)}/${b.cfg.generalCap ?? 0}`;
     // trạng thái thẻ (chỉ cập nhật DOM khi đổi)
     const st = this.deck.map((id) => {
       const d = UNITS[id];
-      return `${id}:${b.gold[0] >= d.cost ? 1 : 0}${d.kind === 'general' && b.generalOnField(0, id) ? 'u' : ''}${this.selected === id ? 's' : ''}`;
+      return `${id}:${b.gold[0] >= d.cost ? 1 : 0}${d.kind === 'general' && b.generalOnField(0, id) ? 'u' : ''}${d.kind === 'general' && this.generalsFull() ? 'c' : ''}${this.selected === id ? 's' : ''}`;
     }).join('|');
     if (st !== this.lastCardState) {
       this.lastCardState = st;
@@ -280,9 +289,14 @@ export class BattleScreen {
         const c = e.cards!.get(id)!;
         c.classList.toggle('poor', b.gold[0] < d.cost);
         c.classList.toggle('used', d.kind === 'general' && b.generalOnField(0, id));
+        c.classList.toggle('capped', d.kind === 'general' && !b.generalOnField(0, id) && this.generalsFull());
         c.classList.toggle('selected', this.selected === id);
       }
     }
+  }
+
+  private generalsFull(): boolean {
+    return this.battle.generalsAlive(0) >= (this.battle.cfg.generalCap ?? 99);
   }
 
   // ───────────────────────── vòng lặp ─────────────────────────
@@ -592,6 +606,7 @@ export class BattleScreen {
     const d = UNITS[id];
     if (b.lanes[lane].winner !== null) return;
     if (d.kind === 'general' && b.generalOnField(0, id)) return void toast(t('hud.generalUsed'), 'error');
+    if (d.kind === 'general' && b.generalsAlive(0) >= (b.cfg.generalCap ?? 99)) return void toast(t('hud.generalCap', { n: b.cfg.generalCap ?? 0 }), 'error');
     if (d.kind === 'defense' && b.defensesIn(0, lane) >= MAX_DEFENSES_PER_LANE) return void toast(t('hud.defenseFull', { n: MAX_DEFENSES_PER_LANE }), 'error');
     if (b.gold[0] < d.cost) {
       const row = this.el.goldRow!;
