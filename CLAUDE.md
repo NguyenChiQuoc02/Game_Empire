@@ -13,7 +13,7 @@ Game chiến thuật TypeScript + Vite + PixiJS 8, lưu tài khoản/tiến trì
 - Nếu lỡ push key: báo ngay cho chủ dự án để xoay (rotate) key trong Firebase/Google Cloud Console; xoá khỏi lịch sử Git là chưa đủ.
 - không push những ảnh chụp màn hình chứa nội dung game.
 - các ảnh chứa nội dung game chỉ được lưu trong `image/screenshoot/`
-
+- không tạo branch, push code vào main luôn
 ## Đồng bộ dữ liệu
 
 - Mỗi tài khoản có một document `saves/{uid}`; Firestore Rules chỉ cho chủ tài khoản đọc/ghi (xem [firestore.rules](firestore.rules)).
