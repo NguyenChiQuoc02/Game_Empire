@@ -55,7 +55,7 @@ export class EnemyAI {
     const defs = b.cfg.station.defenses;
     if (!defs?.length || this.defenseT > 0 || b.time < 14) return;
     this.defenseT = 14 + Math.random() * 10;
-    const open = b.lanes.filter((l) => l.winner === null);
+    const open = b.lanes.filter((l) => l.winner === null && l.index !== b.riverLane);
     if (!open.length) return;
     // ưu tiên lane người chơi đang áp sát
     let lane = open[0];
@@ -105,10 +105,23 @@ export class EnemyAI {
       }
     }
 
-    const choices = this.deck.filter((id) => {
+    // mỗi loại quân chỉ ra ở lane hợp với nó (thủy quân → lane sông, bộ binh/kỵ binh → lane đất); không hợp thì đổi lane
+    const usable = (id: string, ln: number) => {
       const d = UNITS[id];
-      return !(d.kind === 'general' && b.generalOnField(1, id));
-    });
+      return !(d.kind === 'general' && b.generalOnField(1, id)) && b.laneAllows(d, ln);
+    };
+    let choices = this.deck.filter((id) => usable(id, lane));
+    if (!choices.length) {
+      for (const l of open) {
+        if (l.index === lane) continue;
+        const c = this.deck.filter((id) => usable(id, l.index));
+        if (c.length) {
+          lane = l.index;
+          choices = c;
+          break;
+        }
+      }
+    }
     if (!choices.length) return;
     // tướng ít được chọn hơn lúc đầu trận, nhiều hơn khi có vàng dư
     const w = choices.map((id) => {

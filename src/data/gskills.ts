@@ -79,14 +79,22 @@ export const GENERAL_SKILLS: Record<string, GSkillId[]> = {
   lenhhoxung: ['rapid', 'execute', 'swift', 'keen'],
   truongvoky: ['thornsAura', 'guard', 'regen', 'lastStand'],
   auduongphong: ['bladeStorm', 'dread', 'regen', 'lifesteal'],
+  natra: ['swift', 'fury', 'lifesteal', 'rapid'],
+  vitieubao: ['swift', 'keen', 'execute', 'lastStand'],
+  loicong: ['rapid', 'dread', 'keen', 'guard'],
+  quanam: ['regen', 'mend', 'guard', 'ironSkin'],
+  thaisutu: ['keen', 'rapid', 'execute', 'swift'],
+  tatu: ['ironSkin', 'shockwave', 'fury', 'regen'],
+  camninh: ['swift', 'execute', 'rapid', 'shockwave'],
+  satang: ['ironSkin', 'guard', 'fury', 'regen'],
+  longvuong: ['rapid', 'mend', 'dread', 'keen'],
 };
 
 /** kỹ năng đặc biệt (luôn sẵn có, không tính vào 5 kỹ năng): chỉ Tôn Ngộ Không */
 export const SPECIAL_SKILL: Record<string, string> = { tonngokhong: 'monkeys' };
 
-/** cấp tối đa của một đơn vị: tướng 20, còn lại 5 */
-export const MAX_UNIT_LEVEL = 5;
-export const maxLevelOf = (d: Pick<UnitDef, 'kind'>) => (d.kind === 'general' ? GENERAL_MAX_LEVEL : MAX_UNIT_LEVEL);
+/** cấp tối đa của một đơn vị: tướng 20, lính / phòng thủ / thú cưng không giới hạn */
+export const maxLevelOf = (d: Pick<UnitDef, 'kind'>) => (d.kind === 'general' ? GENERAL_MAX_LEVEL : Infinity);
 
 /** số kỹ năng đã mở (cả kỹ năng gốc) ở cấp `lv` */
 export const skillCountAt = (lv: number) => SKILL_UNLOCK_LEVELS.filter((l) => lv >= l).length;

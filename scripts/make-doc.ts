@@ -1,3 +1,4 @@
+import { HUNT_MAPS } from '../src/data/treasure';
 // Tạo tài liệu mô tả game (Word): npm run doc  ->  docs/Tam-Lo-Cong-Thanh-Tai-Lieu.docx + .doc
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,7 +8,7 @@ import {
 } from 'docx';
 import {
   UNIT_LIST, UNITS, DEFENSES, levelMul, upgradeCost, DECK_SIZE, DEFENSE_DECK_SIZE, MAX_DEFENSES_PER_LANE, MAX_GENERALS_IN_DECK, MAX_LEVEL,
-  STARTER_DEFENSES, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, GENERAL_EXTRA_COSTS, FLAG_MAX_LV, flagHpMul, flagUpgradeCost, INCOME_MAX_LV, incomeUpgradeCost, incomeUpgradeMul, type UnitDef,
+  STARTER_DEFENSES, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, GENERAL_EXTRA_COSTS, flagUpgradeCost, INCOME_MAX_LV, incomeUpgradeCost, incomeUpgradeMul, type UnitDef,
 } from '../src/data/units';
 import { CHAPTERS, STATIONS, STATIONS_PER_MAP, stationLabel } from '../src/data/campaign';
 import {
@@ -309,7 +310,7 @@ function build() {
   B.push({ k: 'p', text: 'TAM LỘ CÔNG THÀNH', bold: true, center: true, color: '7A3E12' });
   B.push({ k: 'p', text: 'Three Lanes Siege', italic: true, center: true });
   B.push({ k: 'p', text: 'Tài liệu mô tả game, cách chơi, nhân vật, chiêu thức và trang quản trị', center: true, bold: true });
-  B.push({ k: 'p', text: 'Game chiến thuật 2D chạy trên trình duyệt (laptop & điện thoại)  ·  Phiên bản 2.1  ·  08/10/2026', center: true, italic: true });
+  B.push({ k: 'p', text: 'Game chiến thuật 2D chạy trên trình duyệt (laptop & điện thoại)  ·  Phiên bản 2.2  ·  08/10/2026', center: true, italic: true });
   img('shot-map.png', 560, 'Bản đồ chiến dịch: mỗi bản đồ có 10 trạm nối nhau bằng con đường quanh co, trạm cuối là Boss');
   B.push({ k: 'break' });
 
@@ -318,7 +319,7 @@ function build() {
     'Tổng quan trò chơi',
     'Bắt đầu nhanh',
     'Cách chơi chi tiết (vàng, nâng cấp giới hạn vàng, vàng thưởng, màn Boss)',
-    'Chiến dịch: 5 bản đồ, 50 trạm',
+    'Chiến dịch: 5 bản đồ, 50 trạm (và các chế độ Thủ Thành 3.16, Truy Tìm Kho Báu 3.17, lane sông 3.18)',
     'Binh đoàn: bộ bài, mở khóa, nâng cấp',
     `Danh sách lính (${troops.length} loại)`,
     `Danh sách tướng (${generals.length} vị)`,
@@ -344,7 +345,7 @@ function build() {
     `${pets.length} thú cưng (tab riêng trong Binh đoàn, xuất trận như lính) và ${beasts.length} loài quái thú xuất hiện ở phía địch (sói, lợn rừng, gấu, hổ, mãng xà, báo đen, tê giác, hỏa long).`,
     `${bosses.length} Boss: Đổng Trác, Đông Phương Bất Bại, Ngưu Ma Vương; mỗi trạm Boss chỉ có 1 lane, Boss xuất hiện gần cuối trận và rất trâu.`,
     'Số quân địch của mỗi trạm là cố định và tăng dần theo độ sâu của trạm; hạ quân địch được thưởng vàng; có thể nâng cấp giới hạn vàng để thả được nhiều quân hơn.',
-    'Hệ thống binh đoàn: mở khóa thẻ mới, nâng cấp (lính tối đa cấp 5, tướng tối đa cấp 20 và mở thêm kỹ năng), chọn bộ bài 6 thẻ (tối đa 2 tướng) và bộ đồ phòng thủ 3 món.',
+    'Hệ thống binh đoàn: mở khóa thẻ mới, nâng cấp (lính không giới hạn cấp, tướng tối đa cấp 20 và mở thêm kỹ năng), chọn bộ bài 6 thẻ (tối đa 2 tướng) và bộ đồ phòng thủ 3 món.',
     'Chấm 1–3 sao cho từng trạm, khuyến khích đánh lại để hoàn hảo.',
     'Đồ họa 2D vẽ hoàn toàn bằng code (PixiJS): nhân vật cel-shading, chiến trường liền mạch, bản đồ chiến dịch minh họa, hiệu ứng kỹ năng riêng cho từng chiêu.',
     'Mỗi tài khoản một game riêng (Firebase Auth + Firestore); chơi được trên laptop và điện thoại (tối ưu iPhone 15); hỗ trợ tiếng Việt / tiếng Anh.',
@@ -541,7 +542,7 @@ function build() {
   );
   h2('3.13. Cấp tướng và kỹ năng');
   ul(
-    `Tướng nâng được tối đa cấp ${GENERAL_MAX_LEVEL} (lính, đồ phòng thủ, thú cưng vẫn tối đa cấp 5). Chỉ số tăng 12%/cấp đến cấp 5, từ cấp 6 tăng 5%/cấp: cấp 20 gấp khoảng ${levelMul(GENERAL_MAX_LEVEL).toFixed(2)} lần cấp 1. Giá nâng cấp tướng = 140 xu × cấp hiện tại.`,
+    `Tướng nâng được tối đa cấp ${GENERAL_MAX_LEVEL} (lính, đồ phòng thủ, thú cưng nâng cấp không giới hạn cấp). Chỉ số tăng 12%/cấp đến cấp 5, từ cấp 6 tăng 5%/cấp: cấp 20 gấp khoảng ${levelMul(GENERAL_MAX_LEVEL).toFixed(2)} lần cấp 1. Giá nâng cấp tướng = 140 xu × cấp hiện tại.`,
     `Mỗi tướng có tối đa ${SKILL_UNLOCK_LEVELS.length} kỹ năng: kỹ năng gốc có từ Lv1, cứ 4 cấp mở thêm 1 kỹ năng mới (Lv ${SKILL_UNLOCK_LEVELS.slice(1).join(', ')}). Thẻ tướng ở tab Binh đoàn hiển thị đủ 5 ô (ô chưa mở ghi cấp mở khóa); rê chuột/chạm vào ô để xem mô tả.`,
     'Tôn Ngộ Không có 5 kỹ năng như các tướng khác (kỹ năng gốc Bảy Mươi Hai Phép Biến Hóa + 4 kỹ năng mở theo cấp) và thêm 1 KỸ NĂNG ĐẶC BIỆT là Phân Thân (luôn có sẵn, không tính vào 5 kỹ năng).',
     `Tướng địch cũng có kỹ năng mở thêm tùy độ sâu của chiến dịch: ${[0, 7, 14, 21, 28].map((id) => `từ trạm ${id + 1}: ${enemyExtraCount(id)}`).join(', ')} kỹ năng mở thêm.`,
@@ -569,6 +570,56 @@ function build() {
     STATIONS.filter((x) => x.bridges.length).map((x) => [stationLabel(x.id), x.name, x.bridges.map((b) => `Lane ${b.a + 1} ↔ ${b.b + 1}`).join(', '), x.bridges.map((b) => `${Math.round(b.x / 10)}%`).join(', ')]),
     [900, 3700, 2700, 2000],
   );
+  h2('3.15. Bay, dịch chuyển, độn thổ, đánh xuyên lane và sát thương toàn bản đồ');
+  ul(
+    'BAY (Na Tra, Phi Long Liệt Hỏa): đơn vị bay lơ lửng trên không nên chỉ TƯỚNG, quân tầm xa (cung, nỏ, pháo, thú bắn xa...) và công trình bắn xa (Tháp Cung, Nỏ Thần, Pháo Thạch) mới đánh trúng. KỴ BINH và quân cận chiến không chạm tới; công trình cận chiến (gai, hố lửa, trụ băng) và đòn nổ/quét của quân cận chiến cũng không trúng. Quân bay còn tự bay sang lane bên cạnh đang cần chi viện (không cần cầu nối).',
+    'DỊCH CHUYỂN (Vi Tiểu Bảo, Hồ Ly Tinh): biến mất và hiện ra sau lưng cụm địch đông nhất ở BẤT KỲ lane nào, gây sát thương lan và làm choáng ngắn.',
+    'ĐỘN THỔ (Tả Từ, Địa Long Trùng): chui xuống đất 2 giây — không ai đánh trúng, không bị nhắm — lao nhanh về phía địch rồi trồi lên gây sát thương lan và choáng 1 giây.',
+    'ẢNH HƯỞNG LANE KHÁC (Quan Âm Bồ Tát, Sói Vương): hồi máu/khiên hoặc tăng sức mạnh cho đồng đội trong bán kính 260 ở cả lane của mình VÀ các lane liền kề (đứng lane 2 vẫn giúp được lane 1 và 3).',
+    'ĐÁNH XUYÊN LANE (Thái Sử Từ, Nhện Độc): khi lane của mình không có địch trong tầm thì bắn sang lane liền kề trong tầm bắn; tên bay chéo từ lane này sang lane kia.',
+    'SÁT THƯƠNG TOÀN BẢN ĐỒ (Lôi Công, Thiên Lôi Thú): cứ 15 giây giáng sét xuống MỌI địch ở cả 3 lane (60 sát thương, xuyên 50% giáp).',
+  );
+  h2('3.16. Chế độ Thủ Thành');
+  ul(
+    'Mở bằng tab "Thủ Thành" ở thanh dưới màn hình chính. Bạn giữ thành trước 12 đợt tấn công liên tiếp; địch không có thành để phá nên bạn chỉ cần sống sót. Mất 2/3 thành là thua.',
+    'Mỗi đợt, địch tràn vào cả 3 lane theo từng tốp; sức mạnh và số quân tăng dần theo đợt. Đợt 4, 8, 12 có tướng địch; đợt 12 còn có quái khổng lồ (Cổ Long Thiên Hỏa, Người Đá Khổng Lồ). Danh sách từng đợt xem trước ngay trong tab.',
+    'Quân ta đứng giữ vạch phòng thủ giữa sân và chỉ tiến lên khi địch tới gần. Trước đợt đầu có 16 giây chuẩn bị, giữa hai đợt nghỉ 12 giây. Hạ xong một đợt nhận vàng trong trận và thành được sửa 15% máu.',
+    'Giữa hai đợt có nút "⏭ Đợt kế" (hoặc phím N) để gọi đợt tấn công tiếp theo ngay mà không phải chờ hết giờ nghỉ; gọi sớm được thưởng 1 vàng cho mỗi giây nghỉ còn lại.',
+    'Phần thưởng xu: 30 + 14 × số đợt cho mỗi đợt đã hạ, +300 xu khi hạ cả 12 đợt, và +40 xu mỗi đợt vượt kỷ lục cũ. Kỷ lục được lưu theo tài khoản.',
+  );
+  h2('3.17. Chế độ Truy Tìm Kho Báu (Treasure War)');
+  ul(
+    'Mở bằng tab "Kho Báu" ở thanh dưới màn hình chính. 3–4 đội cùng xuất hiện trên một bản đồ 2D nhìn từ trên xuống: bạn cầm đội ĐỎ, các đội máy (XANH / LỤC / VÀNG, mỗi đội một phe phái: Hán Quân, Giang Hồ Bang, Thiên Binh, Yêu Tộc) do game tự tạo.',
+    'Kiểu chơi: ĐƠN (3 hoặc 4 đội, mỗi đội một mình) hoặc ĐỒNG MINH (2 vs 2, 2 vs 1 với 3 đội, 3 vs 1 với 4 đội — đội một mình mạnh hơn). Thành đồng minh cũng nhận được kho báu bạn mang về.',
+    'Điều kiện thắng (chọn trước khi vào trận): MANG KHO BÁU VỀ THÀNH hoặc DIỆT TOÀN BỘ ĐỊCH (phá hết thành đối thủ). Kho báu do một quái vật cực mạnh canh giữ ở trung tâm; hạ nó thì kho báu lộ diện.',
+    'Khiêng kho báu: tướng chỉ cần 1 người, quân thường / thú chỉ cần đủ 3 người đứng cạnh. Cả nhóm khiêng bị giảm 50% tốc độ và mọi đội khác sẽ DÍ THEO người khiêng để cướp; người khiêng ngã thì kho báu rơi xuống đất, ai nhặt được là của người đó (nhiều đội cùng đứng cạnh thì phải đánh nhau trước).',
+    'Điều khiển: chạm thẻ để ra quân tại thành; chạm vào đất để đặt điểm tập kết; ba lệnh cho cả đội — Giữ thành (Q), Tiến công (W), Kho báu (E). Kéo để dời bản đồ, lăn chuột hoặc chụm hai ngón để phóng to; HUD gọn để nhìn rộng toàn bản đồ.',
+    'Quái trung lập ở các trại cho vàng khi bị hạ và hồi sinh sau ít phút. Sau 10 phút bão táp bào mòn mọi thành; quá giờ thì đội còn nhiều máu thành nhất thắng.',
+  );
+  img('shot-hunt-setup.png', 560, 'Tab Kho Báu: chọn kiểu chơi (Đơn / Đồng minh), điều kiện thắng, bản đồ và độ khó');
+  img('shot-hunt-m1.png', 560, 'Bản đồ 1 — Tứ Phương Thần Điện: bốn thành ở bốn hướng, quái canh kho báu ở trung tâm, hai đội đang tranh nhau');
+  img('shot-hunt-m6.png', 560, 'Bản đồ 6 — Thành Cổ Trung Tâm (chế độ 2 vs 2): tường thành, tháp canh trung lập và Người Đá Khổng Lồ canh kho báu');
+  img('shot-hunt-m4.png', 560, 'Bản đồ 4 — Quần Đảo Kho Báu: đảo nối nhau bằng cầu có thể bị phá');
+  table(
+    ['#', 'Bản đồ', 'Điểm nhấn', 'Cơ chế riêng'],
+    HUNT_MAPS.map((m) => [
+      String(m.no),
+      m.name,
+      m.sub,
+      m.tip,
+    ]),
+    [500, 2300, 2500, 4000],
+  );
+  h2('3.18. Lane sông và thủy quân');
+  ul(
+    'Nhiều trạm (khoảng 20 trong 45 trạm thường: các trạm hợp chủ đề như Xích Bích, Long Cung Đông Hải, Lương Sơn Thủy Bạc, Vong Xuyên Hà... luôn có, số còn lại rải ngẫu nhiên theo hạt giống cố định) có MỘT LANE SÔNG. Lane này vẽ thành dòng nước có bờ, tháp dựng trên cầu tàu; ô "🌊 Lane N" trong bảng trạm và trong trận cho biết lane nào là sông.',
+    'Luật đi lại: chỉ THỦY QUÂN và QUÂN BAY đi được trên lane sông. BỘ BINH, KỴ BINH, thú đất và công trình phòng thủ KHÔNG ra được ở lane sông và cũng không rẽ sang đó (kể cả qua cầu nối, dịch chuyển, bay lane). Ngược lại thủy quân CHỈ ra ở lane sông, không lên lane đất.',
+    'Ngoại lệ: Tôn Ngộ Không có CÂN ĐẨU VÂN — đạp mây đi được cả lane sông lẫn lane đất (mây hiện dưới chân khi ở lane sông).',
+    'Thủy quân gồm: 4 lính (Thủy Binh, Cung Thủ Thuyền, Chiến Thuyền, Pháo Thuyền), 3 thủy tướng (Cam Ninh, Sa Tăng, Long Vương Ngao Quảng — kỹ năng Sóng Thần quét 75 sát thương và đẩy lùi), 2 thú cưng nước (Cá Heo, Rùa Ngọc) và các thủy quái của địch (Cá Sấu Sông, Cá Mập, Rùa Thần, Giao Long). Thẻ thủy quân có huy hiệu 🌊.',
+    'Trạm có sông luôn có thủy quân hoặc quân bay trong bộ quân địch (nếu không lane sông chẳng ai tranh): hãy mang theo ít nhất một thẻ thủy quân hoặc quân bay để giữ / chiếm lane sông; thắng 2 trong 3 lane vẫn là điều kiện thắng, nên cũng có thể bỏ sông và thắng cả hai lane đất.',
+    'Chế độ Truy Tìm Kho Báu không dùng thủy quân (bản đồ 2D không có lane sông).',
+  );
+  img('shot-river.png', 560, 'Trạm Xích Bích: lane giữa là sông, thủy tướng Long Vương, Cam Ninh cùng thuyền chiến đối đầu Giao Long và Rùa Thần; hai lane đất chỉ cho bộ binh');
   B.push({ k: 'break' });
 
   // 4
@@ -609,7 +660,8 @@ function build() {
   ul(
     `Bộ bài ra trận gồm tối đa ${DECK_SIZE} thẻ lính/tướng, trong đó tối đa ${MAX_GENERALS_IN_DECK} tướng; tối thiểu 1 thẻ. Bộ đồ phòng thủ riêng, tối đa ${DEFENSE_DECK_SIZE} món.`,
     'Mở khóa thẻ bằng xu (giá mỗi loại ở phần danh sách). Thẻ mới mở ở cấp 1. Tab Binh đoàn chia ba mục: Lính · Phòng thủ · Tướng.',
-    `Nâng cấp tối đa ${MAX_LEVEL} cấp (riêng tướng tối đa ${GENERAL_MAX_LEVEL} cấp, xem mục 3.13): mỗi cấp tăng 12% máu và 12% sát thương (kể cả sát thương kỹ năng, hồi máu...) so với cấp 1. Cấp 5 = +48%; tướng từ cấp 6 tăng thêm 5%/cấp.`,
+    `Lính, đồ phòng thủ và thú cưng nâng cấp KHÔNG GIỚI HẠN cấp (tướng tối đa ${GENERAL_MAX_LEVEL} cấp, xem mục 3.13): mỗi cấp tăng 12% máu và 12% sát thương (kể cả sát thương kỹ năng, hồi máu...) so với cấp 1 đến cấp ${MAX_LEVEL} (+48%); từ cấp 6 tăng thêm 5%/cấp.`,
+    'Nâng cấp thẻ không chỉ tăng chỉ số mà còn làm KỸ NĂNG hồi nhanh hơn: +7% tốc độ hồi chiêu mỗi cấp (cấp 3: chiêu 8 giây còn khoảng 7 giây). Lính, đồ phòng thủ và thú cưng nâng cấp KHÔNG GIỚI HẠN cấp (tối đa x4 tốc độ hồi chiêu); tướng tối đa cấp 20.',
     'Giá nâng cấp: lính = 60 × cấp hiện tại; đồ phòng thủ = 70 × cấp; tướng = 140 × cấp (ví dụ lính từ cấp 2 lên 3 tốn 120 xu).',
     'Tab THÚ CƯNG: mở khóa/nâng cấp thú cưng bằng xu (giá nâng cấp 80 × cấp), chọn tối đa 2 thú mang vào trận (mở thêm ô thứ 3 với 500 xu). Thú cưng xuất trận như lính (tốn vàng trong trận); có sẵn Sói Bạc miễn phí.',
     'Ô BỘ BÀI và ô ĐỒ PHÒNG THỦ mở thêm bằng xu (xem bảng dưới): nhấn ô "+" viền vàng cuối hàng ô trong tab Binh đoàn.',
@@ -623,8 +675,8 @@ function build() {
     ['Cấp', 'Hệ số máu/sát thương', 'Giá lên cấp (lính)', 'Giá lên cấp (phòng thủ)', 'Giá lên cấp (tướng)'],
     [1, 2, 3, 4, 5, 10, 15, 20].map((lv) => [
       String(lv), `×${levelMul(lv).toFixed(2)}`,
-      lv < MAX_LEVEL ? `${upgradeCost(UNITS.samurai, lv)} xu` : '—',
-      lv < MAX_LEVEL ? `${upgradeCost(UNITS.wall, lv)} xu` : '—',
+      `${upgradeCost(UNITS.samurai, lv)} xu`,
+      `${upgradeCost(UNITS.wall, lv)} xu`,
       lv < GENERAL_MAX_LEVEL ? `${upgradeCost(UNITS.duongqua, lv)} xu` : '—',
     ]),
     [900, 2300, 2000, 2100, 2000],
@@ -636,7 +688,7 @@ function build() {
       ['Ô bộ bài ra trận (6 → 9 ô)', `+${DECK_EXTRA_COSTS.length} ô`, DECK_EXTRA_COSTS.map((c, i) => `ô ${7 + i}: ${c}`).join(' · ')],
       ['Số tướng tối đa (2 → 5; mang vào trận và cùng lúc trên chiến trường)', `+${GENERAL_EXTRA_COSTS.length} bậc`, GENERAL_EXTRA_COSTS.map((c, i) => `tướng ${3 + i}: ${c}`).join(' · ')],
       ['Ô bộ đồ phòng thủ (3 → 5 ô)', `+${DEF_EXTRA_COSTS.length} ô`, DEF_EXTRA_COSTS.map((c, i) => `ô ${4 + i}: ${c}`).join(' · ')],
-      ['Máu thành trì', `${FLAG_MAX_LV} cấp`, `cấp 1: ${flagUpgradeCost(0)} → cấp ${FLAG_MAX_LV}: ${flagUpgradeCost(FLAG_MAX_LV - 1)} (mỗi cấp +12% máu cờ nhà: ${PLAYER_FLAG_HP} → ${Math.round(PLAYER_FLAG_HP * flagHpMul(FLAG_MAX_LV))})`],
+      ['Máu thành trì', 'không giới hạn cấp', `giá nâng cấp = 100 × (cấp hiện tại + 1) xu (cấp 1 tốn ${flagUpgradeCost(0)} xu, cấp 10 tốn ${flagUpgradeCost(9)} xu); mỗi cấp +12% máu cờ nhà so với gốc`],
     ],
     [3300, 1500, 4500],
   );

@@ -1,6 +1,7 @@
-import { MAX_DEFENSES_PER_LANE, UNIT_LIST, UNITS, levelMul, type SkillId, type UnitDef, flagHpMul, incomeUpgradeMul } from '../data/units';
+import { MAX_DEFENSES_PER_LANE, UNIT_LIST, UNITS, levelMul, skillHaste, type SkillId, type UnitDef, flagHpMul, incomeUpgradeMul } from '../data/units';
 import { laneCountOf, type Bridge, type Station } from '../data/campaign';
 import { BOSS_PHASES, BOSS_SPLIT, bossPhaseCount, type BossPhase } from '../data/boss';
+import { SIEGE_BREAK_SEC, SIEGE_HOLD, SIEGE_PREP_SEC, SIEGE_WAVES } from '../data/siege';
 import { BASE_LANE_LEN, LONG_LANE_LEN, OUTPOST, ZONES, rollZones, type LaneZone, type OutpostKind, type ZoneFx } from '../data/lane';
 import { GENERAL_SKILLS, GS, GSKILLS, enemyExtraCount, extraSkillsAt, type GSkillId } from '../data/gskills';
 import {
@@ -114,6 +115,10 @@ export interface UnitInst {
   stepN: number;
   /** bẫy/hố lửa: không bị nhắm tới, không chặn đường */
   ghost: boolean;
+  /** tốc độ hồi chiêu kỹ năng theo cấp thẻ (1 = gốc, xem skillHaste) */
+  haste: number;
+  /** Độn Thổ: thời gian còn lại đang chui dưới đất (>0 = không ai đánh trúng) */
+  burrowT: number;
   /** boss: kỹ năng chủ động nhận thêm ở các giai đoạn sau, số giai đoạn đã qua, đời phân thân (0 = bản gốc) */
   bonusSkills: SkillId[];
   phase: number;
@@ -144,13 +149,13 @@ export type FxKind =
   | 'palm' | 'sweep' | 'splash' | 'rockhit' | 'boom' | 'fire' | 'charge' | 'summon'
   | 'enrage' | 'revive' | 'pair' | 'healwave' | 'armor'
   | 'transform' | 'hound' | 'warcry' | 'melody' | 'dash' | 'snipe' | 'stun' | 'shield'
-  | 'dragon' | 'poisoncloud' | 'inferno' | 'bolt' | 'thorns' | 'frost';
+  | 'dragon' | 'poisoncloud' | 'inferno' | 'bolt' | 'thorns' | 'frost' | 'blink' | 'burrow' | 'tide';
 
 export type SimEvent =
   | { t: 'hit'; lane: number; x: number; amount: number; victimSide: Side; big: boolean }
   | { t: 'absorb'; lane: number; x: number; amount: number }
   | { t: 'flagHit'; lane: number; side: Side; amount: number }
-  | { t: 'proj'; lane: number; from: number; to: number; kind: 'arrow' | 'rock' | 'needle' | 'magic'; y: number }
+  | { t: 'proj'; lane: number; from: number; to: number; kind: 'arrow' | 'rock' | 'needle' | 'magic' | 'fire'; y: number; h?: number; lane2?: number }
   | { t: 'aoe'; lane: number; x: number; r: number; color: number }
   | { t: 'heal'; lane: number; x: number; amount: number }
   | { t: 'bounty'; side: Side; lane: number; x: number; amount: number }
@@ -166,7 +171,9 @@ export type SimEvent =
   | { t: 'outpost'; lane: number; owner: Side; kind: OutpostKind; x: number }
   | { t: 'phase'; id: string; n: number; max: number }
   | { t: 'zones' }
-  | { t: 'cross'; uid: number; from: number; to: number; x: number }
+  | { t: 'cross'; uid: number; from: number; to: number; x: number; snap?: boolean }
+  | { t: 'wave'; n: number; total: number; elite: boolean }
+  | { t: 'waveClear'; n: number; gold: number }
   | { t: 'end'; winner: Side };
 
 export interface BattleConfig {
@@ -183,6 +190,8 @@ export interface BattleConfig {
   event?: RandomEventId | null;
   /** địa hình lane: bỏ trống = tung xúc xắc, null = không có, hoặc truyền sẵn (kiểm thử) */
   zones?: LaneZone[][] | null;
+  /** chế độ Thủ Thành: địch tấn công theo từng đợt (data/siege.ts), thành địch không bị phá */
+  siege?: boolean;
 }
 
 /** sét đang chờ đánh (có báo trước) */
@@ -227,6 +236,7 @@ const SKILL_INIT: Partial<Record<SkillId, number>> = {
   palm: 10, pairHeal: 0, heal: 0, fireAttack: 8, tyrant: 6, monk: 0,
   wukong: 5, monkeys: 10, erlang: 8, warlord: 6, melody: 5, dash: 6, stun: 7, shieldAura: 3,
   dragonPalm: 5, poisonCloud: 5, phantom: 5, inferno: 8,
+  blink: 5, burrow: 6, thunder: 8, blessing: 3, howl: 5, skyRoam: 6, tide: 6,
 };
 
 export class Battle {
@@ -285,10 +295,23 @@ export class Battle {
   /** quái khổng lồ (trạm thứ 5) */
   giant: UnitInst | null = null;
   giantSpawned = false;
+  /** lane sông (−1 = không có): chỉ thủy quân và quân bay đi được */
+  readonly riverLane: number;
+
+  // ── chế độ Thủ Thành
+  /** đợt đang đánh / vừa bắt đầu gần nhất (1-based; 0 = chưa có đợt nào) */
+  siegeWave = 0;
+  /** số đợt đã hạ hoàn toàn */
+  siegeCleared = 0;
+  /** nghỉ (đếm ngược siegeT) · đang đánh (siegeT = giây từ đầu đợt) · xong */
+  siegePhase: 'break' | 'fight' | 'done' = 'break';
+  siegeT = 0;
+  private siegeQueue: { id: string; lane: number; at: number; pow: number }[] = [];
 
   constructor(public cfg: BattleConfig) {
     const st = cfg.station;
     const n = laneCountOf(st);
+    this.riverLane = n > 1 && st.river !== undefined && st.river < n ? st.river : -1;
     this.len = st.outposts.length && n > 1 ? LONG_LANE_LEN : BASE_LANE_LEN;
     this.flagX = [0, this.len];
     this.spawnX = [45, this.len - 45];
@@ -309,9 +332,11 @@ export class Battle {
     this.baseIncome = [PLAYER_INCOME * this.incomeMul, st.income * envIncome];
     this.income = [...this.baseIncome];
     this.enemyBudget = st.units;
+    if (cfg.siege) this.siegeT = SIEGE_PREP_SEC;
     const zones = cfg.zones === undefined ? rollZones(this.len, n) : cfg.zones ?? Array.from({ length: n }, () => []);
+    if (this.riverLane >= 0 && zones[this.riverLane]) zones[this.riverLane] = [];
     // màn Boss chỉ có 1 lane: thành ta là phòng tuyến duy nhất nên bền hơn
-    const myFlag = Math.round(PLAYER_FLAG_HP * (n === 1 ? 1.8 : 1) * flagHpMul(this.cfg.flagLevel ?? 0));
+    const myFlag = Math.round(PLAYER_FLAG_HP * (n === 1 ? 1.8 : 1) * (cfg.siege ? 1.4 : 1) * flagHpMul(this.cfg.flagLevel ?? 0));
     for (let i = 0; i < n; i++) {
       this.lanes.push({
         index: i,
@@ -326,6 +351,7 @@ export class Battle {
     }
     if (n > 1) {
       st.outposts.slice(0, n).forEach((kind, i) => {
+        if (i === this.riverLane) return;
         this.outposts.push({ lane: i, kind, x: this.len * OUTPOST.at, owner: 1, prog: 0, contested: false });
       });
     }
@@ -351,6 +377,7 @@ export class Battle {
 
   /** số quân địch chưa triển khai */
   get enemyLeft() {
+    if (this.cfg.siege) return this.siegeQueue.length;
     return Math.max(0, this.enemyBudget - this.enemyDeployed);
   }
 
@@ -411,11 +438,25 @@ export class Battle {
     return this.lanes[lane].units.filter((u) => u.alive && u.side === side && u.def.kind === 'defense').length;
   }
 
+  /**
+   * luật lane sông: thủy quân CHỈ ra ở lane sông; quân bay đi mọi lane; bộ binh, kỵ binh, thú đất và công trình chỉ ở lane đất
+   */
+  laneAllows(def: UnitDef, lane: number): boolean {
+    const river = lane === this.riverLane;
+    if (def.tags?.includes('fly')) return def.kind !== 'defense' || !river;
+    // Cân Đẩu Vân (Tôn Ngộ Không): đạp mây đi được cả lane sông lẫn lane đất
+    if (def.tags?.includes('cloud')) return def.kind !== 'defense';
+    if (def.kind === 'defense') return !river;
+    if (def.tags?.includes('naval')) return river;
+    return !river;
+  }
+
   canDeploy(side: Side, id: string, lane: number): boolean {
     const def = UNITS[id];
     if (!def || this.over) return false;
     const l = this.lanes[lane];
     if (!l || l.winner !== null) return false;
+    if (!this.laneAllows(def, lane)) return false;
     if (this.gold[side] < def.cost) return false;
     if (def.kind === 'defense') return this.defensesIn(side, lane) < MAX_DEFENSES_PER_LANE;
     if (def.kind !== 'troop' && def.kind !== 'general' && def.kind !== 'beast' && def.kind !== 'pet') return false;
@@ -489,6 +530,7 @@ export class Battle {
       life: o.life ?? def.life ?? Infinity, owner: o.owner ?? 0, noBounty: !!o.noBounty || def.kind === 'defense',
       ghost: !!def.tags?.includes('ghost'),
       bonusSkills: [], phase: 0, gen: o.gen ?? 0,
+      haste: side === 0 && !o.owner && !o.life ? skillHaste(this.cfg.levels[def.id] ?? 1) : 1, burrowT: 0,
     };
     if (def.kind === 'general' && o.hp === undefined) this.applyGSkills(u);
     if (def.kind !== 'defense' && !u.ghost && !o.owner && this.perk(side, laneIdx, 'rally')) this.addBuff(u, 'speed', OUTPOST.rally.speed, OUTPOST.rally.sec);
@@ -528,6 +570,7 @@ export class Battle {
     this.giantTick();
     this.weatherTick(dt);
     this.eventTick();
+    if (this.cfg.siege) this.siegeTick(dt);
     if (this.outposts.length) this.outpostTick(dt);
     for (const lane of this.lanes) {
       for (const f of lane.flags) f.flash = Math.max(0, f.flash - dt);
@@ -545,6 +588,79 @@ export class Battle {
       }
       lane.units = lane.units.filter((u) => u.alive || u.deadTimer > 0);
     }
+  }
+
+  // ───────────────────────── chế độ Thủ Thành ─────────────────────────
+
+  private siegeTick(dt: number) {
+    if (this.siegePhase === 'done') return;
+    if (this.siegePhase === 'break') {
+      this.siegeT -= dt;
+      if (this.siegeT <= 0) this.startSiegeWave();
+      return;
+    }
+    this.siegeT += dt;
+    while (this.siegeQueue.length && this.siegeQueue[0].at <= this.siegeT) {
+      const q = this.siegeQueue.shift()!;
+      const open = this.lanes.filter((l) => l.winner === null);
+      if (!open.length) return;
+      const lane = open.find((l) => l.index === q.lane) ?? open[Math.floor(Math.random() * open.length)];
+      this.spawn(UNITS[q.id], 1, lane.index, this.spawnX[1] - 10 + (Math.random() - 0.5) * 20, { pow: q.pow });
+    }
+    if (!this.siegeQueue.length && this.enemyAlive === 0) this.siegeWaveCleared();
+  }
+
+  /**
+   * Thủ Thành: bấm "Đợt kế" để gọi đợt tấn công tiếp theo ngay khi đang nghỉ, không phải chờ hết giờ.
+   * Thưởng 1 vàng cho mỗi giây nghỉ còn lại; trả về số vàng thưởng, hoặc −1 nếu chưa gọi được.
+   */
+  callNextWave(): number {
+    if (!this.cfg.siege || this.over || this.siegePhase !== 'break' || this.siegeT <= 0) return -1;
+    const bonus = Math.floor(this.siegeT);
+    this.gold[0] = Math.min(this.goldCap(0), this.gold[0] + bonus);
+    this.siegeT = 0;
+    return bonus;
+  }
+
+  private startSiegeWave() {
+    const wave = SIEGE_WAVES[this.siegeWave];
+    if (!wave) return;
+    this.siegeWave++;
+    this.siegePhase = 'fight';
+    this.siegeT = 0;
+    const ids: string[] = [];
+    for (const g of wave.units) for (let i = 0; i < g.n; i++) ids.push(g.id);
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    const open = this.lanes.filter((l) => l.winner === null).map((l) => l.index);
+    let at = 0.5;
+    this.siegeQueue = ids.map((id) => {
+      const q = { id, lane: open[Math.floor(Math.random() * open.length)] ?? 0, at, pow: wave.pow };
+      at += (UNITS[id].kind === 'general' ? 1.6 : 0.45) + Math.random() * 0.5;
+      return q;
+    });
+    this.emit({ t: 'wave', n: wave.n, total: SIEGE_WAVES.length, elite: wave.elite });
+    this.emit({ t: 'shake', power: wave.elite ? 8 : 4 });
+  }
+
+  private siegeWaveCleared() {
+    this.siegeCleared = this.siegeWave;
+    const gold = 25 + 6 * this.siegeWave;
+    this.gold[0] = Math.min(this.goldCap(0), this.gold[0] + gold);
+    // sửa thành: hồi 15% máu cờ nhà ở các lane còn giữ
+    for (const l of this.lanes) {
+      if (l.winner === null) l.flags[0].hp = Math.min(l.flags[0].maxHp, l.flags[0].hp + l.flags[0].maxHp * 0.15);
+    }
+    this.emit({ t: 'waveClear', n: this.siegeWave, gold });
+    if (this.siegeWave >= SIEGE_WAVES.length) {
+      this.siegePhase = 'done';
+      this.finish(0);
+      return;
+    }
+    this.siegePhase = 'break';
+    this.siegeT = SIEGE_BREAK_SEC;
   }
 
   /** Màn Boss: boss xuất hiện gần cuối trận */
@@ -684,7 +800,7 @@ export class Battle {
     let lane: Lane | null = null;
     let low = Infinity;
     for (const l of this.lanes) {
-      if (l.winner !== null) continue;
+      if (l.winner !== null || !this.laneAllows(UNITS[st.giantId], l.index)) continue;
       const r = l.flags[1].hp / l.flags[1].maxHp;
       if (r < low) {
         low = r;
@@ -835,7 +951,9 @@ export class Battle {
       case 'ghostGate':
         // Quỷ Binh tràn vào phe địch
         for (let i = 0; i < EVENT_GHOSTS; i++) {
-          const lane = open[i % open.length];
+          const land = open.filter((l) => l.index !== this.riverLane);
+          if (!land.length) break;
+          const lane = land[i % land.length];
           this.spawn(UNITS.quybinh, 1, lane.index, this.spawnX[1] - 20 - i * 14, { noBounty: true });
         }
         this.emit({ t: 'shake', power: 6 });
@@ -941,10 +1059,22 @@ export class Battle {
     e.x = Math.max(12, Math.min(this.len - 12, e.x + dir * dist));
   }
 
+  /**
+   * quái bay (tag 'fly'): chỉ tướng, quân tầm xa (trừ kỵ binh) và công trình bắn xa mới đánh trúng.
+   * Sát thương không có nguồn (độc, địa hình...) vẫn tính.
+   */
+  private canHit(a: UnitInst | null, v: UnitInst): boolean {
+    if (!a || !v.def.tags?.includes('fly')) return true;
+    if (a.def.kind === 'general') return true;
+    if (a.def.tags?.includes('cav')) return false;
+    if (a.def.kind === 'defense') return a.def.skill === 'tower' || a.def.skill === 'ballista' || a.def.skill === 'catapult';
+    return a.range > 70;
+  }
+
   private foesAhead(lane: Lane, u: UnitInst, reach: number): UnitInst[] {
     const dir = u.side === 0 ? 1 : -1;
     return lane.units
-      .filter((e) => e.alive && e.side !== u.side && !e.ghost && e.def.kind !== 'defense' && (e.x - u.x) * dir >= -10 && (e.x - u.x) * dir <= reach)
+      .filter((e) => e.alive && e.side !== u.side && !e.ghost && e.def.kind !== 'defense' && this.canHit(u, e) && (e.x - u.x) * dir >= -10 && (e.x - u.x) * dir <= reach)
       .sort((a, b) => Math.abs(a.x - u.x) - Math.abs(b.x - u.x));
   }
 
@@ -967,7 +1097,7 @@ export class Battle {
     let best: UnitInst | null = null;
     let bd = Infinity;
     for (const e of lane.units) {
-      if (!e.alive || e.side === u.side || e.ghost) continue;
+      if (!e.alive || e.side === u.side || e.ghost || !this.canHit(u, e)) continue;
       const rel = (e.x - u.x) * dir;
       if (behind ? rel >= -12 : rel < -12) continue;
       const d = Math.abs(rel);
@@ -1032,8 +1162,15 @@ export class Battle {
       return;
     }
 
+    if (u.burrowT > 0) {
+      this.burrowStep(lane, u, dt);
+      return;
+    }
+
     this.tickSkills(lane, u, dt);
     if (!u.alive) return;
+    // vừa dịch chuyển / bay sang lane khác / chui xuống đất: nhường khung này
+    if (u.lane !== lane.index || u.burrowT > 0) return;
 
     const dir = u.side === 0 ? 1 : -1;
 
@@ -1048,6 +1185,14 @@ export class Battle {
       if (u.atkTimer <= 0) this.attackUnit(lane, u, near.e);
       return;
     }
+    // bắn xuyên lane: không có địch trong tầm ở lane mình thì nhắm sang lane liền kề
+    if (this.has(u, 'crossShot')) {
+      const cx = this.nearestCross(lane, u, rng);
+      if (cx) {
+        if (u.atkTimer <= 0) this.attackCross(lane, u, cx.e);
+        return;
+      }
+    }
     // quân đã sát cờ địch thì vẫn ưu tiên đánh cờ (không quay lại đánh quân mới thả phía sau lưng)
     const fx = this.flagX[u.side === 0 ? 1 : 0];
     if (Math.abs(fx - u.x) <= Math.max(rng, 26)) {
@@ -1061,6 +1206,8 @@ export class Battle {
       return;
     }
     if (this.holdsOutpost(lane, u)) return;
+    // Thủ Thành: quân ta giữ vạch phòng thủ, chỉ tiến lên khi địch tới gần
+    if (this.cfg.siege && u.side === 0 && u.x >= SIEGE_HOLD && !(near && near.d <= 420)) return;
     const sp = u.speed * this.mod(u, 'speed');
     const prevX = u.x;
     u.x += dir * sp * dt;
@@ -1087,6 +1234,7 @@ export class Battle {
       if (u.lane !== b.a && u.lane !== b.b) continue;
       if ((prevX - b.x) * (u.x - b.x) > 0) continue;
       const to = u.lane === b.a ? b.b : b.a;
+      if (!this.laneAllows(u.def, to)) continue;
       if (this.lanes[to].winner !== null || this.lanes[u.lane].winner !== null) continue;
       const foe: Side = u.side === 0 ? 1 : 0;
       const needHere = this.lanePower(u.lane, foe) - this.lanePower(u.lane, u.side);
@@ -1100,11 +1248,11 @@ export class Battle {
     }
   }
 
-  private moveLane(u: UnitInst, to: number) {
+  private moveLane(u: UnitInst, to: number, snap = false) {
     const from = this.lanes[u.lane];
     from.units = from.units.filter((x) => x !== u);
     this.lanes[to].units.push(u);
-    this.emit({ t: 'cross', uid: u.uid, from: u.lane, to, x: u.x });
+    this.emit({ t: 'cross', uid: u.uid, from: u.lane, to, x: u.x, snap });
     u.lane = to;
     u.crossCd = 4;
   }
@@ -1122,11 +1270,80 @@ export class Battle {
     }
   }
 
-  private projKind(u: UnitInst): 'arrow' | 'rock' | 'needle' | 'magic' {
+  /** độ cao (px) quái bay lơ lửng trên mặt đất, để vẽ đạn xuất phát từ miệng */
+  private liftOf(u: UnitInst): number | undefined {
+    return u.def.tags?.includes('fly') ? 46 : undefined;
+  }
+
+  private projKind(u: UnitInst): 'arrow' | 'rock' | 'needle' | 'magic' | 'fire' {
+    if (u.def.tags?.includes('fly')) return 'fire';
     const id = u.form ?? u.def.id;
     if (id === 'tieulongnu') return 'needle';
     if (['giacatluong', 'chudu', 'tumayi', 'auduongphong', 'taoist', 'poisoner'].includes(id)) return 'magic';
     return 'arrow';
+  }
+
+  // ───────────────────────── tác động xuyên lane ─────────────────────────
+
+  /** lane của đơn vị và các lane liền kề chưa kết thúc (lane 2 ảnh hưởng lane 1 và 3) */
+  private nearLanes(idx: number): Lane[] {
+    return [idx - 1, idx, idx + 1].filter((i) => i >= 0 && i < this.lanes.length && this.lanes[i].winner === null).map((i) => this.lanes[i]);
+  }
+
+  /** đồng đội còn sống trong bán kính `r` (theo trục lane) ở lane mình và các lane liền kề */
+  private alliesNear(u: UnitInst, r: number): UnitInst[] {
+    const out: UnitInst[] = [];
+    for (const l of this.nearLanes(u.lane)) {
+      for (const a of l.units) {
+        if (a.alive && a.side === u.side && !a.ghost && a.def.kind !== 'defense' && Math.abs(a.x - u.x) <= r) out.push(a);
+      }
+    }
+    return out;
+  }
+
+  /** địch gần nhất phía trước trong tầm `rng` ở các lane liền kề (không tính lane của chính nó) */
+  private nearestCross(lane: Lane, u: UnitInst, rng: number): { e: UnitInst; d: number } | null {
+    const dir = u.side === 0 ? 1 : -1;
+    let best: UnitInst | null = null;
+    let bd = Infinity;
+    for (const l of this.nearLanes(lane.index)) {
+      if (l === lane) continue;
+      for (const e of l.units) {
+        if (!e.alive || e.side === u.side || e.ghost || e.def.kind === 'defense' || !this.canHit(u, e)) continue;
+        const rel = (e.x - u.x) * dir;
+        if (rel < -12) continue;
+        const d = Math.abs(rel);
+        if (d <= rng && d < bd) {
+          bd = d;
+          best = e;
+        }
+      }
+    }
+    return best ? { e: best, d: bd } : null;
+  }
+
+  /** bắn sang lane liền kề (Thần Tiễn Xuyên Lane): chỉ đạn thẳng, không dùng đòn lan */
+  private attackCross(lane: Lane, u: UnitInst, t: UnitInst) {
+    u.atkTimer = u.cd / this.mod(u, 'rate');
+    u.attackAnim = 0.3;
+    u.attacks++;
+    let dmg = u.dmg * this.mod(u, 'dmg');
+    let pierce = 0;
+    let big = false;
+    const dir = u.side === 0 ? 1 : -1;
+    if (u.gs.includes('execute') && t.hp < t.maxHp * GS.execute.below) dmg *= GS.execute.mul;
+    if (this.has(u, 'sniper') && u.attacks % 3 === 0) {
+      dmg *= 3;
+      pierce = 0.6;
+      big = true;
+      this.emit({ t: 'text', lane: lane.index, x: u.x, key: 'fx.snipe', color: 0xffd34d, big: true });
+      this.emit({ t: 'fx', kind: 'snipe', lane: t.lane, x: t.x, dir });
+    }
+    if (u.pierceAdd > 0) pierce = 1 - (1 - pierce) * (1 - u.pierceAdd);
+    this.emit({ t: 'proj', lane: lane.index, lane2: t.lane, from: u.x, to: t.x, kind: this.projKind(u), y: u.yOff, h: this.liftOf(u) });
+    this.damage(t, dmg, u, { ranged: true, big, pierce });
+    if (this.has(u, 'poisoner') && t.alive) this.applyPoison(t, 9 * u.pow, 5, u.side);
+    u.firstHit = false;
   }
 
   private attackUnit(lane: Lane, u: UnitInst, t: UnitInst) {
@@ -1206,7 +1423,7 @@ export class Battle {
     u.firstHit = false;
 
     if (u.pierceAdd > 0) pierce = 1 - (1 - pierce) * (1 - u.pierceAdd);
-    if (ranged) this.emit({ t: 'proj', lane: lane.index, from: u.x, to: t.x, kind: this.projKind(u), y: u.yOff });
+    if (ranged) this.emit({ t: 'proj', lane: lane.index, from: u.x, to: t.x, kind: this.projKind(u), y: u.yOff, h: this.liftOf(u) });
     this.damage(t, dmg, u, { ranged, big, pierce });
     if (this.has(u, 'poisoner') && t.alive) this.applyPoison(t, 9 * u.pow, 5, u.side);
   }
@@ -1224,7 +1441,7 @@ export class Battle {
     u.firstHit = false;
     if (u.range > 70) {
       const kind = this.has(u, 'siege') ? 'rock' : this.projKind(u);
-      this.emit({ t: 'proj', lane: lane.index, from: u.x, to: this.flagX[u.side === 0 ? 1 : 0], kind, y: u.yOff });
+      this.emit({ t: 'proj', lane: lane.index, from: u.x, to: this.flagX[u.side === 0 ? 1 : 0], kind, y: u.yOff, h: this.liftOf(u) });
     }
     this.damageFlag(lane, u.side === 0 ? 1 : 0, dmg, u.side);
   }
@@ -1261,7 +1478,7 @@ export class Battle {
     v: UnitInst, raw: number, attacker: UnitInst | null,
     o: { ranged?: boolean; aoe?: boolean; big?: boolean; pierce?: number; dot?: boolean; reflected?: boolean; creditSide?: Side } = {},
   ): number {
-    if (!v.alive || v.invuln > 0 || v.ghost) return 0;
+    if (!v.alive || v.invuln > 0 || v.ghost || !this.canHit(attacker, v)) return 0;
     if (!o.aoe && !o.dot) {
       if (Math.random() < (this.has(v, 'ninja') ? 0.3 : 0) + v.dodge + this.zoneSum(v, 'dodge')) {
         this.emit({ t: 'text', lane: v.lane, x: v.x, key: 'fx.dodge', color: 0xbfe9ff });
@@ -1360,6 +1577,8 @@ export class Battle {
 
   private damageFlag(lane: Lane, flagSide: Side, dmg: number, attackerSide: Side) {
     if (lane.winner !== null) return;
+    // Thủ Thành: không có thành địch để phá
+    if (this.cfg.siege && flagSide === 1) return;
     // màn Boss: boss còn sống thì cờ địch được bảo vệ
     if (flagSide === 1 && this.bossKin.some((k) => k.alive)) dmg *= BOSS_FLAG_GUARD;
     const f = lane.flags[flagSide];
@@ -1401,6 +1620,7 @@ export class Battle {
   private tickSkills(lane: Lane, u: UnitInst, dt: number) {
     // Thao Trường: hồi chiêu nhanh hơn
     if (this.outposts.length && this.perk(u.side, lane.index, 'drill')) dt *= OUTPOST.drill.skill;
+    dt *= u.haste;
     this.castSkill(lane, u, u.def.skill, dt);
     if (u.alive && u.def.skill2) this.castSkill(lane, u, u.def.skill2, dt);
     if (u.alive && u.form) this.castSkill(lane, u, UNITS[u.form].skill, dt);
@@ -1532,6 +1752,37 @@ export class Battle {
     u.formT = 0;
   }
 
+  /** đang độn thổ: lao nhanh về phía địch rồi trồi lên */
+  private burrowStep(lane: Lane, u: UnitInst, dt: number) {
+    const dir = u.side === 0 ? 1 : -1;
+    u.burrowT -= dt;
+    const near = this.nearestEnemy(lane, u);
+    const limit = this.flagX[u.side === 0 ? 1 : 0] - dir * 35;
+    const sp = u.speed * 2.6 * this.mod(u, 'speed');
+    u.x = dir > 0 ? Math.min(limit, u.x + sp * dt) : Math.max(limit, u.x - sp * dt);
+    u.travelled += sp * dt;
+    u.moving = true;
+    if ((near && near.d <= 45) || u.burrowT <= 0) this.emerge(lane, u);
+  }
+
+  private emerge(lane: Lane, u: UnitInst) {
+    const dir = (u.side === 0 ? 1 : -1) as 1 | -1;
+    u.burrowT = 0;
+    u.ghost = !!u.def.tags?.includes('ghost');
+    u.moving = false;
+    u.atkTimer = 0;
+    u.attackAnim = 0.4;
+    this.emit({ t: 'text', lane: lane.index, x: u.x, key: 'fx.emerge', color: 0xd9b27a, big: true });
+    this.emit({ t: 'fx', kind: 'burrow', lane: lane.index, x: u.x, dir, r: 85 });
+    this.emit({ t: 'shake', power: 5 });
+    const dmgMul = this.mod(u, 'dmg');
+    for (const e of lane.units.slice()) {
+      if (!e.alive || e.side === u.side || e.ghost || Math.abs(e.x - u.x) > 85) continue;
+      this.damage(e, 100 * u.pow * dmgMul, u, { aoe: true });
+      if (e.alive && e.def.kind !== 'defense') e.stunT = Math.max(e.stunT, 1);
+    }
+  }
+
   private castSkill(lane: Lane, u: UnitInst, skill: SkillId, dt: number) {
     const dir = (u.side === 0 ? 1 : -1) as 1 | -1;
     const T = u.timers;
@@ -1595,7 +1846,7 @@ export class Battle {
       }
       case 'fireAttack': {
         if (!ready()) break;
-        const foes = lane.units.filter((e) => e.alive && e.side !== u.side && !e.ghost);
+        const foes = lane.units.filter((e) => e.alive && e.side !== u.side && !e.ghost && this.canHit(u, e));
         if (!foes.length) {
           T.fireAttack = 0;
           break;
@@ -1609,6 +1860,181 @@ export class Battle {
         this.aoe(lane, best.x, 90, 130 * u.pow * dmgMul * this.fireMul, u, { ranged: true, color: 0xff6a3d, pierce: 1, noFlag: true, quiet: true });
         break;
       }
+      // ── Vi Tiểu Bảo / Hồ Ly Tinh: dịch chuyển ra sau lưng cụm địch đông nhất (kể cả sang lane khác)
+      case 'blink': {
+        if (!ready()) break;
+        const foeSide: Side = u.side === 0 ? 1 : 0;
+        let bestLane = -1;
+        let bestScore = 0;
+        let target: UnitInst | null = null;
+        for (const l of this.lanes) {
+          if (l.winner !== null || !this.laneAllows(u.def, l.index)) continue;
+          const foes = l.units.filter((e) => e.alive && e.side === foeSide && !e.ghost && e.def.kind !== 'defense' && this.canHit(u, e));
+          if (!foes.length) continue;
+          // cùng lane mà địch đã sát mặt thì không cần dịch chuyển
+          if (l.index === idx && foes.every((e) => Math.abs(e.x - u.x) < 140)) continue;
+          const score = foes.reduce((a, e) => a + (e.hp + e.dmg * 6) / 100, 0) * (l.index === idx ? 1.25 : 1);
+          if (score > bestScore) {
+            bestScore = score;
+            bestLane = l.index;
+            target = this.densest(foes);
+          }
+        }
+        if (!target || bestLane < 0) {
+          T.blink = 1.5;
+          break;
+        }
+        T.blink = 9;
+        const limit = eFlag - dir * 40;
+        const to = Math.max(40, Math.min(this.len - 40, target.x + dir * 40));
+        const landX = dir > 0 ? Math.min(to, limit) : Math.max(to, limit);
+        this.emit({ t: 'fx', kind: 'blink', lane: idx, x: u.x, dir });
+        if (bestLane !== idx) this.moveLane(u, bestLane, true);
+        u.x = landX;
+        u.atkTimer = 0;
+        u.attackAnim = 0.4;
+        u.invuln = Math.max(u.invuln, 0.3);
+        u.crossCd = Math.max(u.crossCd, 2);
+        const dest = this.lanes[bestLane];
+        this.emit({ t: 'text', lane: bestLane, x: landX, key: 'fx.blink', color: 0xe0b0ff, big: true });
+        this.emit({ t: 'fx', kind: 'blink', lane: bestLane, x: landX, dir });
+        this.aoe(dest, landX, 80, 85 * u.pow * dmgMul, u, { ranged: false, color: 0xd8a0ff, quiet: true, noFlag: true });
+        for (const e of dest.units) if (e.alive && e.side !== u.side && !e.ghost && e.def.kind !== 'defense' && Math.abs(e.x - landX) <= 80) e.stunT = Math.max(e.stunT, 0.8);
+        break;
+      }
+
+      // ── Tả Từ / Địa Long Trùng: độn thổ, không ai đánh trúng, trồi lên gây sát thương
+      case 'burrow': {
+        if (!ready()) break;
+        if (!this.foesAhead(lane, u, 450).length && Math.abs(eFlag - u.x) > 300) {
+          T.burrow = 0;
+          break;
+        }
+        T.burrow = 11;
+        u.burrowT = 2;
+        u.ghost = true;
+        this.emit({ t: 'text', lane: idx, x: u.x, key: 'fx.burrow', color: 0xd9b27a, big: true });
+        this.emit({ t: 'fx', kind: 'burrow', lane: idx, x: u.x, dir, r: 50 });
+        break;
+      }
+
+      // ── Lôi Công / Thiên Lôi Thú: sét giáng xuống MỌI địch trên toàn bản đồ
+      case 'thunder': {
+        if (!ready()) break;
+        const targets: UnitInst[] = [];
+        for (const l of this.lanes) {
+          if (l.winner !== null) continue;
+          for (const e of l.units) if (e.alive && e.side !== u.side && !e.ghost && e.def.kind !== 'defense' && this.canHit(u, e)) targets.push(e);
+        }
+        if (!targets.length) {
+          T.thunder = 0;
+          break;
+        }
+        T.thunder = 15;
+        u.attackAnim = 0.5;
+        this.emit({ t: 'text', lane: idx, x: u.x, key: 'fx.thunder', color: 0xbfe6ff, big: true });
+        this.emit({ t: 'shake', power: 7 });
+        for (const e of targets) {
+          this.emit({ t: 'fx', kind: 'bolt', lane: e.lane, x: e.x, dir, r: 40 });
+          this.damage(e, 60 * u.pow * dmgMul, u, { aoe: true, pierce: 0.5 });
+        }
+        break;
+      }
+
+      // ── Quan Âm Bồ Tát: cam lồ hồi máu + khiên cho đồng đội ở cả lane liền kề
+      case 'blessing': {
+        if (!ready()) break;
+        const near = this.nearLanes(idx);
+        if (!near.some((l) => l.units.some((e) => e.alive && e.side !== u.side && !e.ghost && e.def.kind !== 'defense'))) {
+          T.blessing = 1;
+          break;
+        }
+        T.blessing = 10;
+        u.attackAnim = 0.4;
+        this.emit({ t: 'text', lane: idx, x: u.x, key: 'fx.bless', color: 0x9affc8, big: true });
+        for (const l of near) this.emit({ t: 'fx', kind: 'healwave', lane: l.index, x: u.x, dir, r: 260 });
+        for (const a of this.alliesNear(u, 260)) {
+          this.healUnit(a, a.maxHp * 0.1);
+          a.shield = Math.max(a.shield, 50 * u.pow);
+        }
+        break;
+      }
+
+      // ── Sói Vương: tiếng hú tăng sát thương và tốc độ cho bầy ở cả lane liền kề
+      case 'howl': {
+        if (!ready()) break;
+        const near = this.nearLanes(idx);
+        if (!near.some((l) => l.units.some((e) => e.alive && e.side !== u.side && !e.ghost && e.def.kind !== 'defense'))) {
+          T.howl = 1;
+          break;
+        }
+        T.howl = 12;
+        u.attackAnim = 0.4;
+        this.emit({ t: 'text', lane: idx, x: u.x, key: 'fx.howl', color: 0xffb36b, big: true });
+        for (const l of near) this.emit({ t: 'fx', kind: 'warcry', lane: l.index, x: u.x, dir });
+        for (const a of this.alliesNear(u, 260)) {
+          this.addBuff(a, 'dmg', 1.2, 5);
+          this.addBuff(a, 'speed', 1.15, 5);
+        }
+        break;
+      }
+
+      // ── Na Tra / Phi Long: bay sang lane bên cạnh đang cần chi viện (không cần cầu nối)
+      case 'skyRoam': {
+        if (!ready()) break;
+        if (u.crossCd > 0) {
+          T.skyRoam = 0.5;
+          break;
+        }
+        const foeSide: Side = u.side === 0 ? 1 : 0;
+        let best = -1;
+        let bestNeed = this.lanePower(idx, foeSide) - this.lanePower(idx, u.side);
+        for (const j of [idx - 1, idx + 1]) {
+          if (j < 0 || j >= this.lanes.length || this.lanes[j].winner !== null || !this.laneAllows(u.def, j) || this.lanePower(j, foeSide) <= 0) continue;
+          const need = this.lanePower(j, foeSide) - this.lanePower(j, u.side);
+          if (need > bestNeed + 3) {
+            bestNeed = need;
+            best = j;
+          }
+        }
+        if (best < 0) {
+          T.skyRoam = 2;
+          break;
+        }
+        T.skyRoam = 10;
+        this.moveLane(u, best);
+        u.attackAnim = 0.45;
+        this.emit({ t: 'text', lane: best, x: u.x, key: 'fx.skyroam', color: 0xff9a4d, big: true });
+        this.emit({ t: 'fx', kind: 'fire', lane: best, x: u.x, dir, r: 90 });
+        this.emit({ t: 'shake', power: 4 });
+        this.aoe(this.lanes[best], u.x, 90, 90 * u.pow * dmgMul * this.fireMul, u, { ranged: true, color: 0xff6a3d, pierce: 0.5, noFlag: true, quiet: true });
+        break;
+      }
+
+      // ── Long Vương / Giao Long: sóng thần quét về phía trước, gây sát thương và đẩy lùi
+      case 'tide': {
+        if (!ready()) break;
+        const foes = this.foesAhead(lane, u, 380);
+        if (!foes.length && Math.abs(eFlag - u.x) > 300) {
+          T.tide = 0;
+          break;
+        }
+        T.tide = 12;
+        u.attackAnim = 0.45;
+        this.emit({ t: 'text', lane: idx, x: u.x, key: 'fx.tide', color: 0x7ad0ff, big: true });
+        this.emit({ t: 'shake', power: 5 });
+        this.emit({ t: 'fx', kind: 'tide', lane: idx, x: u.x, dir, r: 380 });
+        for (const e of lane.units.slice()) {
+          if (!e.alive || e.side === u.side || e.ghost) continue;
+          const rel = (e.x - u.x) * dir;
+          if (rel < -20 || rel > 380) continue;
+          const was = e.alive;
+          this.damage(e, 75 * u.pow * dmgMul, u, { aoe: true });
+          if (was && e.alive && e.def.kind !== 'defense') this.push(e, 110, dir);
+        }
+        break;
+      }
+
       case 'tyrant': {
         if (!u.enraged && u.hp < u.maxHp * 0.5) {
           u.enraged = true;
@@ -1898,8 +2324,9 @@ export class Battle {
     const side = u.side;
     const dir = (side === 0 ? 1 : -1) as 1 | -1;
     const T = u.timers;
+    dt *= u.haste;
     const dmg = u.dmg * this.mod(u, 'dmg');
-    const foes = lane.units.filter((e) => e.alive && e.side !== side && !e.ghost);
+    const foes = lane.units.filter((e) => e.alive && e.side !== side && !e.ghost && this.canHit(u, e));
     const inRange = (e: UnitInst, r: number) => Math.abs(e.x - u.x) <= r;
     const nearest = (r: number) => {
       let best: UnitInst | null = null;

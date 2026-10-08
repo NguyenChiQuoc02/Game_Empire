@@ -1,7 +1,8 @@
 import { Container, Graphics, Text, type Application } from 'pixi.js';
 import { Battle, LANE_COUNT, type Outpost, type Side, type UnitInst } from '../game/sim';
 import type { Station } from '../data/campaign';
-import { buildUnitArt, SIDE_COLOR, type UnitArt } from './unitArt';
+import { buildUnitArt, FLY_LIFT, SIDE_COLOR, type UnitArt } from './unitArt';
+import { fxLite } from './fxmode';
 import { buildBattlefield, type Battlefield } from './scenery';
 import { roof } from './landmarks';
 import { Vfx, textStyle } from './vfx';
@@ -79,6 +80,9 @@ export class BattleView {
   private unitsC: Container[] = [];
   private towersLayer = new Container();
   private unitsLayer = new Container();
+  /** lane sông: nước, bờ và sóng (vẽ lại theo cỡ màn hình) */
+  private riverC = new Container();
+  private riverWaves = new Graphics();
   private bf: Battlefield | null = null;
   private overlays = new Container();
   readonly vfx: Vfx;
@@ -231,6 +235,7 @@ export class BattleView {
     }
     this.bf = buildBattlefield(this.station.theme, W, H, this.panoH, this.laneH, 9100 + this.station.id * 13, n);
     this.root.addChildAt(this.bf.back, 0);
+    this.buildRiver();
     this.root.addChildAt(this.bf.front, this.root.children.indexOf(this.overlays));
 
     // địa hình lane và căn cứ phụ nằm dưới tháp / quân
@@ -263,6 +268,56 @@ export class BattleView {
       return bg;
     });
     this.root.position.set(0, 0);
+  }
+
+  // ───────────────────────── lane sông ─────────────────────────
+  private buildRiver() {
+    this.riverC.removeChildren().forEach((c) => c.destroy({ children: true }));
+    this.riverWaves = new Graphics();
+    if (this.riverC.parent !== this.root) this.root.addChildAt(this.riverC, 1);
+    const r = this.battle.riverLane;
+    if (r < 0) return;
+    const y0 = this.laneTop(r);
+    const H = this.laneH;
+    const base = new Graphics();
+    // nước: dải màu sâu dần về giữa
+    const bands = 7;
+    for (let i = 0; i < bands; i++) {
+      const k = 1 - Math.abs(i - (bands - 1) / 2) / ((bands - 1) / 2);
+      base.rect(0, y0 + (H * i) / bands, this.W, H / bands + 1).fill(mix(0x3f90d4, 0x1c5a9a, k));
+    }
+    // bờ sông trên/dưới: cỏ + cát với mép lởm chởm
+    for (const top of [true, false]) {
+      const by = top ? y0 : y0 + H;
+      const sgn = top ? 1 : -1;
+      const w = H * 0.1;
+      base.rect(0, top ? by : by - w, this.W, w).fill(0x5a8a48);
+      base.rect(0, top ? by + w * 0.55 : by - w, this.W, w * 0.45).fill(0xcdb77a);
+      const pts: number[] = [0, by + sgn * w * 0.55];
+      for (let x = 0; x <= this.W + 24; x += 24) pts.push(x, by + sgn * (w * 0.55 + (Math.sin(x * 0.07 + (top ? 0 : 2)) * 0.5 + 0.5) * w * 0.42));
+      pts.push(this.W, by + sgn * w * 0.55);
+      base.poly(pts).fill({ color: 0xcdb77a, alpha: 0.95 });
+    }
+    this.riverWaves.clear();
+    this.riverC.addChild(base, this.riverWaves);
+    this.riverC.position.set(0, 0);
+  }
+
+  private updateRiver() {
+    const r = this.battle.riverLane;
+    if (r < 0) return;
+    const y0 = this.laneTop(r);
+    const H = this.laneH;
+    const g = this.riverWaves;
+    g.clear();
+    const rows = 8;
+    for (let i = 0; i < rows; i++) {
+      const y = y0 + H * (0.18 + 0.64 * (i / (rows - 1)));
+      const off = (this.clock * (16 + i * 3) + i * 90) % 140;
+      for (let x = -140 + off; x < this.W; x += 140) {
+        g.moveTo(x, y).quadraticCurveTo(x + 18, y - 4.5, x + 36, y).quadraticCurveTo(x + 54, y + 4.5, x + 72, y).stroke({ width: 1.6, color: 0xdff4ff, alpha: 0.22 + 0.1 * Math.sin(this.clock * 2 + i) });
+      }
+    }
   }
 
   // ───────────────────────── địa hình lane ─────────────────────────
@@ -423,6 +478,13 @@ export class BattleView {
     const baseY = this.gy(lane, 0) + this.laneH * 0.12;
     c.position.set(side === 0 ? this.padL - w - 2 : this.W - this.padL + 2, baseY);
     c.zIndex = baseY;
+    if (lane === this.battle.riverLane) {
+      // tháp dựng trên cầu tàu gỗ giữa sông
+      const pier = new Graphics();
+      pier.roundRect(-8, -h * 0.05, w + 16, h * 0.16, 3).fill(0x7a5230).stroke({ width: 1.4, color: 0x2e1c0e });
+      for (let px = 0; px < w + 14; px += 9) pier.moveTo(-6 + px, -h * 0.04).lineTo(-6 + px, h * 0.1).stroke({ width: 1, color: 0x3e2812, alpha: 0.7 });
+      c.addChild(pier);
+    }
     const body = new Graphics();
     const flagC = new Container();
     const flagG = new Graphics();
@@ -521,13 +583,12 @@ export class BattleView {
     const win = winner === 0;
     const y0 = this.laneTop(lane);
     const tint = new Graphics();
-    tint.rect(0, y0, this.W, this.laneH).fill({ color: win ? 0x2d7bff : 0x6a1a1a, alpha: win ? 0.14 : 0.3 });
+    tint.rect(0, y0, this.W, this.laneH).fill({ color: win ? 0x2d7bff : 0x6a1a1a, alpha: win ? 0.08 : 0.2 });
     const plate = new Container();
-    const bw = Math.min(this.W * 0.72, 380);
-    const bh = Math.min(this.laneH * 0.42, 66);
+    const bw = Math.min(this.W * 0.5, 290);
+    const bh = Math.min(this.laneH * 0.3, 46);
     const pg = new Graphics();
-    pg.roundRect(-bw / 2, -bh / 2, bw, bh, 16).fill({ color: 0x0b0e18, alpha: 0.8 }).stroke({ width: 3, color: win ? 0xffd34d : 0xff7a7a });
-    pg.roundRect(-bw / 2 + 5, -bh / 2 + 5, bw - 10, bh - 10, 12).stroke({ width: 1.2, color: win ? 0x6cc2ff : 0x8a3a3a, alpha: 0.8 });
+    pg.roundRect(-bw / 2, -bh / 2, bw, bh, 14).fill({ color: 0x0b0e18, alpha: 0.72 }).stroke({ width: 1.4, color: win ? 0xf0c25a : 0xff8a8a, alpha: 0.85 });
     const tx = new Text({ text: win ? t('lane.win') : t('lane.lose'), style: textStyle(Math.max(16, bh * 0.46), win ? 0xffe27a : 0xff9a9a) });
     tx.anchor.set(0.5);
     plate.addChild(pg, tx);
@@ -543,6 +604,7 @@ export class BattleView {
     this.clock += dt;
     this.consume();
     this.bf?.update(dt);
+    this.updateRiver();
     this.syncUnits(dt);
     this.syncTowers(dt);
     this.updateOverlays(dt);
@@ -569,8 +631,14 @@ export class BattleView {
       } else if (e.t === 'outpost') {
         const name = `${OUTPOST_ICON[e.kind]} ${t(`outpost.${e.kind}.name`)}`;
         this.showToast(t(e.owner === 0 ? 'hud.outpostWin' : 'hud.outpostLost', { name }));
+      } else if (e.t === 'wave') {
+        this.showToast(t(e.elite ? 'hud.waveElite' : 'hud.waveStart', { n: e.n, total: e.total }));
+      } else if (e.t === 'waveClear') {
+        this.showToast(t('hud.waveClear', { n: e.n, gold: e.gold }));
       } else if (e.t === 'cross') {
         this.vfx.dust(this.sx(e.x), this.gy(e.from, 0.5), 4, 0.9);
+        const cv = e.snap ? this.views.get(e.uid) : undefined;
+        if (cv) cv.laneF = e.to;
       } else if (e.t === 'event') {
         const ev = RANDOM_EVENTS.find((r) => r.id === e.id)!;
         this.showToast(`${ev.icon} ${t(`event.${e.id}.name`)}: ${t(`event.${e.id}.short`, eventParams(e.id))}`);
@@ -688,6 +756,7 @@ export class BattleView {
     const pop = age < 0.4 ? easeOutBack(age / 0.4) : 1;
     a.root.scale.set(Math.max(0.01, us * pop));
 
+    const fly = !!u.def.tags?.includes('fly');
     const atk = u.attackAnim > 0 ? Math.max(0.001, Math.min(1, 1 - u.attackAnim / 0.3)) : 0;
     a.update(this.clock + v.seed, u.moving || crossing, atk);
 
@@ -717,26 +786,37 @@ export class BattleView {
       } else {
         const p = 1 - Math.max(0, u.deadTimer) / 0.7;
         a.art.rotation = (u.side === 0 ? -1 : 1) * Math.min(1.5, p * 2.2);
-        a.art.y = p * 6;
+        a.art.y = p * 6 - (fly ? FLY_LIFT * (1 - p) : 0);
         a.root.alpha = Math.max(0, 1 - p * p);
       }
       return;
     }
 
-    a.root.alpha = Math.min(1, age * 5);
-    a.art.y = 0;
+    a.root.alpha = u.burrowT > 0 ? 0 : Math.min(1, age * 5);
+    if (v.name) v.name.visible = u.burrowT <= 0;
+    // Tôn Ngộ Không đạp Cân Đẩu Vân khi ở lane sông
+    const cloudOn = !!a.setCloud && u.lane === this.battle.riverLane;
+    a.setCloud?.(cloudOn);
+    a.art.y = fly ? -FLY_LIFT + Math.sin((this.clock + v.seed) * 2.4) * 3 : cloudOn ? -9 + Math.sin((this.clock + v.seed) * 3) * 1.5 : 0;
     a.art.rotation = 0;
     const hk = Math.max(0, u.hitFlash / 0.12);
     a.art.x = -dir * 3 * hk;
     const base = a.baseScale;
-    a.art.scale.set(dir * base * (1 + hk * 0.06), base * (1 - hk * 0.08));
-    a.art.tint = u.hitFlash > 0 ? 0xff8f8f : u.invuln > 0 ? 0xfff2a0 : u.poison ? 0xc4ffa8 : u.stunT > 0 ? 0xd0d8ff : 0xffffff;
+    const bump = fxLite() ? 0.5 : 1;
+    a.art.scale.set(dir * base * (1 + hk * 0.06 * bump), base * (1 - hk * 0.08 * bump));
+    a.art.tint = u.hitFlash > 0 ? (fxLite() ? 0xffb4ac : 0xff8f8f) : u.invuln > 0 ? 0xfff2a0 : u.poison ? 0xc4ffa8 : u.stunT > 0 ? 0xd0d8ff : 0xffffff;
     a.hpBar.visible = !u.ghost;
 
-    if (u.moving) {
+    if (u.burrowT > 0) {
       v.dustT -= dt;
       if (v.dustT <= 0) {
-        v.dustT = u.speed >= 70 ? 0.12 : 0.3;
+        v.dustT = 0.05;
+        this.vfx.dust(sxp, y, 2, 1.2, 0x7a5a38);
+      }
+    } else if (u.moving && !fly) {
+      v.dustT -= dt;
+      if (v.dustT <= 0) {
+        v.dustT = (u.speed >= 70 ? 0.12 : 0.3) * (fxLite() ? 2 : 1);
         this.vfx.dust(sxp - dir * 8 * us, y, 1, u.speed >= 70 ? 0.9 : 0.6);
       }
       if (u.def.skill === 'charge' && u.firstHit) {
@@ -850,8 +930,10 @@ export class BattleView {
       .roundRect(px + 1.5, py + 1.5, (pw - 3) * pct, (ph - 3) * 0.4, 2).fill({ color: 0xffffff, alpha: 0.3 });
     tv.hpText.text = `${Math.ceil(hp)}/${Math.round(max)}`;
     tv.hpText.position.set(tv.w / 2, py + ph / 2 + 0.5);
-    tv.plate.visible = !broken;
-    tv.hpText.visible = !broken;
+    // Thủ Thành: thành địch không bị phá nên không hiện thanh máu
+    const hide = broken || (!!this.battle.cfg.siege && side === 1);
+    tv.plate.visible = !hide;
+    tv.hpText.visible = !hide;
   }
 
   private updateOverlays(dt: number) {
@@ -914,7 +996,8 @@ export class BattleView {
     this.toast?.destroy();
     const tx = new Text({ text, style: textStyle(Math.max(18, 22 * Math.min(this.us, 1.3)), 0xffd34d) });
     tx.anchor.set(0.5);
-    tx.position.set(this.W / 2, this.H / 2);
+    // thông báo nằm ngay dưới thanh HUD, không đè lên các lane đang đánh nhau
+    tx.position.set(this.W / 2, Math.max(128, this.panoH + 18));
     this.overlays.addChild(tx);
     this.toast = tx;
     this.toastT = 3;

@@ -12,7 +12,7 @@ const GOLD = 0xffd34d;
 type Hat =
   | 'kabuto' | 'hood' | 'helm' | 'greathelm' | 'cap' | 'straw' | 'horns' | 'topknot' | 'scholar'
   | 'plumes' | 'bun' | 'turban' | 'tyrant' | 'band' | 'blackhelm' | 'guanyu'
-  | 'bald' | 'wukong' | 'erlang' | 'mien' | 'bullhorns';
+  | 'bald' | 'wukong' | 'erlang' | 'mien' | 'bullhorns' | 'lionhelm' | 'lotus';
 type Weapon =
   | 'katana' | 'bow' | 'spear' | 'sword' | 'lance' | 'dagger' | 'axe' | 'staff' | 'bomb'
   | 'needle' | 'serpent' | 'glaive' | 'fan' | 'halberd' | 'cleaver'
@@ -29,6 +29,8 @@ interface Style {
   hair?: number;
   shield?: boolean;
   mount?: { body: number; mane: number };
+  /** thủy quân: đứng trên thuyền (xem buildBoat) */
+  boat?: 'skiff' | 'junk' | 'cannon';
   beard?: { color: number; len: number };
   cape?: boolean;
   bulk?: number;
@@ -66,7 +68,20 @@ const STYLES: Record<string, Style> = {
   duongtien: { skin: SK, cloth: 0xdfe8f6, pants: 0x3a5a9a, armor: 0xaabee6, hat: 'erlang', hatColor: 0xcfd8ec, weapon: 'trident', cape: true },
   taothao: { skin: SK, cloth: 0x1f2a4a, pants: 0x141a30, armor: 0x3a4a8a, hat: 'mien', hatColor: 0x2a2a3a, weapon: 'sword', beard: { color: 0x1a1a1a, len: 8 }, cape: true, bulk: 1.1 },
   chudu: { skin: SK, cloth: 0x4aa0a0, pants: 0x2a6060, armor: 0x7ad0d0, hat: 'scholar', hatColor: 0x2a5a5a, weapon: 'sword', wc: 0xe8f4ff, cape: true },
-  masieu: { skin: SK, cloth: 0xf0f3fa, pants: 0xb0b8cc, armor: 0xd8dfee, hat: 'helm', hatColor: 0xe6ecf6, weapon: 'lance', mount: { body: 0xf6f6f6, mane: 0xcdd3de }, cape: true },
+  masieu: { skin: SK, cloth: 0x1f6f78, pants: 0x12383f, armor: 0xe2b24a, hat: 'lionhelm', hatColor: 0xe6b84a, weapon: 'lance', hair: 0x1c1620, mount: { body: 0x7a4426, mane: 0x1a0f0a }, cape: true },
+  natra: { skin: 0xffe0c0, cloth: 0xd23a2a, pants: 0xf0d8a0, armor: 0xf0b040, hat: 'bun', hatColor: 0x14141c, weapon: 'spear', wc: 0xff7a2a, cape: true },
+  vitieubao: { skin: 0xf0c49a, cloth: 0xc9a24a, pants: 0x4a3a28, armor: 0x7a2a2a, hat: 'cap', hatColor: 0x2a4a8a, weapon: 'dagger' },
+  loicong: { skin: 0x9ab4ff, cloth: 0x4a3a9a, pants: 0x2a2060, armor: 0x7a6ae0, hat: 'tyrant', hatColor: 0xffe066, weapon: 'fist', wc: 0xffe066, cape: true, bulk: 1.15 },
+  quanam: { skin: 0xffe3cf, cloth: 0xfff6e0, pants: 0xe8d0f0, armor: 0x57c488, hat: 'lotus', hatColor: 0xf8f8ff, weapon: 'staff', wc: 0x7ae0b0, cape: true },
+  thaisutu: { skin: SK, cloth: 0x2a6f7a, pants: 0x1a3f4a, armor: 0x9aa7b8, hat: 'band', hatColor: 0xff8a2a, weapon: 'bow', cape: true },
+  tatu: { skin: 0xe0c8a0, cloth: 0x7a5a2e, pants: 0x4a3418, armor: 0xc9a24a, hat: 'topknot', hatColor: 0xf0f0f0, weapon: 'staff', beard: { color: 0xf4f4f4, len: 16 }, cape: true },
+  thuybinh: { skin: SK, cloth: 0x2f6f9a, pants: 0x1f3a5a, armor: 0x6a8fb0, hat: 'band', hatColor: 0xeaf4ff, weapon: 'sword', boat: 'skiff' },
+  cungthuyen: { skin: SK, cloth: 0x3a7a6a, pants: 0x23483e, armor: 0x7a9a6a, hat: 'cap', hatColor: 0x2f6f5a, weapon: 'bow', boat: 'skiff' },
+  chienthuyen: { skin: SK, cloth: 0x5a4a3a, pants: 0x3a2e24, armor: 0x8a6a4a, hat: 'helm', hatColor: 0xaab4c6, weapon: 'spear', shield: true, boat: 'junk', bulk: 1.1 },
+  phaothuyen: { skin: SK, cloth: 0x4a3a30, pants: 0x2a2018, armor: 0x6a5a4a, hat: 'band', hatColor: 0xd23a2a, weapon: 'crossbow', boat: 'cannon' },
+  camninh: { skin: 0xe0b890, cloth: 0x1f6aa0, pants: 0x14304a, armor: 0x3fa0d0, hat: 'band', hatColor: 0xff6a3a, weapon: 'cleaver', cape: true, boat: 'junk', bulk: 1.1 },
+  satang: { skin: 0x7aa0c8, cloth: 0x3a5a7a, pants: 0x20304a, armor: 0x5a7a9a, hat: 'bald', hatColor: 0x7aa0c8, weapon: 'pole', boat: 'junk', bulk: 1.3, beard: { color: 0x2a3a4a, len: 8 } },
+  longvuong: { skin: 0xe8d0b0, cloth: 0x1f7a8a, pants: 0x145a6a, armor: 0x3ac0c0, hat: 'mien', hatColor: 0x2a4a5a, weapon: 'trident', beard: { color: 0xcfe8f0, len: 16 }, cape: true, boat: 'junk', bulk: 1.2 },
   hoangtrung: { skin: 0xe0b890, cloth: 0xa83a2a, pants: 0x4a2a22, armor: 0xc8602a, hat: 'cap', hatColor: 0xa83a2a, weapon: 'bow', beard: { color: 0xf0f0f0, len: 12 }, cape: true },
   tumayi: { skin: SK, cloth: 0x4a4a5a, pants: 0x2a2a38, armor: 0x7a7a90, hat: 'scholar', hatColor: 0x2a2a38, weapon: 'fan', wc: 0xb8bccb, beard: { color: 0x2a2a2a, len: 8 }, cape: true },
   quachtinh: { skin: 0xe0b890, cloth: 0x6a5a3a, pants: 0x3a2e1e, armor: 0x8a7a4a, hat: 'topknot', hatColor: 0x2a1a12, weapon: 'fist', wc: 0x7ad0ff, bulk: 1.2 },
@@ -458,6 +473,37 @@ const HATS: Record<Hat, { back?: HatFn; front: HatFn }> = {
       h.circle(R - 1, 7, 2.6).stroke({ width: 1.6, color: GOLD });
     },
   },
+  lionhelm: {
+    // Mã Siêu: tóc đen xõa bay sau gáy, mũ vàng đầu sư tử với bờm gai và chùm tua đỏ dài
+    back: (h, st) => {
+      poly(h, [-R + 2, -6, -R - 12, 0, -R - 20, 14, -R - 10, 12, -R - 14, 24, -R - 3, 16, -R + 2, 9], st.hair ?? 0x1c1620);
+    },
+    front: (h, st) => {
+      dome(h, 0, -0.5, R + 1.6, st.hatColor);
+      rrect(h, -R - 1.5, -4.2, 2 * R + 3, 4, 1.6, 0xc8282a);
+      ball(h, 7.5, -4.6, 2.1, 0xfff0b0);
+      // bờm sư tử: quạt gai vàng dựng trên đỉnh mũ
+      for (let i = 0; i < 5; i++) {
+        const bx = -7 + i * 3.6;
+        poly(h, [bx - 2.2, -R + 1, bx - 1 - (i - 2) * 1.4, -R - 10 + Math.abs(i - 2) * 1.8, bx + 2.2, -R + 1], i % 2 ? lighter(st.hatColor, 0.2) : st.hatColor, 1);
+      }
+      // chùm tua đỏ buông dài ra sau
+      h.moveTo(-3, -R - 1).quadraticCurveTo(-14, -R - 12, -R - 16, -R + 8).stroke({ width: 5.2, color: lineOf(0xc8282a), cap: 'round' });
+      h.moveTo(-3, -R - 1).quadraticCurveTo(-14, -R - 12, -R - 16, -R + 8).stroke({ width: 3.2, color: 0xe03a3a, cap: 'round' });
+    },
+  },
+  lotus: {
+    // Quan Âm: khăn voan trắng buông sau lưng, mão sen vàng trên tóc đen
+    back: (h, st) => {
+      poly(h, [-R + 2, -7, -R - 9, 3, -R - 13, 24, -R - 2, 19, -R + 3, 8], st.hatColor);
+    },
+    front: (h, st) => {
+      dome(h, 0, 0, R + 1.2, st.hair ?? 0x1c1620);
+      rrect(h, -R - 0.5, -4.4, 2 * R + 1, 3.6, 1.4, GOLD);
+      for (const dx of [-6, 0, 6]) poly(h, [dx - 3, -R + 1, dx, -R - 9 + Math.abs(dx) * 0.3, dx + 3, -R + 1], 0xffe28a, 1);
+      ball(h, 0, -6.2, 2.1, 0x7ae0b0);
+    },
+  },
   guanyu: {
     back: (h, st) => poly(h, [-R + 3, -6, -R - 10, 5, -R, 9, -2, 2], darker(st.hatColor, 0.12)),
     front: (h, st) => {
@@ -587,17 +633,67 @@ export interface UnitArt {
   /** tâm khuôn mặt (đã nhân scale) để cắt chân dung */
   face: { x: number; y: number };
   update(clock: number, moving: boolean, atkPhase: number): void;
+  /** kẻ cưỡi mây (Tôn Ngộ Không): hiện đám mây Cân Đẩu Vân dưới chân khi đang ở lane sông */
+  setCloud?(on: boolean): void;
 }
 
 /** Dựng một người lính (hoặc tướng) vào `into`; trả về hàm animate */
+/** thuyền dưới chân thủy quân: `back` (cột buồm) vẽ sau lưng người, `front` (mạn thuyền) che chân */
+function buildBoat(kind: 'skiff' | 'junk' | 'cannon', accent: number) {
+  const back = new Container();
+  const front = new Container();
+  const oars: Graphics[] = [];
+  const hullC = 0x8a5a30;
+  const L = kind === 'skiff' ? 22 : kind === 'junk' ? 31 : 29;
+  if (kind !== 'skiff') {
+    const mast = g();
+    mast.rect(-1.6, -50, 3.2, 44).fill(0x5a3a1c);
+    const sailC = kind === 'junk' ? 0xe8dcc0 : 0xcfc4a8;
+    poly(mast, [1.6, -48, 22, -42, 21, -16, 1.6, -12], sailC, 1.2);
+    for (const y of [-38, -28, -19]) mast.moveTo(1.6, y).lineTo(21.5, y + 2).stroke({ width: 1, color: darker(sailC, 0.35), alpha: 0.8 });
+    poly(mast, [-1.6, -50, -14, -47, -1.6, -43], accent, 1);
+    mast.x = -24;
+    back.addChild(mast);
+  }
+  const hull = g();
+  // thân thuyền
+  poly(hull, [-L, -7, L + 4, -7, L - 6, 6, -L + 8, 6], hullC, 1.5);
+  hull.poly([-L + 1, -7, L + 3, -7, L + 2, -3.5, -L + 3, -3.5]).fill({ color: 0xffffff, alpha: 0.18 });
+  hull.rect(-L + 2, -1, 2 * L - 4, 2.6).fill(accent);
+  if (kind === 'cannon') {
+    hull.roundRect(L - 12, -14, 22, 7, 3).fill(0x3a3a46).stroke({ width: 1.4, color: 0x14141c });
+    hull.circle(L - 4, -10, 3).fill(0x14141c);
+  }
+  if (kind === 'junk') poly(hull, [L + 4, -7, L + 11, -12, L + 4, -3], hullC, 1.2);
+  front.addChild(hull);
+  for (const dx of [-L * 0.45, L * 0.1]) {
+    const oar = g();
+    oar.moveTo(0, 0).lineTo(-6, 11).stroke({ width: 2, color: 0x6a4a2a, cap: 'round' });
+    oar.ellipse(-7, 12, 3.2, 1.6).fill(0x6a4a2a);
+    oar.position.set(dx, -5);
+    front.addChild(oar);
+    oars.push(oar);
+  }
+  // sóng nước quanh thân thuyền
+  const wake = g();
+  wake.ellipse(0, 6, L + 8, 4.2).fill({ color: 0xdff4ff, alpha: 0.28 }).stroke({ width: 1.2, color: 0xffffff, alpha: 0.5 });
+  front.addChild(wake);
+  return { back, front, oars, wake };
+}
+
 function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container) {
   let extra = 0;
   const st = STYLES[def.id];
   const bulk = st.bulk ?? 1;
   const mounted = !!st.mount;
+  const boat = st.boat ? buildBoat(st.boat, accent) : null;
   const horseLegs: Graphics[] = [];
   const rider = new Container();
-  const hipY = mounted ? -13 : 0;
+  const hipY = mounted ? -13 : boat ? -6 : 0;
+  if (boat) {
+    into.addChild(boat.back);
+    extra += 6;
+  }
   if (mounted) {
     const horse = new Container();
     horse.scale.set(1.14);
@@ -628,6 +724,7 @@ function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container
     rider.addChild(l);
   }
 
+  if (boat) into.addChild(boat.front);
   const bodyC = new Container();
   rider.addChild(bodyC);
 
@@ -711,6 +808,14 @@ function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container
     if (mounted) {
       horseLegs.forEach((l, i) => (l.rotation = moving ? w * 0.7 * (i % 2 ? 1 : -1) : 0));
       rider.y = hipY + (moving ? -Math.abs(w) * 1.8 : 0);
+    } else if (boat) {
+      // thuyền nhấp nhô theo sóng, mái chèo khua khi di chuyển
+      const bob = Math.sin(clock * (moving ? 5 : 2.2)) * (moving ? 1.6 : 1);
+      rider.y = hipY + bob;
+      boat.front.y = bob;
+      boat.back.y = bob;
+      boat.oars.forEach((o, i) => (o.rotation = moving ? Math.sin(clock * 7 + i) * 0.55 : Math.sin(clock * 2 + i) * 0.1));
+      boat.wake.scale.x = 1 + (moving ? 0.06 * Math.sin(clock * 6) : 0);
     } else {
       legL.rotation = w * 0.75;
       legR.rotation = -w * 0.75;
@@ -745,10 +850,45 @@ function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container
   return { tick, mode: wd.mode, extra };
 }
 
-export function buildUnitArt(def: UnitDef, side: Side, withSquad = false): UnitArt {
-  const accent = SIDE_COLOR[side];
+/** quái bay lơ lửng cách mặt đất bao nhiêu px (bóng vẫn nằm dưới đất) */
+export const FLY_LIFT = 46;
+
+/** mây (hoặc bánh xe lửa) dưới chân tướng bay */
+function buildFlyBase(wheels: boolean): { node: Container; tick: (clock: number) => void } {
+  const node = new Container();
+  const spin: Graphics[] = [];
+  if (wheels) {
+    for (const x of [-9, 9]) {
+      const w = g();
+      w.circle(0, 0, 7.5).stroke({ width: 2.6, color: 0xffb02a });
+      w.circle(0, 0, 4).stroke({ width: 1.6, color: 0xff5a1a });
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        w.poly([Math.cos(a) * 7.5, Math.sin(a) * 7.5, Math.cos(a + 0.35) * 12, Math.sin(a + 0.35) * 12, Math.cos(a + 0.7) * 7.5, Math.sin(a + 0.7) * 7.5]).fill({ color: 0xff7a1a, alpha: 0.85 });
+      }
+      w.position.set(x, -4);
+      node.addChild(w);
+      spin.push(w);
+    }
+  } else {
+    const c = g();
+    for (const [x, y, r] of [[-12, 0, 8], [-3, -2, 10], [8, 0, 9], [15, 2, 6]] as const) c.circle(x, y, r).fill({ color: 0xf2f6ff, alpha: 0.92 });
+    c.ellipse(0, 4, 20, 4).fill({ color: 0xcfd8ee, alpha: 0.7 });
+    node.addChild(c);
+  }
+  return {
+    node,
+    tick: (clock) => {
+      spin.forEach((w, i) => (w.rotation = clock * (i ? 9 : -9)));
+      if (!wheels) node.y = Math.sin(clock * 3) * 1.2;
+    },
+  };
+}
+
+export function buildUnitArt(def: UnitDef, side: Side, withSquad = false, accentOverride?: number): UnitArt {
+  const accent = accentOverride ?? SIDE_COLOR[side];
   if (def.kind === 'defense') {
-    const d = buildDefenseArt(def, side);
+    const d = buildDefenseArt(def, side, accent);
     const bar = g();
     bar.position.set(0, -d.height - 8);
     d.root.addChild(bar);
@@ -761,13 +901,16 @@ export function buildUnitArt(def: UnitDef, side: Side, withSquad = false): UnitA
   const root = new Container();
   const art = new Container();
   const giant = !!def.tags?.includes('giant');
+  const fly = !!def.tags?.includes('fly');
   const elite = def.kind === 'general' || def.kind === 'boss' || giant;
 
   const base = g();
-  base.ellipse(0, 1.5, 21 * sc, 6 * sc).fill({ color: 0x000000, alpha: 0.34 });
+  const naval = !!def.tags?.includes('naval');
+  if (naval) base.ellipse(0, 3, 30 * sc, 8 * sc).fill({ color: 0x4aa0e0, alpha: 0.35 });
+  else base.ellipse(0, 1.5, 21 * sc, 6 * sc).fill({ color: 0x000000, alpha: 0.34 });
   // vòng màu phe dưới chân: nhận ra ta/địch từ xa
-  base.ellipse(0, 1.5, 17 * sc, 4.8 * sc).fill({ color: accent, alpha: 0.2 });
-  base.ellipse(0, 1.5, 17 * sc, 4.8 * sc).stroke({ width: 2, color: accent, alpha: 0.9 });
+  base.ellipse(0, 1.5, 17 * sc, 4.8 * sc).fill({ color: accent, alpha: 0.14 });
+  base.ellipse(0, 1.5, 17 * sc, 4.8 * sc).stroke({ width: 1.6, color: accent, alpha: 0.72 });
   if (elite) {
     const c = def.kind === 'boss' || giant ? 0xff4d4d : GOLD;
     base.ellipse(0, 1.5, 25 * sc, 7.4 * sc).stroke({ width: 2.2, color: c, alpha: 0.95 });
@@ -815,13 +958,38 @@ export function buildUnitArt(def: UnitDef, side: Side, withSquad = false): UnitA
     const m = buildHumanoid(def, side, accent, mainC);
     mode = m.mode;
     height += m.extra * sc;
+    // quái/tướng bay: đứng trên mây (Na Tra: hai bánh xe lửa)
+    let cloudTick: ((clock: number) => void) | null = null;
+    if (fly) {
+      const fb = buildFlyBase(def.id === 'natra');
+      art.addChild(fb.node);
+      cloudTick = fb.tick;
+    }
     // vẽ theo chiều sâu: người phía sau (y nhỏ) trước, người phía trước sau
     for (const f of followers) if (f.c.y < 0) art.addChild(f.c);
     art.addChild(mainC);
     for (const f of followers) if (f.c.y >= 0) art.addChild(f.c);
     tick = (clock, moving, atk) => {
       m.tick(clock, moving, atk);
+      cloudTick?.(clock);
       for (const f of followers) f.tick(clock + f.ph, moving, atk > 0 ? Math.max(0.001, atk - 0.06 * f.ph) : 0);
+    };
+  }
+
+  if (fly) height += FLY_LIFT;
+  // Cân Đẩu Vân: mây chỉ hiện khi đang trên lane sông
+  let setCloud: ((on: boolean) => void) | undefined;
+  if (def.tags?.includes('cloud')) {
+    const cb = buildFlyBase(false);
+    cb.node.visible = false;
+    art.addChildAt(cb.node, 0);
+    const inner = tick;
+    tick = (clock, moving, atk) => {
+      inner(clock, moving, atk);
+      if (cb.node.visible) cb.tick(clock);
+    };
+    setCloud = (on) => {
+      cb.node.visible = on;
     };
   }
 
@@ -831,8 +999,8 @@ export function buildUnitArt(def: UnitDef, side: Side, withSquad = false): UnitA
   root.addChild(hpBar);
 
   const mounted = def.id !== 'trebuchet' && !!STYLES[def.id]?.mount;
-  const face = def.id === 'trebuchet' ? { x: 0, y: -30 * sc } : { x: (mounted ? -3 : 1) * sc, y: (mounted ? -58 : -45) * sc };
-  return { root, art, hpBar, height, barW, mode, baseScale: sc, face, update: tick };
+  const face = def.id === 'trebuchet' ? { x: 0, y: -30 * sc } : { x: (mounted ? -3 : 1) * sc, y: (mounted ? -58 : -45) * sc - (fly ? FLY_LIFT : 0) };
+  return { root, art, hpBar, height, barW, mode, baseScale: sc, face, update: tick, setCloud };
 }
 
 function lerp(a: number, b: number, t: number) {

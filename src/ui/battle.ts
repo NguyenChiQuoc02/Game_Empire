@@ -2,7 +2,7 @@ import type { Application, Ticker } from 'pixi.js';
 import { h } from './dom';
 import { getLang, onLang, stationName, t, unitDesc, unitName, unitSkill } from '../i18n';
 import { STATIONS, stationLabel, type Station } from '../data/campaign';
-import { MAX_DEFENSES_PER_LANE, UNITS, levelMul } from '../data/units';
+import { MAX_DEFENSES_PER_LANE, UNITS, isNaval, levelMul } from '../data/units';
 import { Battle, CAP_INCOME_MUL, CAP_STEPS, PLAYER_INCOME, type UnitInst } from '../game/sim';
 import { EnemyAI } from '../game/ai';
 import { BattleView } from '../render/battleView';
@@ -14,6 +14,7 @@ import { tipBody } from './tip';
 import { envBadges } from './env';
 import { extraSkillsAt } from '../data/gskills';
 import { generalCapOf } from '../backend/save';
+import { SIEGE_CLEAR_BONUS, SIEGE_INDEX, SIEGE_RECORD_BONUS, SIEGE_STATION, SIEGE_WAVE_COUNT, siegeWaveReward } from '../data/siege';
 
 export type ExitAction = 'menu' | 'retry' | 'next';
 
@@ -22,7 +23,9 @@ const SPEEDS = [1, 1.5, 2, 2.5, 3];
 
 export class BattleScreen {
   private battle: Battle;
-  private ai: EnemyAI;
+  private ai: EnemyAI | null;
+  /** chế độ Thủ Thành */
+  private siege: boolean;
   private view: BattleView;
   private station: Station;
   private deck: string[];
@@ -63,7 +66,7 @@ export class BattleScreen {
     timer?: HTMLElement; pips?: HTMLElement[]; gold?: HTMLElement; goldBar?: HTMLElement; goldRow?: HTMLElement;
     cards?: Map<string, HTMLElement>; info?: HTMLElement; speed?: HTMLElement;
     dialMy?: HTMLElement[]; dialEn?: HTMLElement[]; income?: HTMLElement;
-    capText?: HTMLElement; capBtn?: HTMLElement; capCost?: HTMLElement; capLv?: HTMLElement; foeLeft?: HTMLElement;
+    stage?: HTMLElement; nextWave?: HTMLElement; capText?: HTMLElement; capBtn?: HTMLElement; capCost?: HTMLElement; capLv?: HTMLElement; foeLeft?: HTMLElement;
     boss?: { root: HTMLElement; name: HTMLElement; phase: HTMLElement; kin: HTMLElement; fill: HTMLElement; marks: HTMLElement };
   } = {};
   private lastCardState = '';
@@ -71,7 +74,9 @@ export class BattleScreen {
 
   constructor(private app: Application, private root: HTMLElement, private stIdx: number, private onExit: (a: ExitAction) => void) {
     const save = state.save!;
-    this.station = STATIONS[stIdx];
+    this.siege = stIdx === SIEGE_INDEX;
+    this.station = this.siege ? SIEGE_STATION : STATIONS[stIdx];
+    if (this.siege) this.screen.classList.add('siege');
     // lính | đồ phòng thủ | tướng (phím tắt 1..n theo thứ tự hiển thị)
     this.deck = [
       ...save.deck.filter((id) => UNITS[id]?.kind === 'troop'),
@@ -79,8 +84,8 @@ export class BattleScreen {
       ...(save.petDeck ?? []).filter((id) => UNITS[id]?.kind === 'pet'),
       ...save.deck.filter((id) => UNITS[id]?.kind === 'general'),
     ];
-    this.battle = new Battle({ station: this.station, levels: { ...save.unlocked }, flagLevel: save.flagLv ?? 0, incomeLevel: save.incomeLv ?? 0, generalCap: generalCapOf(save) });
-    this.ai = new EnemyAI(this.battle, this.station.deck);
+    this.battle = new Battle({ station: this.station, levels: { ...save.unlocked }, flagLevel: save.flagLv ?? 0, incomeLevel: save.incomeLv ?? 0, generalCap: generalCapOf(save), siege: this.siege, event: this.siege ? null : undefined });
+    this.ai = this.siege ? null : new EnemyAI(this.battle, this.station.deck);
     this.view = new BattleView(app, this.battle, this.station);
 
     // chỉ ở bản dev: để kiểm thử hiệu ứng từ console
@@ -152,6 +157,8 @@ export class BattleScreen {
     }));
     const speed = h('div', { class: 'speed-box', attrs: { role: 'group', 'aria-label': t('hud.speed'), title: t('hud.speed') } }, ...this.speedBtns);
     const foeLeft = h('b', { text: '0' });
+    const stage = h('small', { text: this.siege ? t('siege.hudStage') : t('hud.stage', { n: stationLabel(this.stIdx) }) });
+    const nextWave = this.siege ? h('button', { class: 'next-wave', attrs: { type: 'button', title: t('siege.nextTip') }, on: { click: () => this.callNextWave() } }, h('i', { text: '⏭' }), h('span', { text: t('siege.next') })) : null;
     const myId = this.deck.find((id) => UNITS[id].kind === 'general') ?? this.deck[0];
     const enemyId = st.boss ? (st.bossId ?? 'dongtrac') : st.deck.find((id) => UNITS[id].kind === 'general') ?? st.deck[st.deck.length - 1];
     this.hudHost.replaceChildren(
@@ -164,14 +171,15 @@ export class BattleScreen {
             h('div', { class: 'xp' }, h('i', { attrs: { style: `width:${((save.wins % 5) / 5) * 100}%` } }))),
           h('button', { class: 'icon-btn round', text: '⏸', attrs: { type: 'button', 'aria-label': t('hud.pause') }, on: { click: () => this.pause() } })),
         h('div', { class: 'stage-plate' },
-          h('small', { text: t('hud.stage', { n: stationLabel(this.stIdx) }) }),
+          stage,
           h('div', { class: 'stage-time' }, h('i', { text: '⚔' }), timer),
-          h('div', { class: 'pips' }, ...pips)),
+          h('div', { class: 'pips' }, ...pips),
+          nextWave),
         h('div', { class: 'cmd right' },
           speed,
           h('div', { class: 'cmd-info' },
-            h('b', { text: stationName(st) }),
-            h('span', { class: 'lv', text: `Lv. ${Math.round(st.power * 10)}` }),
+            h('b', { text: this.siege ? t('siege.foeName') : stationName(st) }),
+            h('span', { class: 'lv', text: this.siege ? t('siege.foeLv', { n: SIEGE_WAVE_COUNT }) : `Lv. ${Math.round(st.power * 10)}` }),
             h('div', { class: 'foe-left', attrs: { title: t('hud.foeLeft') } }, h('i', { text: '☠' }), foeLeft)),
           this.face(enemyId, 1, 'enemy'))),
     );
@@ -226,6 +234,7 @@ export class BattleScreen {
         h('span', { class: 'key', text: String(i + 1) }),
         d.kind === 'general' ? this.face(id, 0, 'card-face') : portrait(id),
         h('span', { class: 'cost', text: String(d.cost) }),
+        isNaval(d) ? h('span', { class: 'nv', text: '🌊' }) : null,
         h('span', { class: 'nm', text: unitName(d) }));
       c.addEventListener('pointerdown', (e) => this.onCardDown(e, id, c));
       c.addEventListener('pointerenter', (e) => e.pointerType === 'mouse' && this.showCardTip(id, c));
@@ -246,7 +255,7 @@ export class BattleScreen {
         return h('div', { class: 'dial-row' }, h('b', { text: String(i + 1) }), h('span', { class: 'bar my' }, my), h('span', { class: 'bar en' }, en));
       }));
     this.handHost.replaceChildren(h('footer', { class: 'hand-panel' }, info, h('div', { class: `hand-row${this.deck.length > 9 ? ' many' : ''}` }, goldRow, hand, dial)));
-    this.el = { boss, timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income, capText, capBtn, capCost, capLv, foeLeft };
+    this.el = { boss, stage, nextWave: nextWave ?? undefined, timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income, capText, capBtn, capCost, capLv, foeLeft };
     this.lastCardState = '';
     this.refreshInfo();
     this.refreshSpeed();
@@ -273,6 +282,16 @@ export class BattleScreen {
     const e = this.el;
     const sec = Math.floor(b.time);
     e.timer!.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    if (this.siege && e.stage) {
+      const txt = b.siegePhase === 'break'
+        ? t('siege.hudBreak', { n: b.siegeWave + 1, total: SIEGE_WAVE_COUNT, s: Math.max(0, Math.ceil(b.siegeT)) })
+        : t('siege.hudWave', { n: b.siegeWave, total: SIEGE_WAVE_COUNT });
+      if (e.stage.textContent !== txt) e.stage.textContent = txt;
+    }
+    if (this.siege && e.nextWave) {
+      const can = b.siegePhase === 'break' && b.siegeT > 0 && !b.over;
+      e.nextWave.classList.toggle('show', can);
+    }
     b.lanes.forEach((l, i) => {
       const p = e.pips![i];
       p.className = `pip${l.winner === 0 ? ' win' : l.winner === 1 ? ' lose' : ''}`;
@@ -346,7 +365,7 @@ export class BattleScreen {
     const dt = Math.min(ticker.deltaMS / 1000, 0.05) * this.speed;
     const steps = Math.max(1, Math.ceil(dt / 0.034));
     for (let i = 0; i < steps && !this.battle.over; i++) {
-      this.ai.update(dt / steps);
+      this.ai?.update(dt / steps);
       this.battle.update(dt / steps);
     }
     this.view.update(dt);
@@ -390,11 +409,13 @@ export class BattleScreen {
   }
 
   // ───────────────────────── kéo thả ─────────────────────────
-  private laneAtPoint(cx: number, cy: number): number {
+  /** lane dưới con trỏ; có `id` thì chỉ trả về lane hợp với loại quân đó (lane sông chỉ cho thủy quân / quân bay) */
+  private laneAtPoint(cx: number, cy: number, id?: string): number {
     const r = this.field.getBoundingClientRect();
     if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) return -1;
     const lane = this.view.laneAt(cy - r.top);
     if (lane < 0) return -1;
+    if (id && !this.battle.laneAllows(UNITS[id], lane)) return -1;
     return this.battle.lanes[lane].winner === null ? lane : -1;
   }
 
@@ -439,7 +460,7 @@ export class BattleScreen {
     }
     if (d.moved && d.ghost) {
       d.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px) translate(-50%, -62%)`;
-      const lane = this.laneAtPoint(e.clientX, e.clientY);
+      const lane = this.laneAtPoint(e.clientX, e.clientY, d.id);
       this.view.setDrag(true, lane, lane >= 0 ? this.dropX(d.id, lane, e.clientX) : -1, UNITS[d.id].kind === 'defense');
     }
   }
@@ -627,6 +648,7 @@ export class BattleScreen {
       return;
     }
     if (e.key.toLowerCase() === 'u') return void this.upgradeCap();
+    if (e.key.toLowerCase() === 'n' && this.siege) return void this.callNextWave();
     const laneKey = ['q', 'w', 'e'].indexOf(e.key.toLowerCase());
     if (laneKey >= 0 && laneKey < this.battle.lanes.length && this.selected) this.tryDeploy(this.selected, laneKey);
   };
@@ -636,6 +658,13 @@ export class BattleScreen {
     info.classList.remove('nudge');
     void info.offsetWidth;
     info.classList.add('nudge');
+  }
+
+  /** Thủ Thành: gọi đợt kế tiếp ngay khi đang nghỉ */
+  private callNextWave() {
+    if (this.paused) return;
+    const bonus = this.battle.callNextWave();
+    if (bonus >= 0) toast(bonus > 0 ? t('siege.nextBonus', { n: bonus }) : t('siege.nextNow'), 'good');
   }
 
   /** nâng cấp giới hạn vàng (trả bằng vàng trong trận) */
@@ -659,6 +688,7 @@ export class BattleScreen {
     const b = this.battle;
     const d = UNITS[id];
     if (b.lanes[lane].winner !== null) return;
+    if (!b.laneAllows(d, lane)) return void toast(t(isNaval(d) ? 'hud.needRiver' : d.kind === 'defense' ? 'hud.noDefRiver' : 'hud.noGroundRiver'), 'error');
     if (d.kind === 'general' && b.generalOnField(0, id)) return void toast(t('hud.generalUsed'), 'error');
     if (d.kind === 'general' && b.generalsAlive(0) >= (b.cfg.generalCap ?? 99)) return void toast(t('hud.generalCap', { n: b.cfg.generalCap ?? 0 }), 'error');
     if (d.kind === 'defense' && b.defensesIn(0, lane) >= MAX_DEFENSES_PER_LANE) return void toast(t('hud.defenseFull', { n: MAX_DEFENSES_PER_LANE }), 'error');
@@ -676,9 +706,44 @@ export class BattleScreen {
   }
 
   // ───────────────────────── kết quả ─────────────────────────
+  private showSiegeResult() {
+    const b = this.battle;
+    const win = b.winner === 0;
+    const save = state.save!;
+    const cleared = b.siegeCleared;
+    const best = save.siegeBest ?? 0;
+    let coins = 0;
+    for (let k = 1; k <= cleared; k++) coins += siegeWaveReward(k);
+    if (win) coins += SIEGE_CLEAR_BONUS;
+    const record = cleared > best ? (cleared - best) * SIEGE_RECORD_BONUS : 0;
+    coins += record;
+    mutate((s) => {
+      s.coins += coins;
+      s.siegeBest = Math.max(s.siegeBest ?? 0, cleared);
+    }, true);
+    const time = Math.floor(b.time);
+    this.resultModal = openModal(
+      () => h('div', { class: `result ${win ? 'win' : 'lose'}` },
+        h('div', { class: 'res-ico', text: win ? '🏆' : '🏯' }),
+        h('h2', { text: win ? t('siege.resultWin') : t('siege.resultLose') }),
+        h('p', { class: 'res-sub', text: win ? t('siege.resultWinSub', { n: SIEGE_WAVE_COUNT }) : t('siege.resultLoseSub', { n: cleared, total: SIEGE_WAVE_COUNT }) }),
+        h('div', { class: 'res-stats' },
+          h('div', {}, h('small', { text: t('siege.statWaves') }), h('b', { text: `${cleared}/${SIEGE_WAVE_COUNT}` })),
+          h('div', {}, h('small', { text: t('result.time') }), h('b', { text: `${Math.floor(time / 60)}:${String(time % 60).padStart(2, '0')}` })),
+          h('div', {}, h('small', { text: t('result.kills') }), h('b', { text: String(b.kills[0]) }))),
+        h('div', { class: 'res-reward', text: `🪙 +${fmt(coins)}` }),
+        record > 0 ? h('div', { class: 'banner-win', text: `🏅 ${t('siege.newRecord', { n: cleared, bonus: record })}` }) : null,
+        h('div', { class: 'modal-actions col' },
+          h('button', { class: 'btn primary big', text: `↻ ${t('result.retry')}`, attrs: { type: 'button' }, on: { click: () => this.onExit('retry') } }),
+          h('button', { class: 'btn ghost', text: t('result.menu'), attrs: { type: 'button' }, on: { click: () => this.onExit('menu') } }))),
+      { dismissible: false },
+    );
+  }
+
   private showResult() {
     if (this.resultShown) return;
     this.resultShown = true;
+    if (this.siege) return this.showSiegeResult();
     const b = this.battle;
     const win = b.winner === 0;
     const save = state.save!;

@@ -5,12 +5,12 @@ import { getApp } from '../render/app';
 import { peekMapArt, renderMapArt, type MapSpec } from '../render/mapArt';
 import { CHAPTERS, STATIONS, STATIONS_PER_MAP, stationLabel, stationPos } from '../data/campaign';
 import {
-  DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, GENERAL_EXTRA_COSTS, PET_EXTRA_COSTS, PETS, DEFENSES, FLAG_MAX_LV, INCOME_MAX_LV, PLAYABLE, UNITS, flagHpMul, flagUpgradeCost, incomeUpgradeCost, incomeUpgradeMul, upgradeCost,
+  DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, GENERAL_EXTRA_COSTS, PET_EXTRA_COSTS, PETS, DEFENSES, INCOME_MAX_LV, PLAYABLE, UNITS, flagHpMul, flagUpgradeCost, incomeUpgradeCost, incomeUpgradeMul, upgradeCost, activeCdOf, skillCdAt,
   type UnitDef,
 } from '../data/units';
 import { deckSizeOf, defSizeOf, generalCapOf, petSizeOf } from '../backend/save';
 import { PLAYER_FLAG_HP, PLAYER_INCOME } from '../game/sim';
-import { DECK_SIZE, DEFENSE_DECK_SIZE, PET_DECK_SIZE, MAX_GENERALS_IN_DECK, levelMul } from '../data/units';
+import { DECK_SIZE, DEFENSE_DECK_SIZE, PET_DECK_SIZE, MAX_GENERALS_IN_DECK, isNaval, levelMul } from '../data/units';
 import { mutate, state } from '../state';
 import { fmt, portrait, statLine, toast } from './common';
 import { openSettings } from './settings';
@@ -21,8 +21,11 @@ import { maxLevelOf } from '../data/gskills';
 import { skillPanel, unlockAtNext } from './gskills';
 import { unread } from '../notices';
 import { rewardFor } from '../game/rewards';
+import { HUNT_FORMATS, HUNT_MAPS, DEFAULT_HUNT_SETUP, HUNT_N, TR, buildHuntMap, huntMapDef, type HuntMapId, type HuntSetup } from '../data/treasure';
+import { huntMapName, huntMapSub, huntMapTip } from '../i18n';
+import { SIEGE_CLEAR_BONUS, SIEGE_INDEX, SIEGE_WAVES, SIEGE_WAVE_COUNT, siegeWaveReward, type SiegeWave } from '../data/siege';
 
-type Tab = 'campaign' | 'army';
+type Tab = 'campaign' | 'army' | 'siege' | 'hunt';
 let tab: Tab = 'campaign';
 let selected = -1;
 let armyFilter: 'troop' | 'defense' | 'pet' | 'general' = 'troop';
@@ -36,8 +39,19 @@ export function focusStation(i: number) {
   tab = 'campaign';
 }
 
+/** Quay lại tab Kho Báu sau trận */
+export function focusHunt() {
+  tab = 'hunt';
+}
+
+/** Quay lại màn Thủ Thành sau trận */
+export function focusSiege() {
+  tab = 'siege';
+}
+
 export interface HomeCtx {
   onPlay(stationIdx: number): void;
+  onHunt(setup: HuntSetup): void;
   onLogout(): void;
   redraw(): void;
 }
@@ -59,11 +73,11 @@ export function renderHome(root: HTMLElement, ctx: HomeCtx) {
     h('button', { class: 'icon-btn', text: '⚙', attrs: { 'aria-label': t('settings.title'), type: 'button' }, on: { click: () => openSettings({ onLogout: ctx.onLogout }) } }),
   );
 
-  const content = h('main', { class: `content${mapMode ? ' map-content' : ''}` }, mapMode ? campaign(ctx) : army(ctx));
+  const content = h('main', { class: `content${mapMode ? ' map-content' : ''}` }, mapMode ? campaign(ctx) : tab === 'siege' ? siegePanel(ctx) : tab === 'hunt' ? huntPanel(ctx) : army(ctx));
 
   const navBtn = (id: Tab, ico: string, label: string) =>
     h('button', { class: `nav-btn${tab === id ? ' active' : ''}`, attrs: { type: 'button' }, on: { click: () => { tab = id; ctx.redraw(); } } }, h('i', { text: ico }), h('span', { text: label }));
-  const nav = h('nav', { class: 'bottom-nav' }, navBtn('campaign', '🗺', t('home.tabCampaign')), navBtn('army', '⚔', t('home.tabArmy')));
+  const nav = h('nav', { class: 'bottom-nav' }, navBtn('campaign', '🗺', t('home.tabCampaign')), navBtn('siege', '🏰', t('home.tabSiege')), navBtn('hunt', '💎', t('home.tabHunt')), navBtn('army', '⚔', t('home.tabArmy')));
 
   root.replaceChildren(h('div', { class: `screen home${mapMode ? ' map-mode' : ''}` }, top, content, nav));
   const c = root.querySelector('.content');
@@ -254,6 +268,125 @@ function stationPanel(ctx: HomeCtx): HTMLElement {
 }
 
 // ───────────────────────── binh đoàn ─────────────────────────
+// ───────────────────────── Thủ Thành ─────────────────────────
+function waveRow(w: SiegeWave, best: number): HTMLElement {
+  const units = w.units.map((u) => {
+    const el = h('span', { class: 'sw-u' }, portrait(u.id, 1), h('i', { text: `×${u.n}` }));
+    attachUnitTip(el, UNITS[u.id], 1, w.pow);
+    return el;
+  });
+  return h('div', { class: `siege-wave${w.elite ? ' elite' : ''}${w.n <= best ? ' done' : ''}` },
+    h('div', { class: 'sw-head' }, h('b', { text: `${w.elite ? '👑 ' : ''}${t('siege.wave', { n: w.n })}` }), h('small', { text: t('siege.waveMeta', { n: w.total, pow: Math.round(w.pow * 100) }) }), h('span', { class: 'sw-rw', text: `🪙 ${fmt(siegeWaveReward(w.n))}` })),
+    h('div', { class: 'sw-units' }, ...units));
+}
+
+function siegePanel(ctx: HomeCtx): HTMLElement {
+  const best = state.save!.siegeBest ?? 0;
+  return h('div', { class: 'siege' },
+    h('div', { class: 'siege-hero' },
+      h('div', { class: 'siege-ico', text: '🏰' }),
+      h('div', { class: 'siege-info' },
+        h('b', { text: t('siege.title') }),
+        h('small', { text: t('siege.desc') }),
+        h('div', { class: 'siege-best', text: `🏅 ${t('siege.best', { n: best, max: SIEGE_WAVE_COUNT })}` }))),
+    h('ul', { class: 'siege-rules' }, ...[1, 2, 3, 4].map((i) => h('li', { text: t(`siege.rule${i}`, { bonus: SIEGE_CLEAR_BONUS }) }))),
+    h('button', { class: 'btn primary big', text: `🏰 ${t('siege.start')}`, attrs: { type: 'button' }, on: { click: () => ctx.onPlay(SIEGE_INDEX) } }),
+    h('h2', { class: 'section-title', text: t('siege.waves') }),
+    ...SIEGE_WAVES.map((w) => waveRow(w, best)));
+}
+
+// ───────────────────────── Truy Tìm Kho Báu ─────────────────────────
+let huntSetup: HuntSetup = (() => {
+  try {
+    const raw = JSON.parse(localStorage.getItem('empire.hunt') ?? 'null') as Partial<HuntSetup> | null;
+    if (raw && HUNT_MAPS.some((m) => m.id === raw.map) && (raw.teams === 3 || raw.teams === 4)) return { ...DEFAULT_HUNT_SETUP, ...raw };
+  } catch {
+    /* dùng mặc định */
+  }
+  return { ...DEFAULT_HUNT_SETUP };
+})();
+
+const MAP_THUMB_COLOR: Record<number, string> = {
+  [TR.GRASS]: '#58904a', [TR.ROAD]: '#b9a06e', [TR.FOREST]: '#2e6a3a', [TR.SWAMP]: '#4a5e3e', [TR.HILL]: '#86a257', [TR.SAND]: '#dcc383',
+  [TR.WATER]: '#2f70b8', [TR.ROCK]: '#6c6c76', [TR.LAVA]: '#e2561e', [TR.BRIDGE]: '#9a7240', [TR.PLAZA]: '#c8bea6', [TR.ASH]: '#544850', [TR.SPRING]: '#46d0c4',
+};
+const TEAM_CSS = ['#e24b4b', '#3d8bff', '#4fd06a', '#f2c744'];
+
+/** ảnh thu nhỏ của bản đồ: màu địa hình + thành các đội + kho báu */
+function mapThumb(id: HuntMapId, teams: number): HTMLCanvasElement {
+  const map = buildHuntMap(id);
+  const px = 3;
+  const cv = document.createElement('canvas');
+  cv.width = HUNT_N * px;
+  cv.height = HUNT_N * px;
+  cv.className = 'hm-thumb';
+  const c = cv.getContext('2d')!;
+  for (let y = 0; y < HUNT_N; y++) {
+    for (let x = 0; x < HUNT_N; x++) {
+      c.fillStyle = MAP_THUMB_COLOR[map.grid[y * HUNT_N + x]] ?? '#58904a';
+      c.fillRect(x * px, y * px, px, px);
+    }
+  }
+  const S = HUNT_N * 30;
+  const dot = (x: number, y: number, color: string, r: number) => {
+    c.beginPath();
+    c.arc((x / S) * cv.width, (y / S) * cv.height, r, 0, Math.PI * 2);
+    c.fillStyle = color;
+    c.fill();
+    c.lineWidth = 1.5;
+    c.strokeStyle = '#0a0c14';
+    c.stroke();
+  };
+  map.castles.forEach((p, i) => dot(p.x, p.y, i < teams ? TEAM_CSS[i] : '#777', 6));
+  for (const p of map.treasures) dot(p.x, p.y, '#ffe27a', 5);
+  return cv;
+}
+
+function huntPanel(ctx: HomeCtx): HTMLElement {
+  const save = state.save!;
+  const set = (patch: Partial<HuntSetup>) => {
+    huntSetup = { ...huntSetup, ...patch };
+    try {
+      localStorage.setItem('empire.hunt', JSON.stringify(huntSetup));
+    } catch {
+      /* bỏ qua */
+    }
+    ctx.redraw();
+  };
+  const fmtId = HUNT_FORMATS.find((f) => f.alliance === huntSetup.alliance && f.teams === huntSetup.teams)?.id ?? 'ffa4';
+  const pill = (active: boolean, text: string, on: () => void) => h('button', { class: `pill${active ? ' active' : ''}`, text, attrs: { type: 'button' }, on: { click: on } });
+  const mapCard = (m: (typeof HUNT_MAPS)[number]) => {
+    const sel = huntSetup.map === m.id;
+    return h('button', { class: `hunt-map${sel ? ' sel' : ''}`, attrs: { type: 'button' }, on: { click: () => set({ map: m.id }) } },
+      mapThumb(m.id, huntSetup.teams),
+      h('div', { class: 'hm-info' },
+        h('b', { text: `${m.no}. ${huntMapName(m)}` }),
+        h('small', { text: huntMapSub(m) }),
+        h('span', { class: 'hm-lv', text: '★'.repeat(Math.max(1, Math.round(m.level / 2))) + '☆'.repeat(5 - Math.max(1, Math.round(m.level / 2))) })));
+  };
+  const def = huntMapDef(huntSetup.map);
+  return h('div', { class: 'hunt-setup' },
+    h('div', { class: 'siege-hero' },
+      h('div', { class: 'siege-ico', text: '💎' }),
+      h('div', { class: 'siege-info' },
+        h('b', { text: t('hunt.title') }),
+        h('small', { text: t('hunt.desc') }),
+        h('div', { class: 'siege-best', text: `🏅 ${t('hunt.record', { w: save.huntWins ?? 0, p: save.huntPlays ?? 0 })}` }))),
+    h('h2', { class: 'section-title', text: t('hunt.secFormat') }),
+    h('div', { class: 'pills' }, ...HUNT_FORMATS.map((f) => pill(fmtId === f.id, t(`hunt.fmt.${f.id}`), () => set({ alliance: f.alliance, teams: f.teams })))),
+    h('p', { class: 'hunt-note', text: t(`hunt.fmtDesc.${fmtId}`) }),
+    h('h2', { class: 'section-title', text: t('hunt.secWin') }),
+    h('div', { class: 'pills' }, ...(['treasure', 'elimination'] as const).map((w) => pill(huntSetup.win === w, t(`hunt.win.${w}`), () => set({ win: w })))),
+    h('p', { class: 'hunt-note', text: t(`hunt.winDesc.${huntSetup.win}`) }),
+    h('h2', { class: 'section-title', text: t('hunt.secMap', { n: HUNT_MAPS.length }) }),
+    h('div', { class: 'hunt-maps' }, ...HUNT_MAPS.map(mapCard)),
+    h('p', { class: 'hunt-note tip', text: `💡 ${huntMapTip(def)}` }),
+    h('h2', { class: 'section-title', text: t('hunt.secDiff') }),
+    h('div', { class: 'pills' }, ...([0, 1, 2] as const).map((d) => pill(huntSetup.difficulty === d, t(`hunt.diff.${d}`), () => set({ difficulty: d })))),
+    h('ul', { class: 'siege-rules' }, ...[1, 2, 3, 4].map((i) => h('li', { text: t(`hunt.rule${i}`) }))),
+    h('button', { class: 'btn primary big', text: `💎 ${t('hunt.start')}`, attrs: { type: 'button' }, on: { click: () => ctx.onHunt({ ...huntSetup }) } }));
+}
+
 function army(ctx: HomeCtx): HTMLElement {
   const save = state.save!;
   const wrap = h('div', { class: 'army' });
@@ -410,7 +543,17 @@ function levelTable(rows: { value: string; cost: number | null }[], cur: number)
     h('tbody', {}, ...rows.map((r, i) => h('tr', { class: i < cur ? 'done' : i === cur ? 'cur' : '' },
       h('td', { text: String(i) }), h('td', { text: r.value }), h('td', { text: r.cost === null ? '—' : i <= cur ? '✔' : `🪙 ${fmt(r.cost)}` })))));
 }
-const castleTable = () => levelTable(Array.from({ length: FLAG_MAX_LV + 1 }, (_, l) => ({ value: `❤ ${castleHp(l)}`, cost: l ? flagUpgradeCost(l - 1) : null })), state.save!.flagLv ?? 0);
+/** thành trì nâng vô hạn: chỉ hiện cấp hiện tại và dòng nâng cấp kế tiếp */
+const castleTable = () => {
+  const lv = state.save!.flagLv ?? 0;
+  const coins = state.save!.coins;
+  const cost = flagUpgradeCost(lv);
+  return h('table', { class: 'lv-table' },
+    h('thead', {}, h('tr', {}, h('th', { text: t('army.colLevel') }), h('th', { text: t('army.colValue') }), h('th', { text: t('army.colCost') }))),
+    h('tbody', {},
+      h('tr', { class: 'cur' }, h('td', { text: String(lv) }), h('td', { text: `❤ ${castleHp(lv)}` }), h('td', { text: '✔' })),
+      h('tr', { class: coins >= cost ? 'next ok' : 'next' }, h('td', { text: String(lv + 1) }), h('td', { text: `❤ ${castleHp(lv + 1)} (+${castleHp(lv + 1) - castleHp(lv)})` }), h('td', { text: `🪙 ${fmt(cost)}` }))));
+};
 const incomeTable = () => levelTable(Array.from({ length: INCOME_MAX_LV + 1 }, (_, l) => ({ value: `+${incomeRate(l)}/s`, cost: l ? incomeUpgradeCost(l - 1) : null })), state.save!.incomeLv ?? 0);
 const generalCapTable = () => levelTable(Array.from({ length: GENERAL_EXTRA_COSTS.length + 1 }, (_, l) => ({ value: t('army.genCapNow', { n: MAX_GENERALS_IN_DECK + l }), cost: l ? GENERAL_EXTRA_COSTS[l - 1] : null })), state.save!.genSlots ?? 0);
 
@@ -456,7 +599,7 @@ function incomePanel(ctx: HomeCtx): HTMLElement {
 function castlePanel(ctx: HomeCtx): HTMLElement {
   const save = state.save!;
   const lv = save.flagLv ?? 0;
-  const maxed = lv >= FLAG_MAX_LV;
+  const maxed = false;
   const cost = flagUpgradeCost(lv);
   const hp = castleHp;
   const can = save.coins >= cost;
@@ -465,8 +608,7 @@ function castlePanel(ctx: HomeCtx): HTMLElement {
     h('div', { class: 'castle-info' },
       h('b', { text: t('army.castle') }),
       h('div', { class: 'castle-hp' }, h('span', { text: `❤ ${hp(lv)}` }), maxed ? h('em', { text: t('army.castleMax') }) : h('em', { text: `→ ${hp(lv + 1)} (+${hp(lv + 1) - hp(lv)})` })),
-      h('div', { class: 'castle-bar' }, h('i', { attrs: { style: `width:${(lv / FLAG_MAX_LV) * 100}%` } })),
-      h('small', { text: t('army.castleLv', { lv, max: FLAG_MAX_LV }) + ' · ' + t('army.castleNote') })),
+      h('small', { text: t('army.castleLvInf', { lv }) + ' · ' + t('army.castleNote') })),
     attachInfoTip(h('button', {
       class: `btn gold${maxed || !can ? ' disabled' : ''}`,
       text: maxed ? t('army.maxLevel') : `⬆ ${t('army.upgrade')} · 🪙 ${fmt(cost)}`,
@@ -492,6 +634,7 @@ function castlePanel(ctx: HomeCtx): HTMLElement {
 
 // ───────────────────────── tooltip ô nâng cấp ─────────────────────────
 const upRow = (label: string, val: string, cls = '') => h('div', { class: `up-row ${cls}` }, h('span', { text: label }), h('b', { text: val }));
+const fmtCd = (n: number) => String(Number(n.toFixed(2)));
 const costRow = (cost: number) => upRow(t('up.cost'), `🪙 ${fmt(cost)}`, state.save!.coins >= cost ? 'ok' : 'poor');
 
 /** các chỉ số tăng theo cấp: máu, sát thương (hoặc hồi máu / sức nổ) */
@@ -511,6 +654,8 @@ function unitUpgradeTip(d: UnitDef, lv: number): HTMLElement[] {
   const a = scaledStats(d, levelMul(lv));
   const b = scaledStats(d, levelMul(lv + 1));
   const rows = b.map((s, i) => upRow(`${s.icon} ${s.label}`, `${Math.round(a[i].val)} → ${Math.round(s.val)} (+${Math.round(s.val - a[i].val)})`, 'up'));
+  const cd = activeCdOf(d);
+  if (cd !== null) rows.push(upRow(`⏳ ${t('up.skillCd')}`, `${fmtCd(skillCdAt(cd, lv))}s → ${fmtCd(skillCdAt(cd, lv + 1))}s`, 'up'));
   return [
     head,
     h('div', { class: 'up-body' }, ...rows, upRow(t('up.pct'), `+${Math.round((levelMul(lv + 1) / levelMul(lv) - 1) * 100)}%`, 'up'), costRow(upgradeCost(d, lv))),
@@ -584,6 +729,7 @@ function unitCard(d: UnitDef, ctx: HomeCtx): HTMLElement {
         h('b', { text: unitName(d) }),
         h('div', { class: 'u-badges' },
           h('span', { class: 'badge cost', text: `💰 ${d.cost}` }),
+          isNaval(d) ? h('span', { class: 'badge', text: `🌊 ${t('tag.naval')}`, attrs: { title: t('env.riverNo') } }) : null,
           owned ? h('span', { class: 'badge lv', text: d.kind === 'general' ? `Lv ${lv}/${maxLevelOf(d)}` : `Lv ${lv}` }) : h('span', { class: 'badge', text: `🔒` }),
           inDeck ? h('span', { class: 'badge deck', text: t('army.inDeck') }) : null))),
     statLine(d, lv ?? 1),

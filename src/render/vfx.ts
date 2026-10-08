@@ -4,6 +4,8 @@ import { t, unitName } from '../i18n';
 import { UNITS } from '../data/units';
 import { INK, g, mix, vgradA } from './draw';
 
+import { fxLite } from './fxmode';
+
 export interface VfxHost {
   sx(x: number): number;
   gy(lane: number, yOff: number): number;
@@ -26,7 +28,7 @@ export function textStyle(size: number, fill: number, bold = true): TextStyle {
       fontSize: size,
       fontWeight: bold ? '800' : '500',
       fill,
-      stroke: { color: 0x10131c, width: Math.max(2, size / 5) },
+      stroke: { color: 0x10131c, width: Math.max(1.6, size / 6.5), join: 'round' },
       align: 'center',
     });
     styleCache.set(k, s);
@@ -128,6 +130,8 @@ interface Proj {
   x0: number;
   x1: number;
   y: number;
+  /** độ cao đích (đạn bắn từ trên không xuống) */
+  y1: number;
   t: number;
   dur: number;
   arc: number;
@@ -143,6 +147,7 @@ export class Vfx {
   private parts: Part[] = [];
   private anims: Anim[] = [];
   private projs: Proj[] = [];
+  private recentText: number[] = [];
 
   constructor(private h: VfxHost) {}
 
@@ -267,8 +272,12 @@ export class Vfx {
       case 'hit': {
         const x = h.sx(e.x);
         const y = h.gy(e.lane, 0) - 28 * us;
-        this.spark(x, y, e.victimSide === 0 ? 0xff8a8a : 0xfff0a0, e.big ? 8 : 3);
-        this.floatText(String(Math.max(1, Math.round(e.amount))), x + (Math.random() - 0.5) * 16, y - 12, e.victimSide === 0 ? 0xff7a7a : e.big ? 0xffd34d : 0xffffff, e.big ? 18 : 10 + Math.min(7, e.amount / 18), 0.7);
+        const lite = fxLite();
+        this.spark(x, y, e.victimSide === 0 ? 0xff8a8a : 0xfff0a0, e.big ? (lite ? 4 : 8) : lite ? 1 : 3);
+        // chế độ gọn: chỉ hiện số cho đòn mạnh hoặc quân mình bị đánh đau, để màn hình không đầy chữ
+        if (!lite || e.big || e.amount >= 22 || (e.victimSide === 0 && e.amount >= 10)) {
+          this.floatText(String(Math.max(1, Math.round(e.amount))), x + (Math.random() - 0.5) * 16, y - 12, e.victimSide === 0 ? 0xff9a9a : e.big ? 0xffd34d : 0xffffff, e.big ? (lite ? 15 : 18) : (lite ? 9 : 10) + Math.min(lite ? 4 : 7, e.amount / 18), lite ? 0.55 : 0.7);
+        }
         break;
       }
       case 'flagHit': {
@@ -295,7 +304,14 @@ export class Vfx {
       case 'text': {
         const p = e.p ? { ...e.p } : undefined;
         if (p && typeof p.id === 'string' && UNITS[p.id]) p.name = unitName(UNITS[p.id]);
-        this.floatText(t(e.key, p), h.sx(e.x), h.gy(e.lane, 0) - 62 * us, e.color, e.big ? 17 : 13, e.big ? 1.3 : 0.9);
+        const lite = fxLite();
+        const now = performance.now();
+        this.recentText = this.recentText.filter((x) => now - x < 900);
+        // chế độ gọn: các tên chiêu dồn dập xếp lệch lên trên (không chồng chữ) và bỏ bớt chữ phụ
+        if (lite && this.recentText.length >= 4 && !e.big) break;
+        const slot = lite ? this.recentText.length % 4 : 0;
+        this.recentText.push(now);
+        this.floatText(t(e.key, p), h.sx(e.x), h.gy(e.lane, 0) - 62 * us - slot * 15 * us, e.color, e.big ? (lite ? 14 : 17) : lite ? 11 : 13, e.big ? (lite ? 1.1 : 1.3) : 0.9);
         break;
       }
       case 'absorb':
@@ -317,7 +333,7 @@ export class Vfx {
         if (e.big) this.spark(h.sx(e.x), h.gy(e.lane, 0) - 26 * us, 0xffd34d, 10, 130);
         break;
       case 'shake':
-        this.shake = Math.min(14, Math.max(this.shake, e.power));
+        this.shake = Math.min(14, Math.max(this.shake, fxLite() ? e.power * 0.5 : e.power));
         break;
       case 'laneEnd':
         this.confetti(e.lane, e.winner);
@@ -334,7 +350,7 @@ export class Vfx {
   confetti(lane: number, winner: Side, density = 1) {
     const h = this.h;
     const cols = winner === 0 ? [0x3d8bff, 0xffd34d, 0xffffff, 0x7dffb0] : [0x7a7a8a, 0x4a4a58, 0xa06a5a];
-    const n = Math.round(46 * density);
+    const n = Math.round(46 * density * (fxLite() ? 0.4 : 1));
     for (let i = 0; i < n; i++) {
       const c = g().rect(-2.5, -1.5, 5, 3).fill(cols[i % cols.length]);
       c.position.set(Math.random() * h.W, lane * h.laneH + h.laneH * 0.1 + Math.random() * 10);
@@ -379,6 +395,9 @@ export class Vfx {
       case 'bolt': return this.fxBolt(x, gyy);
       case 'thorns': return this.fxThorns(x, gyy, px(e.r ?? 70));
       case 'frost': return this.fxFrost(x, gyy, px(e.r ?? 150));
+      case 'blink': return this.fxBlink(x, gyy);
+      case 'burrow': return this.fxBurrow(x, gyy, px(e.r ?? 60));
+      case 'tide': return this.fxTide(x, gyy, dir, px(e.r ?? 380));
     }
     void us;
   }
@@ -954,6 +973,51 @@ export class Vfx {
     this.dust(x, gy, 4, 1.3, 0x4a3a30);
   }
 
+  /** Dịch chuyển: cột sáng tím + tinh thể bay tán loạn */
+  private fxBlink(x: number, gy: number) {
+    const us = this.h.us;
+    const o = g();
+    this.anim(o, 0.45, (k) => {
+      o.clear();
+      const w = 22 * us * (1 - k);
+      o.rect(x - w / 2, gy - 90 * us, w, 92 * us).fill({ color: 0xd8a0ff, alpha: (1 - k) * 0.55 });
+      o.rect(x - w / 5, gy - 90 * us, w / 2.5, 92 * us).fill({ color: 0xffffff, alpha: 1 - k });
+    });
+    this.ring(x, gy, 38 * us, 0xe0b0ff, 0.45, 3);
+    this.spark(x, gy - 30 * us, 0xe8c8ff, 12, 130);
+  }
+
+  /** Sóng thần: bức tường nước cuộn quét về phía trước, để lại bọt trắng */
+  private fxTide(x: number, gy: number, dir: number, dist: number) {
+    const us = this.h.us;
+    const o = g();
+    this.anim(o, 0.75, (k) => {
+      o.clear();
+      const run = Math.min(1, k * 1.5);
+      const head = x + dir * dist * (1 - Math.pow(1 - run, 2));
+      const fade = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+      for (let i = 0; i < 4; i++) {
+        const hx = head - dir * i * 30 * us;
+        const hh = (50 - i * 9) * us * Math.min(1, run * 3);
+        o.poly([hx - dir * 30 * us, gy + 6 * us, hx - dir * 10 * us, gy - hh * 0.55, hx, gy - hh, hx + dir * 9 * us, gy - hh * 0.35, hx + dir * 14 * us, gy + 6 * us]).fill({ color: i === 0 ? 0x7ad0ff : 0x4aa0e0, alpha: (0.7 - i * 0.14) * fade }).stroke({ width: 2, color: 0xffffff, alpha: (0.85 - i * 0.2) * fade });
+      }
+    });
+    for (let i = 0; i < 6; i++) this.dust(x + dir * dist * (i / 6) * 0.9, gy, 1, 1.2, 0xdff4ff);
+    this.ring(x, gy, 46 * us, 0x7ad0ff, 0.5, 3);
+  }
+
+  /** Độn thổ: đất đá văng lên, vòng bụi nâu */
+  private fxBurrow(x: number, gy: number, r: number) {
+    const us = this.h.us;
+    this.ring(x, gy, Math.max(30 * us, r), 0x9a6a3a, 0.5, 3.5);
+    this.dust(x, gy, 10, 1.5, 0x7a5a38);
+    for (let i = 0; i < 9; i++) {
+      const c = g().poly([-3, 2, -2, -3, 3, -3, 4, 2]).fill(i % 2 ? 0x6a4a2e : 0x8a6a42);
+      c.position.set(x + (Math.random() - 0.5) * 24 * us, gy - 4);
+      this.part(c, (Math.random() - 0.5) * 120, -90 - Math.random() * 60, 0.7, { g: 340, spin: (Math.random() - 0.5) * 14 });
+    }
+  }
+
   /** Lôi phù: tia sét từ trời */
   private fxBolt(x: number, gy: number) {
     const us = this.h.us;
@@ -1027,6 +1091,11 @@ export class Vfx {
         o.poly([-6, 2, -4, -5, 3, -6, 7, -1, 4, 5]).fill(0x8a8a92).stroke({ width: 1.6, color: 0x2e2e38 });
         o.poly([-4, -5, 3, -6, 0, -1]).fill({ color: 0xffffff, alpha: 0.3 });
         break;
+      case 'fire':
+        o.circle(0, 0, 11).fill({ color: 0xff5a1a, alpha: 0.3 });
+        o.circle(0, 0, 6.5).fill(0xff8a2a).stroke({ width: 1.4, color: 0xb02a0a });
+        o.circle(-0.8, -0.8, 3.2).fill(0xffe066);
+        break;
       case 'magic':
         o.circle(0, 0, 10).fill({ color: 0x6aa8ff, alpha: 0.3 });
         o.circle(0, 0, 5.5).fill(0x9ad0ff).stroke({ width: 1.4, color: 0x2a4a9a });
@@ -1037,9 +1106,10 @@ export class Vfx {
     this.layer.addChild(o);
     const x0 = h.sx(e.from);
     const x1 = h.sx(e.to);
-    const y = h.gy(e.lane, e.y) - 30 * h.us;
+    const y1 = h.gy(e.lane2 ?? e.lane, e.y) - 30 * h.us;
+    const y = h.gy(e.lane, e.y) - 30 * h.us - (e.h ?? 0) * h.us;
     this.projs.push({
-      o, x0, x1, y, t: 0,
+      o, x0, x1, y, y1, t: 0,
       dur: Math.max(0.12, Math.min(0.55, Math.abs(x1 - x0) / 900 + (e.kind === 'rock' ? 0.25 : 0))),
       arc: e.kind === 'rock' ? h.laneH * 0.5 : e.kind === 'arrow' ? 18 : 0,
       kind: e.kind, lx: x0, ly: y, trail: 0,
@@ -1079,7 +1149,7 @@ export class Vfx {
       p.t += dt;
       const k = Math.min(1, p.t / p.dur);
       const x = p.x0 + (p.x1 - p.x0) * k;
-      const y = p.y - Math.sin(k * Math.PI) * p.arc;
+      const y = p.y + (p.y1 - p.y) * k - Math.sin(k * Math.PI) * p.arc;
       if ((p.kind === 'arrow' || p.kind === 'needle') && (x !== p.lx || y !== p.ly)) p.o.rotation = Math.atan2(y - p.ly, x - p.lx);
       p.lx = x;
       p.ly = y;
@@ -1107,6 +1177,9 @@ export class Vfx {
         break;
       case 'magic':
         d.circle(0, 0, 3.2 * us).fill({ color: 0x9ad0ff, alpha: 0.7 });
+        break;
+      case 'fire':
+        d.circle(0, 0, (3 + Math.random() * 2.5) * us).fill({ color: Math.random() < 0.5 ? 0xff7a2a : 0xffc04d, alpha: 0.65 });
         break;
       case 'needle':
         star(d, 0, 0, 4, 3, 1.1, 0xffffff, 0.9);

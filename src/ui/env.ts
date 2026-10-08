@@ -13,7 +13,7 @@ import { attachUnitTip } from './tip';
 
 // ───────────── ô địa hình / thời tiết / quái khổng lồ / sự kiện: bấm để xem ảnh hưởng ─────────────
 
-export type EnvKey = 'terrain' | 'weather' | 'bridge' | 'outpost' | 'zones' | 'giant' | 'event';
+export type EnvKey = 'terrain' | 'weather' | 'bridge' | 'outpost' | 'zones' | 'giant' | 'event' | 'river';
 
 const GIANT_ICON: Record<string, string> = { nguoida: '🗿', cumang: '🐍', culong: '🐲' };
 
@@ -116,8 +116,18 @@ function eventDetail(): HTMLElement[] {
   ];
 }
 
+function riverDetail(st: Station): HTMLElement[] {
+  return [
+    head('🌊', t('env.river')),
+    h('p', { text: t('env.riverDesc', { n: (st.river ?? 0) + 1 }) }),
+    h('div', { class: 'env-eff good' }, h('i', { text: '✔' }), h('span', { text: t('env.riverOk') })),
+    h('div', { class: 'env-eff bad' }, h('i', { text: '✖' }), h('span', { text: t('env.riverNo') })),
+  ];
+}
+
 function detailFor(st: Station, key: EnvKey, battle?: Battle): HTMLElement[] {
   switch (key) {
+    case 'river': return riverDetail(st);
     case 'terrain': return terrainDetail(st);
     case 'weather': return weatherDetail(st);
     case 'bridge': return bridgeDetail(st);
@@ -140,6 +150,7 @@ function tilesOf(st: Station, battle?: Battle): Tile[] {
     { key: 'terrain', icon: TERRAINS[st.theme].icon, label: t('env.terrain'), name: t(`terrain.${st.theme}.name`) },
     { key: 'weather', icon: WEATHERS[st.weather].icon, label: t('env.weather'), name: t(`weather.${st.weather}.name`) },
   ];
+  if (st.river !== undefined) tiles.push({ key: 'river', icon: '🌊', label: t('env.river'), name: `${t('env.riverLane')} ${st.river + 1}` });
   if (st.bridges.length) tiles.push({ key: 'bridge', icon: '🌉', label: t('env.bridge'), name: st.bridges.map((b) => `${b.a + 1}↔${b.b + 1}`).join(', ') });
   if (st.outposts.length) tiles.push({ key: 'outpost', icon: '🏯', label: t('env.outpost'), name: st.outposts.map((k) => OUTPOST_ICON[k]).join(' ') });
   if (battle) {

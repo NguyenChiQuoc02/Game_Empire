@@ -1,6 +1,6 @@
 import { h } from './dom';
 import { getLang, LANGS, onLang, setLang, t, type Lang } from '../i18n';
-import { levelMul, type UnitDef } from '../data/units';
+import { activeCdOf, levelMul, skillCdAt, type UnitDef } from '../data/units';
 import { iconUrl } from '../render/icons';
 
 export function toast(msg: string, kind: 'info' | 'error' | 'good' = 'info') {
@@ -78,6 +78,8 @@ export function statLine(def: UnitDef, lv: number): HTMLElement {
   const m = levelMul(lv);
   const item = (icon: string, val: string, tip: string) =>
     h('span', { class: 'stat', attrs: { title: tip } }, h('i', { text: icon }), val);
+  const cd = activeCdOf(def);
+  const cdItem = cd !== null ? item('⏳', `${Number(skillCdAt(cd, lv).toFixed(2))}s`, t('stat.skillCd')) : null;
   if (def.kind === 'defense') {
     return h(
       'div',
@@ -87,6 +89,7 @@ export function statLine(def: UnitDef, lv: number): HTMLElement {
       def.dmg > 0 || def.skill === 'altar' ? item('⏱', `${def.cd}s`, t('stat.cd')) : null,
       def.range > 0 ? item('🎯', String(def.range), t('stat.rng')) : null,
       def.armor > 0 ? item('🛡', String(def.armor), t('stat.armor')) : null,
+      cdItem,
     );
   }
   return h(
@@ -97,5 +100,6 @@ export function statLine(def: UnitDef, lv: number): HTMLElement {
     item('👟', String(def.speed), t('stat.spd')),
     item('🎯', def.range > 70 ? String(def.range) : t('stat.melee'), t('stat.rng')),
     def.armor > 0 ? item('🛡', String(def.armor), t('stat.armor')) : null,
+    cdItem,
   );
 }

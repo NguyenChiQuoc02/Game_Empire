@@ -1,7 +1,8 @@
 import type { UnitDef } from '../data/units';
 import type { Chapter, Station } from '../data/campaign';
 import { STRINGS } from './strings';
-import { EN_UNITS, EN_STATIONS, EN_CHAPTERS } from './dataEn';
+import { EN_UNITS, EN_STATIONS, EN_CHAPTERS, EN_HUNT_MAPS } from './dataEn';
+import type { HuntMapDef } from '../data/treasure';
 
 export type Lang = 'vi' | 'en';
 export const LANGS: Lang[] = ['vi', 'en'];
@@ -52,6 +53,9 @@ export function t(key: string, params?: Record<string, string | number>): string
 export const unitName = (d: UnitDef) => (lang === 'en' ? EN_UNITS[d.id]?.name : undefined) ?? d.name;
 export const unitSkill = (d: UnitDef) => (lang === 'en' ? EN_UNITS[d.id]?.skill : undefined) ?? d.skillName;
 export const unitDesc = (d: UnitDef) => (lang === 'en' ? EN_UNITS[d.id]?.desc : undefined) ?? d.desc;
+export const huntMapName = (d: HuntMapDef) => (lang === 'en' ? EN_HUNT_MAPS[d.id]?.name : undefined) ?? d.name;
+export const huntMapSub = (d: HuntMapDef) => (lang === 'en' ? EN_HUNT_MAPS[d.id]?.sub : undefined) ?? d.sub;
+export const huntMapTip = (d: HuntMapDef) => (lang === 'en' ? EN_HUNT_MAPS[d.id]?.tip : undefined) ?? d.tip;
 export const stationName = (s: Station) => (lang === 'en' ? EN_STATIONS[s.id]?.name : undefined) ?? s.name;
 export const stationSub = (s: Station) => (lang === 'en' ? EN_STATIONS[s.id]?.sub : undefined) ?? s.subtitle;
 export const stationDesc = (s: Station) => (lang === 'en' ? EN_STATIONS[s.id]?.desc : undefined) ?? s.desc;

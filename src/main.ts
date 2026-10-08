@@ -11,7 +11,10 @@ import { flush, mutate, onSaveStatus, refresh, setBase, state } from './state';
 import { onLang, t } from './i18n';
 import { h } from './ui/dom';
 import { renderAuth } from './ui/auth';
-import { focusStation, isPortraitLayout, renderHome } from './ui/home';
+import { focusHunt, focusSiege, focusStation, isPortraitLayout, renderHome } from './ui/home';
+import { HuntScreen, type HuntExit } from './ui/hunt';
+import type { HuntSetup } from './data/treasure';
+import { SIEGE_INDEX } from './data/siege';
 import { BattleScreen, type ExitAction } from './ui/battle';
 import { toast } from './ui/common';
 import { loadNotices, unread } from './notices';
@@ -64,12 +67,13 @@ async function boot() {
 
   let screen: 'auth' | 'home' | 'battle' = 'auth';
   let battle: BattleScreen | null = null;
+  let hunt: HuntScreen | null = null;
   let token = 0;
 
   const redraw = () => {
     if (screen === 'auth') renderAuth(root, backend, redraw);
     else if (screen === 'home' && state.save) {
-      renderHome(root, { onPlay: startBattle, onLogout: logout, redraw });
+      renderHome(root, { onPlay: startBattle, onHunt: startHunt, onLogout: logout, redraw });
     }
   };
 
@@ -78,7 +82,25 @@ async function boot() {
     await backend.logout();
   };
 
+  const startHunt = (setup: HuntSetup) => {
+    battle?.dispose();
+    hunt?.dispose();
+    battle = null;
+    screen = 'battle';
+    hunt = new HuntScreen(app, root, setup, (action: HuntExit) => {
+      hunt?.dispose();
+      hunt = null;
+      app.ticker.stop();
+      if (action === 'retry') return startHunt(setup);
+      focusHunt();
+      screen = 'home';
+      redraw();
+    });
+  };
+
   const startBattle = (idx: number) => {
+    hunt?.dispose();
+    hunt = null;
     battle?.dispose();
     screen = 'battle';
     battle = new BattleScreen(app, root, idx, (action: ExitAction) => {
@@ -87,13 +109,14 @@ async function boot() {
       app.ticker.stop();
       if (action === 'retry') return startBattle(idx);
       if (action === 'next' && idx + 1 < STATIONS.length) return startBattle(idx + 1);
-      focusStation(state.save?.cleared[idx] ? Math.min(idx + 1, STATIONS.length - 1) : idx);
+      if (idx === SIEGE_INDEX) focusSiege();
+      else focusStation(state.save?.cleared[idx] ? Math.min(idx + 1, STATIONS.length - 1) : idx);
       screen = 'home';
       redraw();
     });
   };
 
-  if (import.meta.env.DEV) Object.assign(window, { __game: { state, startBattle, icons: { iconUrl, faceUrl } } });
+  if (import.meta.env.DEV) Object.assign(window, { __game: { state, startBattle, startHunt, icons: { iconUrl, faceUrl } } });
 
   onLang(() => {
     document.title = t('app.title');
@@ -132,6 +155,8 @@ async function boot() {
     const my = ++token;
     battle?.dispose();
     battle = null;
+    hunt?.dispose();
+    hunt = null;
     if (!user) {
       state.user = null;
       state.save = null;

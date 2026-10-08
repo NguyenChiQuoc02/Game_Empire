@@ -129,8 +129,8 @@ export interface DefenseArt {
   update(clock: number, atk: number): void;
 }
 
-export function buildDefenseArt(def: UnitDef, side: Side): DefenseArt {
-  const accent = TEAM[side];
+export function buildDefenseArt(def: UnitDef, side: Side, accentOverride?: number): DefenseArt {
+  const accent = accentOverride ?? TEAM[side];
   const root = new Container();
   const art = new Container();
   const ghost = !!def.tags?.includes('ghost');

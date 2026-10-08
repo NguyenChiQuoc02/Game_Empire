@@ -29,6 +29,11 @@ export interface SaveData {
   flagLv?: number;
   /** cấp nâng cấp tốc độ sản xuất vàng trong trận (0..10) */
   incomeLv?: number;
+  /** đợt Thủ Thành cao nhất đã hạ (0..SIEGE_WAVE_COUNT) */
+  siegeBest?: number;
+  /** Truy Tìm Kho Báu: số ván đã chơi / thắng */
+  huntPlays?: number;
+  huntWins?: number;
   /** phiên bản bố cục trạm (2 = 3 bản đồ x 10 trạm) */
   sv?: number;
   /** Số phiên bản trên server, tăng mỗi lần ghi; dùng để phát hiện thiết bị khác đã ghi trước */

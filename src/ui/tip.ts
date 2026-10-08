@@ -25,7 +25,7 @@ export function tipBody(d: TipData): HTMLElement[] {
   const ally = d.side === 0;
   const pct = Math.max(0, Math.min(1, d.hp / d.maxHp));
   const stat = (ico: string, val: string, title: string) => h('span', { class: 'ts', attrs: { title } }, h('i', { text: ico }), val);
-  const tags = [t(`kind.${def.kind}`), t(ally ? 'hud.ally' : 'hud.foe'), d.level ? `Lv ${d.level}` : ''].filter(Boolean).join(' · ');
+  const tags = [t(`kind.${def.kind}`), def.tags?.includes('fly') ? t('tag.fly') : '', def.tags?.includes('naval') ? t('tag.naval') : '', t(ally ? 'hud.ally' : 'hud.foe'), d.level ? `Lv ${d.level}` : ''].filter(Boolean).join(' · ');
   const stats: HTMLElement[] = [];
   if (def.kind === 'defense') {
     if (def.skill === 'altar') stats.push(stat('✚', String(Math.round(d.dmg)), t('stat.heal')));
