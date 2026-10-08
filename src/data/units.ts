@@ -353,6 +353,20 @@ export const UNIT_LIST: UnitDef[] = [
     desc: 'Cứ 10 giây phun sóng lửa rộng (85 sát thương, thiêu đốt 10 máu/giây trong 4 giây). Dưới 50% máu sát thương +30%.',
     unlockCost: 0, scale: 2.05,
   }),
+  U({
+    id: 'caocau', name: 'Cao Cầu', kind: 'boss', cost: 0,
+    hp: 3700, dmg: 50, cd: 1.2, speed: 24, range: 50, armor: 16,
+    skill: 'warlord', skill2: 'dragonPalm', skillName: 'Thái Úy Chuyên Quyền',
+    desc: 'Cứ 11 giây hạ lệnh: toàn quân địch cùng lane +25% sát thương và +15% tốc độ đánh trong 5 giây; cứ 9 giây tung chưởng rồng 140 sát thương và đẩy lùi đội hình của bạn.',
+    unlockCost: 0, scale: 1.9,
+  }),
+  U({
+    id: 'diemla', name: 'Diêm La Vương', kind: 'boss', cost: 0,
+    hp: 3900, dmg: 54, cd: 1.3, speed: 22, range: 56, armor: 14,
+    skill: 'poisonCloud', skill2: 'stun', skillName: 'Phán Quan Âm Phủ',
+    desc: 'Cứ 9 giây thả mây độc lên cụm quân bạn (30 sát thương rồi mất 12 máu/giây trong 6 giây); cứ 11 giây khiến 3 quân gần nhất đứng yên 2 giây.',
+    unlockCost: 0, scale: 2.05,
+  }),
 
   // ───────────── ĐỒ PHÒNG THỦ ─────────────
   U({
@@ -512,6 +526,20 @@ export const UNIT_LIST: UnitDef[] = [
     skill: 'fireAttack', skillName: 'Thiên Hỏa',
     desc: 'Rồng cổ đại bay xuống gần cuối trận: mỗi 8 giây phun lửa xuống chỗ địch đông nhất lane (130 sát thương, xuyên giáp).',
     tags: ['giant'], unlockCost: 0, scale: 1.9,
+  }),
+  U({
+    id: 'daitrung', name: 'Đại Trùng Cảnh Dương', kind: 'beast', cost: 120,
+    hp: 1200, dmg: 34, cd: 0.9, speed: 26, range: 36, armor: 8,
+    skill: 'sweep', skillName: 'Hổ Vồ',
+    desc: 'Mãnh hổ khổng lồ nhảy ra gần cuối trận: mỗi đòn thứ 3 vồ quét diện rộng gây x1.8 sát thương.',
+    tags: ['giant'], unlockCost: 0, scale: 2.3,
+  }),
+  U({
+    id: 'quysai', name: 'Quỷ Sai Khổng Lồ', kind: 'beast', cost: 120,
+    hp: 1300, dmg: 32, cd: 1.5, speed: 18, range: 44, armor: 14,
+    skill: 'trample', skill2: 'stun', skillName: 'Câu Hồn Giậm Đất',
+    desc: 'Quỷ sai Âm phủ trỗi dậy gần cuối trận: mỗi đòn giậm gây sát thương lan bán kính 55; cứ 11 giây khiến 3 quân gần nhất của bạn đứng yên 2 giây.',
+    tags: ['giant'], unlockCost: 0, scale: 2.1,
   }),
   // ───────────── SỰ KIỆN NGẪU NHIÊN ─────────────
   U({

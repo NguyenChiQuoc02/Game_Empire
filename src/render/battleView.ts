@@ -407,6 +407,8 @@ export class BattleView {
       if (e.t === 'boss') {
         this.showToast(t(e.giant ? 'hud.giantAppear' : 'hud.bossAppear', { name: unitName(UNITS[e.id]) }));
         this.vfx.handle(e);
+      } else if (e.t === 'capUp') {
+        this.showToast(t('hud.capUp', { cap: e.cap }));
       } else if (e.t === 'cross') {
         this.vfx.dust(this.sx(e.x), this.gy(e.from, 0.5), 4, 0.9);
       } else if (e.t === 'event') {

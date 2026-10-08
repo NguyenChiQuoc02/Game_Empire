@@ -318,7 +318,7 @@ function build() {
     'Tổng quan trò chơi',
     'Bắt đầu nhanh',
     'Cách chơi chi tiết (vàng, nâng cấp giới hạn vàng, vàng thưởng, màn Boss)',
-    'Chiến dịch: 3 bản đồ, 30 trạm',
+    'Chiến dịch: 5 bản đồ, 50 trạm',
     'Binh đoàn: bộ bài, mở khóa, nâng cấp',
     `Danh sách lính (${troops.length} loại)`,
     `Danh sách tướng (${generals.length} vị)`,
@@ -339,7 +339,7 @@ function build() {
   p(`Tam Lộ Công Thành là game chiến thuật công thành 2D chạy ngay trên trình duyệt web. Chiến dịch gồm ${CHAPTERS.length} bản đồ, mỗi bản đồ ${STATIONS_PER_MAP} trạm (trạm thứ ${STATIONS_PER_MAP} là Boss), tổng cộng ${STATIONS.length} trạm. Các trạm thường diễn ra song song trên ba làn đường (lane) độc lập: người chơi kéo thả lính, tướng và đồ phòng thủ vào lane, phá cờ của đối phương và ai ăn được 2/3 lane sẽ thắng. Trạm Boss chỉ có MỘT lane và Boss xuất hiện gần cuối trận.`);
   h3('Điểm nổi bật');
   ul(
-    `${STATIONS.length} trạm trên ${CHAPTERS.length} bản đồ (Tam Quốc · Kim Dung · Tây Du/Phong Thần) với 11 loại địa hình khác nhau; phải hoàn thành đủ ${STATIONS_PER_MAP} trạm của bản đồ trước mới mở bản đồ kế tiếp, nhưng được XEM TRƯỚC mọi trạm (trạm đang khóa chưa chơi được).`,
+    `${STATIONS.length} trạm trên ${CHAPTERS.length} bản đồ (Tam Quốc · Kim Dung · Tây Du/Phong Thần · Thủy Hử · Địa Phủ) với 11 loại địa hình khác nhau; phải hoàn thành đủ ${STATIONS_PER_MAP} trạm của bản đồ trước mới mở bản đồ kế tiếp, nhưng được XEM TRƯỚC mọi trạm (trạm đang khóa chưa chơi được).`,
     `${troops.length} loại lính, ${generals.length} vị tướng (Tam Quốc, Kim Dung, Tây Du) và ${DEFENSES.length} loại đồ phòng thủ (tường, tường gai, tháp cung, nỏ thần, pháo đá, bẫy, hố lửa, trống trận, tế đàn, trụ băng).`,
     `${pets.length} thú cưng (tab riêng trong Binh đoàn, xuất trận như lính) và ${beasts.length} loài quái thú xuất hiện ở phía địch (sói, lợn rừng, gấu, hổ, mãng xà, báo đen, tê giác, hỏa long).`,
     `${bosses.length} Boss: Đổng Trác, Đông Phương Bất Bại, Ngưu Ma Vương; mỗi trạm Boss chỉ có 1 lane, Boss xuất hiện gần cuối trận và rất trâu.`,
@@ -572,7 +572,7 @@ function build() {
   B.push({ k: 'break' });
 
   // 4
-  h1('4. Chiến dịch: 3 bản đồ, 30 trạm');
+  h1(`4. Chiến dịch: ${CHAPTERS.length} bản đồ, ${STATIONS.length} trạm`);
   p(`Chiến dịch gồm ${CHAPTERS.length} bản đồ, mỗi bản đồ ${STATIONS_PER_MAP} trạm đi từ Thành Xuất Phát (góc dưới) tới Thành Địch (góc trên). Mỗi trạm có cờ, nhãn "bản đồ-trạm" (ví dụ 2-5), số sao đạt được; trạm Boss có huy hiệu riêng. Quy tắc mở khóa:`);
   ul(
     'Hoàn thành một trạm để mở trạm kế tiếp; hoàn thành đủ 10 trạm (kể cả Boss) mới mở bản đồ tiếp theo.',
@@ -777,7 +777,7 @@ function build() {
   h2('15.1. Quản lý người chơi');
   ul(
     'Danh sách toàn bộ người chơi: tên, trạm hiện tại (ví dụ 2-5), số trạm đã qua trên 30, tổng số sao, số vàng, thắng/thua, lần cập nhật cuối, trạng thái (Hoạt động / Đã khóa). Có ô tìm theo tên và thống kê tổng người chơi, số tài khoản bị khóa, tổng vàng.',
-    'Sửa thông tin: tên hiển thị, số vàng, trạm hiện tại (các trạm trước đó tính là đã qua; có thể đánh dấu hoàn thành cả 30 trạm), số trận thắng/thua; nút nhanh "Mở khóa mọi thẻ" và "Đặt lại tiến trình".',
+    'Sửa thông tin: tên hiển thị, số vàng, trạm hiện tại (các trạm trước đó tính là đã qua; có thể đánh dấu hoàn thành toàn bộ trạm), số trận thắng/thua; nút nhanh "Mở khóa mọi thẻ" và "Đặt lại tiến trình".',
     'Khóa / mở khóa tài khoản kèm lý do: người chơi bị khóa khi đăng nhập sẽ thấy màn hình "Tài khoản đã bị khóa" cùng lý do, không vào được game; luật Firestore cũng chặn việc ghi tiến trình của tài khoản bị khóa.',
     'Khi người chơi đang online: số vàng admin sửa sẽ được gộp với vàng họ kiếm thêm (không mất vàng); tuy nhiên hạ thấp tiến trình có thể bị thiết bị người chơi ghi đè lại vì tiến trình luôn "chỉ tăng" khi gộp. Nên khóa tài khoản trước khi hạ tiến trình.',
   );

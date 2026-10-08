@@ -755,7 +755,6 @@ b { font-weight: 700; }
 /* ───────── số tướng tối đa ───────── */
 .castle.gen-cap { margin-top: 8px; border-color: #ffd34d; background: linear-gradient(180deg, #3a2a3a, #1c1220); }
 .castle-hp.gen { color: #ffe08a; }
-.gen-badge { position: absolute; top: -9px; left: 50%; transform: translateX(-50%); z-index: 4; font-size: 10.5px; font-weight: 800; line-height: 1; padding: 2px 7px; border-radius: 8px; white-space: nowrap; color: #3a2400; background: linear-gradient(180deg, #ffe27a, #f0a62a); border: 1.5px solid #7a4a08; box-shadow: 0 1px 3px rgba(0, 0, 0, .6); pointer-events: none; }
 .hcard.capped { filter: grayscale(.85) brightness(.55); }
 
 /* ───────── tooltip ô nâng cấp (tab Binh đoàn) ───────── */
@@ -793,8 +792,6 @@ b { font-weight: 700; }
 .env-ev b { color: #fff2b0; }
 
 /* huy hiệu trong trận */
-.env-badges { position: absolute; left: 50%; top: calc(100% + 4px); transform: translateX(-50%); display: flex; gap: 6px; z-index: 6; pointer-events: auto; }
-.env-badge { width: 30px; height: 30px; padding: 0; font-size: 17px; line-height: 1; border-radius: 50%; color: #fff; background: rgba(14, 10, 24, .78); border: 2px solid var(--bronze); cursor: help; }
 .unit-tip.info-tip .env-head { margin-bottom: 4px; }
 .unit-tip.info-tip { max-width: min(320px, 92vw); }
 
@@ -813,7 +810,6 @@ b { font-weight: 700; }
   .env-tile { flex-basis: 52px; padding: 3px 3px; }
   .env-tile i { font-size: 16px; }
   .env-detail { max-height: 30vh; font-size: 11px; }
-  .env-badge { width: 24px; height: 24px; font-size: 13px; }
 }
 
 /* lớp hiệu ứng thời tiết/địa hình phủ lên chiến trường (chỉ trang trí) */
@@ -859,3 +855,58 @@ b { font-weight: 700; }
 .lv-table th { font-size: 11.5px; color: #ffe08a; background: rgba(255, 220, 140, .08); }
 .lv-table tr.done td { color: #7ae0a0; }
 .lv-table tr.cur td { background: rgba(255, 211, 77, .16); color: #fff2b0; font-weight: 800; }
+
+/* ═════════ MÁY TÍNH: khung thẻ trong trận gọn và dễ đọc ═════════ */
+@media (min-width: 900px) and (min-height: 521px) {
+  /* huy hiệu giá nằm ở mép trên thẻ, không đè lên tên */
+  .hcard { margin-top: 10px; }
+  .hcard .cost { left: 50%; bottom: auto; top: -11px; transform: translateX(-50%); min-width: 26px; height: 24px; font-size: 13px; }
+  .hcard .nm { font-size: 11.5px; padding: 3px 2px 4px; }
+  .hcard .key { top: 4px; }
+
+  /* nhiều thẻ (>9): hàng trên là vàng + đồng hồ lane, hàng dưới là thẻ chiếm trọn chiều ngang */
+  .hand-row.many { display: grid; max-width: 1500px; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'gold dial' 'hand hand'; gap: 6px 14px; }
+  .hand-row.many .gold-box { grid-area: gold; flex-direction: row; align-items: center; gap: 12px; padding: 6px 14px; }
+  .hand-row.many .gold-box .gold-track { flex: 1; width: auto; min-width: 80px; }
+  .hand-row.many .gold-box .gold-num small { margin-top: 3px; }
+  .hand-row.many .dial { grid-area: dial; display: flex; align-items: center; gap: 16px; padding: 6px 14px; }
+  .hand-row.many .dial-title { margin: 0; white-space: nowrap; }
+  .hand-row.many .dial-row { width: 92px; margin: 0; }
+  .hand-row.many .hand { grid-area: hand; gap: 8px; }
+  .hand-row.many .hcard { max-width: 118px; }
+  .hand-row.many .hcard.general { max-width: 138px; }
+  .hand-row.many .hand-sep { margin: 8px 4px 0; }
+}
+
+/* nút thông tin địa hình / thời tiết / sự kiện trong trận: bấm để xem chi tiết */
+/* nằm sát mép trái, ngay dưới thanh chỉ huy của người chơi (không che đồng hồ ở giữa) */
+.env-badges { position: absolute; left: calc(10px + var(--safe-l)); top: 84px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; z-index: 6; pointer-events: auto; width: max-content; max-width: max(150px, calc(50vw - 125px)); }
+.env-badge-row { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
+.env-badge { display: flex; align-items: center; gap: 5px; padding: 3px 10px 3px 7px; font: inherit; color: #f0e8ff; border-radius: 999px; background: rgba(14, 10, 24, .82); border: 2px solid var(--bronze); cursor: pointer; box-shadow: 0 2px 6px rgba(0, 0, 0, .5); }
+.env-badge i { font-style: normal; font-size: 17px; line-height: 1; }
+.env-badge small { font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.env-badge:hover, .env-badge.on { border-color: #ffd34d; background: rgba(60, 46, 20, .92); }
+.env-badge.fresh { animation: env-pulse 1.4s ease-in-out 4; }
+@keyframes env-pulse { 50% { box-shadow: 0 0 0 4px rgba(255, 211, 77, .55); } }
+.env-pop { width: min(340px, 92vw); max-height: 46vh; overflow-y: auto; padding: 10px 12px; border-radius: 12px; background: linear-gradient(180deg, #2b2234, #15101d); border: 2px solid var(--bronze); box-shadow: 0 8px 24px rgba(0, 0, 0, .65); text-align: left; }
+@media (max-width: 899px), (max-height: 520px) {
+  .env-badge { padding: 3px 7px; }
+  .env-badge small { display: none; }
+}
+@media (min-width: 900px) and (min-height: 521px) {
+  .hand-row.many .gold-box { max-width: 680px; }
+}
+
+@media (max-width: 520px), (max-height: 520px) {
+  .env-badges { top: 56px; }
+}
+
+/* máy tính: nhãn "👑 đang ra/giới hạn tướng" nằm góc trên phải trong thẻ, không đè huy hiệu giá ở giữa mép trên */
+@media (min-width: 900px) and (min-height: 521px) {
+  }
+
+.env-badge.gens small { display: inline; }
+.env-badge.gens { border-color: #ffd34d; }
+
+/* popup thông tin quân/thẻ/nút: thu nhỏ 10% toàn bộ (chữ, icon, hình), neo ở đáy-giữa để vị trí phía trên không lệch */
+.unit-tip { transform: scale(0.9); transform-origin: 50% 100%; }

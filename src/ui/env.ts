@@ -7,7 +7,7 @@ import {
   TERRAINS, WEATHERS, eventParams, type Effect, type RandomEventId,
 } from '../data/terrain';
 import { portrait } from './common';
-import { attachInfoTip, attachUnitTip } from './tip';
+import { attachUnitTip } from './tip';
 
 // ───────────── ô địa hình / thời tiết / quái khổng lồ / sự kiện: bấm để xem ảnh hưởng ─────────────
 
@@ -131,17 +131,65 @@ export function envPanel(st: Station): HTMLElement {
   return h('div', { class: 'sp-env' }, h('div', { class: 'sp-label', text: t('env.title') }), row, detail, h('small', { class: 'foes-tip', text: t('env.tip') }));
 }
 
-/** huy hiệu nhỏ trong trận (rê chuột/chạm để xem ảnh hưởng). `addEvent` thêm huy hiệu sự kiện khi nó xảy ra */
-export function envBadges(st: Station): { el: HTMLElement; addEvent: (id: RandomEventId) => void } {
-  const el = h('div', { class: 'env-badges' });
-  const badge = (icon: string, build: () => HTMLElement[]) => {
-    const b = h('button', { class: 'env-badge', text: icon, attrs: { type: 'button' } });
-    attachInfoTip(b, () => build());
-    el.append(b);
+/** nhãn ngắn của ô trong trận */
+const badgeLabel = (tl: Tile) => (tl.key === 'event' ? tl.label : tl.name);
+
+/**
+ * Hàng nút thông tin trong trận (địa hình, thời tiết, đường nối, quái khổng lồ, sự kiện): bấm để mở khung chi tiết ghim lại,
+ * bấm lại hoặc bấm ra ngoài để đóng. `addEvent` thêm nút của sự kiện ngẫu nhiên khi nó xảy ra.
+ */
+export function envBadges(st: Station, withGenerals = false): { el: HTMLElement; addEvent: (id: RandomEventId) => void; setGenerals: (n: number, max: number) => void } {
+  const row = h('div', { class: 'env-badge-row' });
+  const pop = h('div', { class: 'env-pop env-detail' });
+  pop.style.display = 'none';
+  const el = h('div', { class: 'env-badges' }, row, pop);
+  let openKey: string | null = null;
+  const btns = new Map<string, HTMLElement>();
+  const close = () => {
+    openKey = null;
+    pop.style.display = 'none';
+    for (const b of btns.values()) b.classList.remove('on');
   };
-  for (const tl of tilesOf(st)) if (tl.key !== 'event') badge(tl.icon, () => detailFor(st, tl.key));
+  const badge = (key: string, icon: string, label: string, build: () => HTMLElement[], cls = '') => {
+    const b = h('button', { class: `env-badge ${cls}`, attrs: { type: 'button', 'aria-label': label } }, h('i', { text: icon }), h('small', { text: label }));
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (openKey === key) return close();
+      close();
+      openKey = key;
+      b.classList.add('on');
+      pop.replaceChildren(...build());
+      pop.style.display = 'flex';
+    });
+    btns.set(key, b);
+    row.append(b);
+  };
+  // bấm ra ngoài thì đóng (tự gỡ khi màn hình trận bị huỷ)
+  const outside = (e: Event) => {
+    if (!el.isConnected) return document.removeEventListener('pointerdown', outside, true);
+    if (!el.contains(e.target as Node)) close();
+  };
+  document.addEventListener('pointerdown', outside, true);
+  for (const tl of tilesOf(st)) badge(tl.key, tl.icon, badgeLabel(tl), () => detailFor(st, tl.key));
+  // nút "Tướng n/max": số tướng đang ra trên sân / số tướng tối đa cùng lúc
+  let gens: HTMLElement | null = null;
+  let lastGens = '';
+  if (withGenerals) {
+    badge('gens', '👑', '', () => [head('👑', t('hud.generalsTitle')), h('p', { text: t('hud.generalCapDesc') })], 'gens');
+    gens = btns.get('gens')!.querySelector('small');
+  }
   return {
     el,
-    addEvent: (id) => badge(RANDOM_EVENTS.find((r) => r.id === id)!.icon, () => [eventRow(id)]),
+    setGenerals: (n, max) => {
+      const txt = t('hud.generalsLabel', { n, max });
+      if (gens && txt !== lastGens) {
+        lastGens = txt;
+        gens.textContent = txt;
+      }
+    },
+    addEvent: (id) => {
+      const ev = RANDOM_EVENTS.find((r) => r.id === id)!;
+      badge(`ev-${id}`, ev.icon, t(`event.${id}.name`), () => [head(ev.icon, t(`event.${id}.name`)), h('p', { text: t(`event.${id}.desc`, eventParams(id)) })], 'fresh');
+    },
   };
 }

@@ -118,30 +118,65 @@ const MAP3: Def[] = [
   { name: 'Hỏa Diệm Sơn', subtitle: 'Boss: Ngưu Ma Vương', theme: 'volcano', bossId: 'nguumavuong', deck: ['bomber', 'berserker', 'elephant', 'trebuchet', 'taoist', 'poisoner', 'kieuphong', 'honglong'], desc: 'Màn Boss chỉ có 1 lane. Ngưu Ma Vương xuất hiện khi trận gần kết thúc và phun sóng lửa thiêu đốt.' },
 ];
 
-const MAPS: Def[][] = [MAP1, MAP2, MAP3];
+// ───────────── Bản đồ 4: Thủy Hử Lương Sơn ─────────────
+const MAP4: Def[] = [
+  { name: 'Thập Tự Pha', subtitle: 'Quán rượu ven đường', theme: 'plains', deck: ['samurai', 'spear', 'archer', 'shield', 'ninja', 'knight', 'soihoang'], desc: 'Quán rượu bẫy khách: kỵ binh và ninja ập tới từ hai bên. Giữ hàng khiên ở mỗi lane.' },
+  { name: 'Dã Trư Lâm', subtitle: 'Rừng heo rừng', theme: 'bamboo', mod: 'quick', deck: ['berserker', 'spear', 'crossbow', 'ninja', 'lonrung', 'baoden', 'truongphi'], desc: 'Quân nhanh nhẹn lao ra từ bụi rậm; Trương Phi trấn giữ lối vào rừng.' },
+  { name: 'Giang Châu Pháp Trường', subtitle: 'Pháp trường chờ ngày hành quyết', theme: 'castle', deck: ['shield', 'crossbow', 'healer', 'knight', 'trebuchet', 'quanvu', 'trieuvan'], defenses: ['wall', 'archertower'], desc: 'Phòng tuyến thành quách với tường thành và tháp cung; nỏ thủ bắn từ xa, Quan Vũ và Triệu Vân xung trận.' },
+  { name: 'Hoàng Nê Cương', subtitle: 'Gò đất vàng bụi mù', theme: 'desert', mod: 'swarm', deck: ['knight', 'samurai', 'poisoner', 'taoist', 'bomber', 'masieu', 'hoangtrung'], desc: 'Địch thả quân dồn dập (mỗi lần 2 quân), độc sư và tử sĩ gây hỗn loạn; Mã Siêu phi ngựa xuyên đội hình.' },
+  { name: 'Cảnh Dương Cương', subtitle: 'Mãnh hổ chặn đường', theme: 'stone', deck: ['hocnui', 'gauden', 'berserker', 'archer', 'monk', 'duongqua', 'lonrung'], desc: 'Rừng núi đầy mãnh thú; Dương Quá xuất chưởng. Gần cuối trận một Đại Trùng khổng lồ nhảy ra từ hang.' },
+  { name: 'Lương Sơn Thủy Bạc', subtitle: 'Thủy trại giữa đầm lầy', theme: 'sea', deck: ['crossbow', 'archer', 'shield', 'healer', 'taoist', 'chudu', 'giacatluong'], defenses: ['frosttotem', 'ballista'], desc: 'Thủy trại bắn từ xa: nỏ thủ, trụ băng, nỏ thần; Chu Du làm chậm, Gia Cát Lượng dội hỏa công.' },
+  { name: 'Chúc Gia Trang', subtitle: 'Trang viên kiên cố', theme: 'castle', mod: 'armored', deck: ['shield', 'monk', 'spear', 'elephant', 'trebuchet', 'quachtinh', 'lubo'], defenses: ['wall', 'spikewall'], desc: 'Quân giáp dày (+6 giáp) sau tường thành và tường gai; Quách Tĩnh ban khiên khí, Lữ Bố càn quét.' },
+  { name: 'Đông Xương Phủ', subtitle: 'Đột nhập trong đêm', theme: 'night', deck: ['ninja', 'poisoner', 'bomber', 'crossbow', 'healer', 'baoden', 'tumayi', 'auduongphong'], defenses: ['spiketrap'], desc: 'Bóng đêm che mắt: ninja, báo đen và bẫy gai; Tư Mã Ý làm quân bạn đứng yên, Âu Dương Phong thả mây độc.' },
+  { name: 'Tụ Nghĩa Sảnh', subtitle: 'Anh hùng tụ họp', theme: 'throne', deck: ['knight', 'berserker', 'taoist', 'healer', 'elephant', 'taothao', 'kieuphong', 'duongtien'], defenses: ['wall', 'archertower', 'ballista'], desc: 'Tuyến cuối trước phủ Thái Úy: tường, tháp cung, nỏ thần; Tào Tháo tăng sức cả đàn, Kiều Phong và Dương Tiễn phản công.' },
+  { name: 'Thái Úy Phủ', subtitle: 'Boss: Cao Cầu', theme: 'castle', bossId: 'caocau', deck: ['samurai', 'spear', 'shield', 'knight', 'crossbow', 'healer', 'trebuchet', 'lubo', 'quanvu', 'taothao'], desc: 'Màn Boss chỉ có 1 lane. Cao Cầu xuất hiện khi trận gần kết thúc: hạ lệnh tăng sức cả quân địch và đẩy lùi đội hình của bạn.' },
+];
+
+// ───────────── Bản đồ 5: Địa Phủ Hồi Hồn ─────────────
+const MAP5: Def[] = [
+  { name: 'Quỷ Môn Quan', subtitle: 'Cửa ải vào Âm Phủ', theme: 'night', deck: ['ninja', 'poisoner', 'crossbow', 'shield', 'baoden', 'tumayi'], desc: 'Ninja và báo đen lẩn trong sương đêm; Tư Mã Ý khiến quân bạn đứng yên. Nỏ thủ bắn từ xa.' },
+  { name: 'Hoàng Tuyền Lộ', subtitle: 'Con đường vàng nhạt', theme: 'desert', mod: 'quick', deck: ['knight', 'spear', 'bomber', 'taoist', 'soihoang', 'masieu'], desc: 'Quân Âm phủ di chuyển nhanh hơn 20%; Mã Siêu phi ngựa xuyên đội hình, tử sĩ nổ liên tục.' },
+  { name: 'Nại Hà Kiều', subtitle: 'Cây cầu bên dòng sông quên lãng', theme: 'sea', deck: ['crossbow', 'archer', 'shield', 'healer', 'mangxa', 'chudu', 'giacatluong'], defenses: ['frosttotem', 'spiketrap'], desc: 'Có đường nối lane trên cầu: quân hai bên rẽ qua lại. Trụ băng, bẫy gai và Gia Cát Lượng dội lửa.' },
+  { name: 'Vong Xuyên Hà', subtitle: 'Dòng sông băng giá của linh hồn', theme: 'snow', mod: 'armored', deck: ['shield', 'monk', 'crossbow', 'poisoner', 'tegiac', 'quachtinh', 'gauden'], desc: 'Quân giáp dày (+6 giáp), rất khó phá. Dùng sát thương xuyên giáp, độc và sát thương lan.' },
+  { name: 'Thập Điện Diêm Vương', subtitle: 'Đại điện của mười vị Diêm Vương', theme: 'throne', deck: ['berserker', 'bomber', 'elephant', 'taoist', 'poisoner', 'kieuphong', 'duongqua'], defenses: ['firepit'], desc: 'Hố lửa và tử sĩ chặn lối; gần cuối trận một Quỷ Sai khổng lồ trỗi dậy từ lòng đất.' },
+  { name: 'Phong Đô Thành', subtitle: 'Kinh đô của Âm Tào', theme: 'castle', deck: ['knight', 'spear', 'shield', 'healer', 'trebuchet', 'trieuvan', 'lubo', 'taothao'], defenses: ['wall', 'archertower', 'drum'], desc: 'Thành quách kiên cố, trống chiến tăng sức đồng đội; Tào Tháo hạ lệnh, Lữ Bố và Triệu Vân xung trận.' },
+  { name: 'Oan Hồn Cốc', subtitle: 'Thung lũng của những oan hồn', theme: 'night', mod: 'swarm', deck: ['poisoner', 'ninja', 'bomber', 'berserker', 'taoist', 'auduongphong', 'tumayi', 'baoden'], defenses: ['spiketrap', 'firepit'], desc: 'Oan hồn dồn dập (mỗi lần 2 quân), mây độc, bẫy gai và hố lửa. Cần Y sư và đánh nhanh.' },
+  { name: 'Vọng Hương Đài', subtitle: 'Nơi linh hồn ngoái nhìn quê cũ', theme: 'heaven', deck: ['spear', 'healer', 'taoist', 'shield', 'knight', 'chudu', 'quachtinh', 'hoangtrung'], defenses: ['altar', 'archertower'], desc: 'Tế đàn hồi phục và Y sư kéo dài giao tranh; Hoàng Trung bắn xuyên giáp từ tháp cao.' },
+  { name: 'Sâm La Điện', subtitle: 'Cửa cuối trước Diêm La', theme: 'stone', mod: 'armored', deck: ['knight', 'elephant', 'trebuchet', 'taoist', 'healer', 'kieuphong', 'masieu', 'hocnui', 'lenhhoxung'], defenses: ['wall', 'archertower', 'ballista'], desc: 'Tuyến phòng thủ cuối: quân giáp dày (+6), tường, tháp cung, nỏ thần; Kiều Phong và Lệnh Hồ Xung phản công.' },
+  { name: 'Diêm La Điện', subtitle: 'Boss: Diêm La Vương', theme: 'volcano', bossId: 'diemla', deck: ['berserker', 'bomber', 'elephant', 'trebuchet', 'taoist', 'poisoner', 'kieuphong', 'honglong', 'tegiac'], desc: 'Màn Boss chỉ có 1 lane. Diêm La Vương xuất hiện khi trận gần kết thúc: thả mây độc và khiến quân bạn đứng yên.' },
+];
+
+const MAPS: Def[][] = [MAP1, MAP2, MAP3, MAP4, MAP5];
 
 /** thời tiết từng trạm của mỗi bản đồ */
 const WEATHER_PLAN: WeatherId[][] = [
   ['sunny', 'rain', 'thunder', 'sunny', 'fog', 'fireRain', 'sunny', 'thunder', 'rain', 'sunny'],
   ['rain', 'fog', 'sunny', 'fog', 'thunder', 'sunny', 'rain', 'sunny', 'fog', 'thunder'],
   ['sunny', 'thunder', 'fog', 'fireRain', 'sunny', 'thunder', 'fog', 'sunny', 'thunder', 'fireRain'],
+  ['sunny', 'fog', 'rain', 'sunny', 'fog', 'rain', 'thunder', 'fog', 'thunder', 'rain'],
+  ['fog', 'sunny', 'thunder', 'rain', 'fireRain', 'fog', 'thunder', 'sunny', 'fireRain', 'thunder'],
 ];
 /** trạm có đường nối lane (id toàn cục → [lane a, lane b, vị trí x]): rải đều các bản đồ, không có ở trạm Boss/quái khổng lồ */
 const BRIDGE_PLAN: Record<number, [number, number, number]> = {
   2: [0, 1, 520], 6: [1, 2, 480], 8: [0, 1, 500],
   11: [1, 2, 500], 13: [0, 1, 460], 16: [0, 1, 540], 18: [1, 2, 500],
   21: [0, 1, 500], 23: [1, 2, 460], 25: [1, 2, 540], 26: [0, 1, 500], 28: [0, 1, 480],
+  31: [0, 1, 500], 33: [1, 2, 480], 36: [0, 1, 520], 37: [1, 2, 500], 38: [0, 1, 500],
+  42: [1, 2, 500], 43: [0, 1, 480], 45: [0, 1, 520], 47: [1, 2, 500], 48: [0, 1, 500],
 };
 /** quái thú khổng lồ của mỗi bản đồ (xuất hiện ở trạm thứ 5) */
 export const GIANT_STATION = 4;
-const GIANTS = ['nguoida', 'cumang', 'culong'];
+const GIANTS = ['nguoida', 'cumang', 'culong', 'daitrung', 'quysai'];
 
 /** hệ số sức mạnh / thu nhập địch theo bản đồ (bắt đầu, bước mỗi trạm) */
-const POWER: [number, number][] = [[1.0, 0.027], [1.2, 0.024], [1.3, 0.017]];
-const INCOME: [number, number][] = [[1.9, 0.17], [3.1, 0.1], [3.8, 0.08]];
-const BOSS_POWER = [1.04, 1.04, 0.95];
+const POWER: [number, number][] = [[1.0, 0.027], [1.2, 0.024], [1.3, 0.017], [1.38, 0.012], [1.5, 0.012]];
+const INCOME: [number, number][] = [[1.9, 0.17], [3.1, 0.1], [3.8, 0.08], [4.4, 0.05], [4.9, 0.05]];
+const BOSS_POWER = [1.04, 1.04, 0.95, 1.0, 1.05];
 /** hệ số vàng/giây của địch (giảm để địch ra quân chậm lại một chút) */
 const ENEMY_INCOME_SCALE = 0.9;
+
+/** tổng quân địch của trạm thường: tăng 1,5 quân/trạm ở 3 bản đồ đầu, các bản đồ sau tăng chậm hơn để trận không quá dài */
+const troopBudget = (id: number) => (id < 30 ? 10 + 1.5 * id : 52 + 0.6 * (id - 30));
 
 export const STATIONS: Station[] = MAPS.flatMap((defs, ch) =>
   defs.map((d, j): Station => {
@@ -156,8 +191,8 @@ export const STATIONS: Station[] = MAPS.flatMap((defs, ch) =>
       bridges: BRIDGE_PLAN[id] ? [{ a: BRIDGE_PLAN[id][0], b: BRIDGE_PLAN[id][1], x: BRIDGE_PLAN[id][2] }] : [],
       power: Math.round((boss ? BOSS_POWER[ch] : POWER[ch][0] + POWER[ch][1] * j) * 100) / 100,
       income: Math.round((INCOME[ch][0] + INCOME[ch][1] * j) * ENEMY_INCOME_SCALE * 100) / 100,
-      flagHp: Math.round((340 + 33 * id) * (boss ? 1.15 : 1) / 10) * 10,
-      units: Math.round(boss ? (10 + 1.5 * id) * 0.62 + 2 : 10 + 1.5 * id),
+      flagHp: Math.round((id < 30 ? 340 + 33 * id : 1297 + 14 * (id - 29)) * (boss ? 1.15 : 1) / 10) * 10,
+      units: Math.round(boss ? troopBudget(id) * 0.62 + 2 : troopBudget(id)),
       reward: Math.round(((100 + 30 * id) * (boss ? 1.8 : 1)) / 10) * 10,
       // thời gian cho 3 sao tăng dần theo độ sâu: 100s (trạm đầu) → ~200s (trạm cuối); Boss cần thêm thời gian chờ Boss xuất hiện
       fastSec: round5(boss ? 140 + 2 * id : 100 + 3.5 * id),
@@ -176,6 +211,14 @@ export const CHAPTERS: Chapter[] = [
   },
   {
     id: 2, name: 'Đại Náo Thiên Cung', subtitle: 'Phong Thần · Tây Du', stations: Array.from({ length: STATIONS_PER_MAP }, (_, j) => 20 + j),
+    start: { l: [0.08, 0.84], p: [0.25, 0.94] }, end: { l: [0.92, 0.17], p: [0.82, 0.2] },
+  },
+  {
+    id: 3, name: 'Thủy Hử Lương Sơn', subtitle: 'Giang hồ hảo hán', stations: Array.from({ length: STATIONS_PER_MAP }, (_, j) => 30 + j),
+    start: { l: [0.08, 0.84], p: [0.25, 0.94] }, end: { l: [0.92, 0.17], p: [0.82, 0.2] },
+  },
+  {
+    id: 4, name: 'Địa Phủ Hồi Hồn', subtitle: 'Hành trình vào Âm Tào', stations: Array.from({ length: STATIONS_PER_MAP }, (_, j) => 40 + j),
     start: { l: [0.08, 0.84], p: [0.25, 0.94] }, end: { l: [0.92, 0.17], p: [0.82, 0.2] },
   },
 ];

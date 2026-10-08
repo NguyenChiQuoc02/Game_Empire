@@ -54,6 +54,21 @@ export function tipBody(d: TipData): HTMLElement[] {
 
 
 // ───────────────────────── tooltip thông số quân ngoài trận (bản đồ, bảng trạm) ─────────────────────────
+
+/** đặt tooltip phía trên phần tử; không đủ chỗ thì sang phải/trái (không bao giờ đặt xuống dưới) */
+function placeTip(tip: HTMLElement, r: DOMRect) {
+  const w = tip.offsetWidth;
+  const hh = tip.offsetHeight;
+  let left = Math.max(6, Math.min(window.innerWidth - w - 6, r.left + r.width / 2 - w / 2));
+  let top = r.top - hh - 8;
+  if (top < 6) {
+    left = r.right + 8 + w + 6 <= window.innerWidth ? r.right + 8 : Math.max(6, r.left - 8 - w);
+    top = Math.max(6, Math.min(window.innerHeight - hh - 6, (r.top + r.bottom) / 2 - hh / 2));
+  }
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
 let mapTip: HTMLElement | null = null;
 let mapTipTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -72,14 +87,7 @@ function showMapTip(el: HTMLElement, def: UnitDef, side: 0 | 1, pow: number) {
   const hp = def.hp * pow;
   tip.replaceChildren(...tipBody({ def, side, hp, maxHp: hp, dmg: def.dmg * pow, armor: def.armor, speed: def.speed, range: def.range, cd: def.cd, pow }));
   tip.style.display = 'block';
-  const r = el.getBoundingClientRect();
-  const w = tip.offsetWidth;
-  const hh = tip.offsetHeight;
-  const left = Math.max(6, Math.min(window.innerWidth - w - 6, r.left + r.width / 2 - w / 2));
-  let top = r.top - hh - 8;
-  if (top < 6) top = Math.min(window.innerHeight - hh - 6, r.bottom + 8);
-  tip.style.left = `${left}px`;
-  tip.style.top = `${top}px`;
+  placeTip(tip, el.getBoundingClientRect());
 }
 
 /** Gắn tooltip thông số quân vào phần tử: rê chuột để xem; chạm để xem vài giây trên điện thoại */
@@ -107,14 +115,7 @@ export function attachInfoTip<T extends HTMLElement>(el: T, build: () => HTMLEle
     tipEl.className = 'unit-tip map-tip info-tip ally';
     tipEl.replaceChildren(...build());
     tipEl.style.display = 'block';
-    const r = el.getBoundingClientRect();
-    const w = tipEl.offsetWidth;
-    const hh = tipEl.offsetHeight;
-    const left = Math.max(6, Math.min(window.innerWidth - w - 6, r.left + r.width / 2 - w / 2));
-    let top = r.top - hh - 8;
-    if (top < 6) top = Math.min(window.innerHeight - hh - 6, r.bottom + 8);
-    tipEl.style.left = `${left}px`;
-    tipEl.style.top = `${top}px`;
+    placeTip(tipEl, el.getBoundingClientRect());
   };
   el.addEventListener('pointerenter', (e) => e.pointerType === 'mouse' && show());
   el.addEventListener('pointerleave', hideMapTip);

@@ -40,6 +40,7 @@ const STYLE: Record<string, Quad> = {
   baoden: { fur: 0x2c2c3a, belly: 0x40405a, len: 15, legH: 12, ear: 'point', snout: 8, headR: 8.5, tail: 'long', eye: 0xb6ff5a, gait: 16 },
   tegiac: { fur: 0x8c8c98, belly: 0xa8a8b4, len: 23, legH: 10, ear: 'round', snout: 6, headR: 11, tail: 'short', horn: 'rhino', gait: 7 },
   honglong: { fur: 0xc8402a, belly: 0xf0b45a, len: 17, legH: 10, ear: 'point', snout: 9, headR: 9.5, tail: 'long', eye: 0xffe066, horn: 'dragon', wings: 0x8a2a1a, gait: 9 },
+  daitrung: { fur: 0xd88a30, belly: 0xf6e6c8, stripe: 0x2a1a10, len: 27, legH: 14, ear: 'round', snout: 11, headR: 14, tail: 'long', eye: 0xffe066, gait: 8 },
   culong: { fur: 0x5a2a6a, belly: 0xe89a4a, len: 26, legH: 12, ear: 'point', snout: 11, headR: 12, tail: 'long', eye: 0xffe066, horn: 'dragon', wings: 0x8a2a5a, gait: 7 },
   longthan: { fur: 0xe8b830, belly: 0xfff0b0, len: 20, legH: 11, ear: 'point', snout: 10, headR: 11, tail: 'long', eye: 0x58e8ff, horn: 'dragon', wings: 0x3ec6a4, mane: 0xffffff, gait: 9 },
   // ── thú cưng (ta): dễ thương hơn, có khăn theo màu phe

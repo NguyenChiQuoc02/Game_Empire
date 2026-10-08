@@ -37,8 +37,8 @@ export class BattleScreen {
   private paused = false;
   private speed = 1;
   private speedBtns: HTMLElement[] = [];
-  private genBadge: HTMLElement | null = null;
   private badges: ReturnType<typeof envBadges> | null = null;
+  private hasGenerals = false;
   private eventBadged = false;
   private lastW = 0;
   private lastH = 0;
@@ -174,7 +174,8 @@ export class BattleScreen {
             h('div', { class: 'foe-left', attrs: { title: t('hud.foeLeft') } }, h('i', { text: '☠' }), foeLeft)),
           this.face(enemyId, 1, 'enemy'))),
     );
-    this.badges = envBadges(st);
+    this.hasGenerals = this.deck.some((id) => UNITS[id].kind === 'general');
+    this.badges = envBadges(st, this.hasGenerals);
     this.eventBadged = false;
     this.hudHost.append(this.badges.el);
 
@@ -204,7 +205,6 @@ export class BattleScreen {
     // số cột lưới thẻ trên màn nhỏ: một hàng nếu ≤ 9 thẻ, ngược lại chia hai hàng
     hand.style.setProperty('--cols', String(this.deck.length <= 9 ? this.deck.length : Math.ceil(this.deck.length / 2)));
     let prevKind = '';
-    this.genBadge = null;
     this.deck.forEach((id, i) => {
       const d = UNITS[id];
       if (i > 0 && d.kind !== prevKind) hand.append(h('span', { class: 'hand-sep' }));
@@ -218,10 +218,6 @@ export class BattleScreen {
       c.addEventListener('pointerenter', (e) => e.pointerType === 'mouse' && this.showCardTip(id, c));
       c.addEventListener('pointerleave', () => this.hideCardTip());
       c.addEventListener('contextmenu', (e) => e.preventDefault());
-      if (d.kind === 'general' && !this.genBadge) {
-        this.genBadge = h('span', { class: 'gen-badge', attrs: { title: t('hud.generalCapTip') } });
-        c.append(this.genBadge);
-      }
       cards.set(id, c);
       hand.append(c);
     });
@@ -236,7 +232,7 @@ export class BattleScreen {
         dialEn.push(en);
         return h('div', { class: 'dial-row' }, h('b', { text: String(i + 1) }), h('span', { class: 'bar my' }, my), h('span', { class: 'bar en' }, en));
       }));
-    this.handHost.replaceChildren(h('footer', { class: 'hand-panel' }, info, h('div', { class: 'hand-row' }, goldRow, hand, dial)));
+    this.handHost.replaceChildren(h('footer', { class: 'hand-panel' }, info, h('div', { class: `hand-row${this.deck.length > 9 ? ' many' : ''}` }, goldRow, hand, dial)));
     this.el = { timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income, capText, capBtn, capCost, capLv, foeLeft };
     this.lastCardState = '';
     this.refreshInfo();
@@ -287,7 +283,7 @@ export class BattleScreen {
       this.eventBadged = true;
       this.badges.addEvent(b.randomEvent!);
     }
-    if (this.genBadge) this.genBadge.textContent = `👑 ${b.generalsAlive(0)}/${b.cfg.generalCap ?? 0}`;
+    if (this.hasGenerals) this.badges?.setGenerals(b.generalsAlive(0), b.cfg.generalCap ?? 0);
     // trạng thái thẻ (chỉ cập nhật DOM khi đổi)
     const st = this.deck.map((id) => {
       const d = UNITS[id];
@@ -512,10 +508,18 @@ export class BattleScreen {
     const hh = tip.offsetHeight || 60;
     const box = this.view.unitBox(u);
     const cx = box ? box.x : this.tipX;
+    const fh = this.field.clientHeight;
+    let left = cx - w / 2;
     let top = box ? box.top - hh - 6 : this.tipY - hh - 20;
-    if (top < 4) top = box ? box.bottom + 8 : this.tipY + 20; // sát mép trên: đặt phía dưới chân
-    tip.style.left = `${Math.max(4, Math.min(fw - w - 4, cx - w / 2))}px`;
-    tip.style.top = `${top}px`;
+    if (top < 4) {
+      // không đủ chỗ phía trên: đặt sang phải (hoặc trái nếu hết chỗ), không bao giờ đặt xuống dưới chân quân
+      const mid = box ? (box.top + box.bottom) / 2 : this.tipY;
+      const gap = 40;
+      left = cx + gap + w + 4 <= fw ? cx + gap : cx - gap - w;
+      top = mid - hh / 2;
+    }
+    tip.style.left = `${Math.max(4, Math.min(fw - w - 4, left))}px`;
+    tip.style.top = `${Math.max(4, Math.min(fh - hh - 4, top))}px`;
   }
 
   /** rê chuột vào thẻ bài: xem đầy đủ chỉ số và kỹ năng (theo cấp thẻ hiện tại) */

@@ -144,6 +144,7 @@ export type SimEvent =
   | { t: 'fx'; kind: FxKind; lane: number; x: number; dir: 1 | -1; r?: number; x2?: number }
   | { t: 'boss'; id: string; lane: number; giant?: boolean }
   | { t: 'event'; id: RandomEventId }
+  | { t: 'capUp'; cap: number }
   | { t: 'cross'; uid: number; from: number; to: number; x: number }
   | { t: 'end'; winner: Side };
 
@@ -310,6 +311,13 @@ export class Battle {
     return true;
   }
 
+  /** kho vàng của người chơi đầy thì tự nâng cấp giới hạn vàng (nếu còn mốc kế tiếp và đủ vàng) */
+  private autoUpgradeCap() {
+    const cost = this.capUpgradeCost();
+    if (cost === null || this.gold[0] < this.goldCap(0) - 0.01 || this.gold[0] < cost) return;
+    if (this.upgradeCap()) this.emit({ t: 'capUp', cap: this.goldCap(0) });
+  }
+
   private mulFor(side: Side, id: string): number {
     return side === 0 ? levelMul(this.cfg.levels[id] ?? 1) : this.cfg.station.power;
   }
@@ -419,6 +427,7 @@ export class Battle {
       const ramp = s === 1 ? Math.min(1, ENEMY_RAMP_FROM + (1 - ENEMY_RAMP_FROM) * (this.time / ENEMY_RAMP_SEC)) : 1;
       this.gold[s] = Math.min(this.goldCap(s), this.gold[s] + this.income[s] * boost * ramp * dt);
     }
+    this.autoUpgradeCap();
     this.bossTick();
     this.giantTick();
     this.weatherTick(dt);
