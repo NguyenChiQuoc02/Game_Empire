@@ -64,6 +64,7 @@ export class BattleScreen {
     cards?: Map<string, HTMLElement>; info?: HTMLElement; speed?: HTMLElement;
     dialMy?: HTMLElement[]; dialEn?: HTMLElement[]; income?: HTMLElement;
     capText?: HTMLElement; capBtn?: HTMLElement; capCost?: HTMLElement; capLv?: HTMLElement; foeLeft?: HTMLElement;
+    boss?: { root: HTMLElement; name: HTMLElement; phase: HTMLElement; kin: HTMLElement; fill: HTMLElement; marks: HTMLElement };
   } = {};
   private lastCardState = '';
   private drag: { id: string; sx: number; sy: number; moved: boolean; ghost?: HTMLElement; pid: number } | null = null;
@@ -175,9 +176,21 @@ export class BattleScreen {
           this.face(enemyId, 1, 'enemy'))),
     );
     this.hasGenerals = this.deck.some((id) => UNITS[id].kind === 'general');
-    this.badges = envBadges(st, this.hasGenerals);
+    this.badges = envBadges(st, this.hasGenerals, this.battle);
     this.eventBadged = false;
     this.hudHost.append(this.badges.el);
+    let boss: typeof this.el.boss;
+    if (st.boss) {
+      const name = h('b', {});
+      const phase = h('span', { class: 'bb-phase' });
+      const kin = h('em', { class: 'bb-kin' });
+      const fill = h('i', { class: 'bb-fill' });
+      const marks = h('div', { class: 'bb-marks' });
+      const root = h('div', { class: 'boss-bar' }, h('div', { class: 'bb-head' }, name, phase, kin), h('div', { class: 'bb-track' }, fill, marks));
+      root.style.display = 'none';
+      this.hudHost.append(root);
+      boss = { root, name, phase, kin, fill, marks };
+    }
 
     const capText = h('small', { class: 'cap', text: '/100' });
     const capCost = h('b', { text: '' });
@@ -233,7 +246,7 @@ export class BattleScreen {
         return h('div', { class: 'dial-row' }, h('b', { text: String(i + 1) }), h('span', { class: 'bar my' }, my), h('span', { class: 'bar en' }, en));
       }));
     this.handHost.replaceChildren(h('footer', { class: 'hand-panel' }, info, h('div', { class: `hand-row${this.deck.length > 9 ? ' many' : ''}` }, goldRow, hand, dial)));
-    this.el = { timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income, capText, capBtn, capCost, capLv, foeLeft };
+    this.el = { boss, timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income, capText, capBtn, capCost, capLv, foeLeft };
     this.lastCardState = '';
     this.refreshInfo();
     this.refreshSpeed();
@@ -279,6 +292,7 @@ export class BattleScreen {
     e.capBtn!.classList.toggle('max', upCost === null);
     e.capBtn!.classList.toggle('poor', upCost !== null && b.gold[0] < upCost);
     e.foeLeft!.textContent = String(b.enemyLeft + b.enemyAlive);
+    this.updateBossBar();
     if (b.eventFired && !this.eventBadged && this.badges) {
       this.eventBadged = true;
       this.badges.addEvent(b.randomEvent!);
@@ -300,6 +314,25 @@ export class BattleScreen {
         c.classList.toggle('selected', this.selected === id);
       }
     }
+  }
+
+  /** thanh máu boss: các vạch mốc chuyển giai đoạn, tên giai đoạn, số bản phân thân còn sống */
+  private updateBossBar() {
+    const bb = this.el.boss;
+    if (!bb) return;
+    const info = this.battle.bossInfo();
+    bb.root.style.display = info ? '' : 'none';
+    if (!info) return;
+    const pct = Math.max(0, Math.min(1, info.hp / info.max));
+    bb.fill.style.width = `${pct * 100}%`;
+    const key = `${info.id}|${info.phase}|${info.kin}|${info.marks.join()}|${getLang()}`;
+    bb.root.className = `boss-bar ph${info.phase}`;
+    if (bb.root.dataset.key === key) return;
+    bb.root.dataset.key = key;
+    bb.name.textContent = unitName(UNITS[info.id]);
+    bb.phase.textContent = info.marks.length ? t('hud.bossPhaseLabel', { n: info.phase, max: info.phases }) : '';
+    bb.kin.textContent = info.kin > 1 || info.marks.length === 0 ? t('hud.bossKin', { n: info.kin }) : '';
+    bb.marks.replaceChildren(...info.marks.map((m) => h('s', { attrs: { style: `left:${m * 100}%` } })));
   }
 
   private generalsFull(): boolean {
@@ -407,14 +440,20 @@ export class BattleScreen {
     if (d.moved && d.ghost) {
       d.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px) translate(-50%, -62%)`;
       const lane = this.laneAtPoint(e.clientX, e.clientY);
-      this.view.setDrag(true, lane, UNITS[d.id].kind === 'defense' && lane >= 0 ? this.placeX(e.clientX) : -1);
+      this.view.setDrag(true, lane, lane >= 0 ? this.dropX(d.id, lane, e.clientX) : -1, UNITS[d.id].kind === 'defense');
     }
   }
 
-  /** toạ độ lane (0..1000) ứng với vị trí ngang của con trỏ, giới hạn trong nửa sân nhà */
-  private placeX(clientX: number): number {
+  /**
+   * toạ độ lane ứng với vị trí ngang của con trỏ: công trình bị giới hạn trong vùng được đặt (nửa sân nhà, mở rộng nếu giữ tiền đồn);
+   * lính/tướng giữ nguyên để sim quyết định có thả tại tiền đồn hay không
+   */
+  private dropX(id: string, lane: number, clientX: number): number {
     const r = this.field.getBoundingClientRect();
-    return Math.max(90, Math.min(560, this.view.toLaneX(clientX - r.left)));
+    const x = this.view.toLaneX(clientX - r.left);
+    if (UNITS[id].kind !== 'defense') return x;
+    const [lo, hi] = this.battle.defenseSpan(0, lane);
+    return Math.max(lo, Math.min(hi, x));
   }
 
   private onDragEnd(e: PointerEvent, canceled: boolean) {
@@ -426,7 +465,7 @@ export class BattleScreen {
     if (canceled) return;
     if (d.moved) {
       const lane = this.laneAtPoint(e.clientX, e.clientY);
-      if (lane >= 0) this.tryDeploy(d.id, lane, UNITS[d.id].kind === 'defense' ? this.placeX(e.clientX) : undefined);
+      if (lane >= 0) this.tryDeploy(d.id, lane, this.dropX(d.id, lane, e.clientX));
     } else {
       // chạm nhẹ: chọn / bỏ chọn thẻ
       this.selected = this.selected === d.id ? null : d.id;
@@ -457,7 +496,7 @@ export class BattleScreen {
       }
       return void this.nudgeHand();
     }
-    this.tryDeploy(this.selected, lane, UNITS[this.selected].kind === 'defense' ? this.placeX(e.clientX) : undefined);
+    this.tryDeploy(this.selected, lane, this.dropX(this.selected, lane, e.clientX));
   };
 
   // ───────────────────────── thông tin khi rê chuột vào quân ─────────────────────────

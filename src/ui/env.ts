@@ -6,12 +6,14 @@ import {
   EVENT_CHANCE, EVENT_TIME, FIRE_ZONE, GIANT_AT_HP, GIANT_AT_TIME, GIANT_MIN_TIME, GLOBAL_STATS, LIGHTNING, RANDOM_EVENTS,
   TERRAINS, WEATHERS, eventParams, type Effect, type RandomEventId,
 } from '../data/terrain';
+import { OUTPOST, OUTPOST_ICON, ZONES, type OutpostKind } from '../data/lane';
+import type { Battle } from '../game/sim';
 import { portrait } from './common';
 import { attachUnitTip } from './tip';
 
 // ───────────── ô địa hình / thời tiết / quái khổng lồ / sự kiện: bấm để xem ảnh hưởng ─────────────
 
-export type EnvKey = 'terrain' | 'weather' | 'bridge' | 'giant' | 'event';
+export type EnvKey = 'terrain' | 'weather' | 'bridge' | 'outpost' | 'zones' | 'giant' | 'event';
 
 const GIANT_ICON: Record<string, string> = { nguoida: '🗿', cumang: '🐍', culong: '🐲' };
 
@@ -72,6 +74,36 @@ function bridgeDetail(st: Station): HTMLElement[] {
   ];
 }
 
+/** tham số văn bản mô tả từng loại căn cứ phụ (lấy từ hằng số để không lệch số liệu) */
+const outpostParams = (): Record<string, number> => ({
+  v: OUTPOST.gold[0],
+  e: OUTPOST.gold[1],
+  speed: Math.round((OUTPOST.rally.speed - 1) * 100),
+  sec: OUTPOST.rally.sec,
+  range: Math.round((OUTPOST.range - 1) * 100),
+  skill: Math.round((OUTPOST.drill.skill - 1) * 100),
+  rate: Math.round((OUTPOST.drill.rate - 1) * 100),
+});
+
+const iconRow = (icon: string, title: string, text: string) => h('div', { class: 'env-ev' }, h('i', { text: icon }), h('div', {}, h('b', { text: title }), h('p', { text })));
+
+function outpostDetail(st: Station): HTMLElement[] {
+  return [
+    head('🏯', t('env.outpost')),
+    h('p', { text: t('env.outpostIntro') }),
+    ...st.outposts.map((k: OutpostKind, i) => iconRow(OUTPOST_ICON[k], `${t('env.laneN', { n: i + 1 })} · ${t(`outpost.${k}.name`)}`, t(`outpost.${k}.desc`, outpostParams()))),
+  ];
+}
+
+function zonesDetail(b: Battle): HTMLElement[] {
+  const rows = b.lanes.flatMap((l) => l.zones.map((z) => iconRow(
+    ZONES[z.kind].icon,
+    `${t('env.laneN', { n: l.index + 1 })} · ${t(`zone.${z.kind}.name`)} (${Math.round(((z.x0 + z.x1) / 2 / b.len) * 100)}%)`,
+    t(`zone.${z.kind}.desc`),
+  )));
+  return [head('🗺', t('env.zones')), h('p', { text: rows.length ? t('env.zonesIntro') : t('env.zonesNone') }), ...rows];
+}
+
 export const eventRow = (id: RandomEventId) => {
   const ev = RANDOM_EVENTS.find((r) => r.id === id)!;
   return h('div', { class: 'env-ev' }, h('i', { text: ev.icon }), h('div', {}, h('b', { text: t(`event.${id}.name`) }), h('p', { text: t(`event.${id}.desc`, eventParams(id)) })));
@@ -84,8 +116,16 @@ function eventDetail(): HTMLElement[] {
   ];
 }
 
-function detailFor(st: Station, key: EnvKey): HTMLElement[] {
-  return key === 'terrain' ? terrainDetail(st) : key === 'weather' ? weatherDetail(st) : key === 'bridge' ? bridgeDetail(st) : key === 'giant' ? giantDetail(st) : eventDetail();
+function detailFor(st: Station, key: EnvKey, battle?: Battle): HTMLElement[] {
+  switch (key) {
+    case 'terrain': return terrainDetail(st);
+    case 'weather': return weatherDetail(st);
+    case 'bridge': return bridgeDetail(st);
+    case 'outpost': return outpostDetail(st);
+    case 'zones': return battle ? zonesDetail(battle) : [];
+    case 'giant': return giantDetail(st);
+    default: return eventDetail();
+  }
 }
 
 interface Tile {
@@ -95,12 +135,17 @@ interface Tile {
   name: string;
 }
 
-function tilesOf(st: Station): Tile[] {
+function tilesOf(st: Station, battle?: Battle): Tile[] {
   const tiles: Tile[] = [
     { key: 'terrain', icon: TERRAINS[st.theme].icon, label: t('env.terrain'), name: t(`terrain.${st.theme}.name`) },
     { key: 'weather', icon: WEATHERS[st.weather].icon, label: t('env.weather'), name: t(`weather.${st.weather}.name`) },
   ];
   if (st.bridges.length) tiles.push({ key: 'bridge', icon: '🌉', label: t('env.bridge'), name: st.bridges.map((b) => `${b.a + 1}↔${b.b + 1}`).join(', ') });
+  if (st.outposts.length) tiles.push({ key: 'outpost', icon: '🏯', label: t('env.outpost'), name: st.outposts.map((k) => OUTPOST_ICON[k]).join(' ') });
+  if (battle) {
+    const n = battle.lanes.reduce((a, l) => a + l.zones.length, 0);
+    tiles.push({ key: 'zones', icon: '🗺', label: t('env.zones'), name: n ? String(n) : t('env.zonesNoneShort') });
+  }
   if (st.giantId) tiles.push({ key: 'giant', icon: GIANT_ICON[st.giantId] ?? '👹', label: t('env.giant'), name: unitName(UNITS[st.giantId]) });
   tiles.push({ key: 'event', icon: '🎲', label: t('env.event'), name: `${Math.round(EVENT_CHANCE[0] * 100)}–${Math.round(EVENT_CHANCE[1] * 100)}%` });
   return tiles;
@@ -114,15 +159,19 @@ export function envPanel(st: Station): HTMLElement {
   if (!tiles.some((x) => x.key === selected)) selected = 'terrain';
   const detail = h('div', { class: 'env-detail' });
   const buttons: [EnvKey, HTMLElement][] = [];
+  // điện thoại dọc: chi tiết thu gọn cho bản đồ rộng chỗ, bấm ô để mở, bấm lại để đóng
+  const narrow = window.matchMedia('(max-width: 899px) and (min-height: 521px)').matches;
+  let open = !narrow;
   const show = () => {
-    for (const [k, b] of buttons) b.classList.toggle('on', k === selected);
+    for (const [k, b] of buttons) b.classList.toggle('on', open && k === selected);
+    detail.style.display = open ? '' : 'none';
     detail.replaceChildren(...detailFor(st, selected));
   };
   const row = h('div', { class: 'env-tiles' });
   for (const tl of tiles) {
     const b = h('button', {
       class: 'env-tile', attrs: { type: 'button', 'aria-label': `${tl.label}: ${tl.name}` },
-      on: { click: () => { selected = tl.key; show(); } },
+      on: { click: () => { open = narrow && open && selected === tl.key ? false : true; selected = tl.key; show(); } },
     }, h('i', { text: tl.icon }), h('small', { text: tl.label }), h('b', { text: tl.name }));
     buttons.push([tl.key, b]);
     row.append(b);
@@ -138,7 +187,7 @@ const badgeLabel = (tl: Tile) => (tl.key === 'event' ? tl.label : tl.name);
  * Hàng nút thông tin trong trận (địa hình, thời tiết, đường nối, quái khổng lồ, sự kiện): bấm để mở khung chi tiết ghim lại,
  * bấm lại hoặc bấm ra ngoài để đóng. `addEvent` thêm nút của sự kiện ngẫu nhiên khi nó xảy ra.
  */
-export function envBadges(st: Station, withGenerals = false): { el: HTMLElement; addEvent: (id: RandomEventId) => void; setGenerals: (n: number, max: number) => void } {
+export function envBadges(st: Station, withGenerals = false, battle?: Battle): { el: HTMLElement; addEvent: (id: RandomEventId) => void; setGenerals: (n: number, max: number) => void } {
   const row = h('div', { class: 'env-badge-row' });
   const pop = h('div', { class: 'env-pop env-detail' });
   pop.style.display = 'none';
@@ -170,7 +219,7 @@ export function envBadges(st: Station, withGenerals = false): { el: HTMLElement;
     if (!el.contains(e.target as Node)) close();
   };
   document.addEventListener('pointerdown', outside, true);
-  for (const tl of tilesOf(st)) badge(tl.key, tl.icon, badgeLabel(tl), () => detailFor(st, tl.key));
+  for (const tl of tilesOf(st, battle)) badge(tl.key, tl.icon, badgeLabel(tl), () => detailFor(st, tl.key, battle));
   // nút "Tướng n/max": số tướng đang ra trên sân / số tướng tối đa cùng lúc
   let gens: HTMLElement | null = null;
   let lastGens = '';

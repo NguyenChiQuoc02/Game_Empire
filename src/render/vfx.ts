@@ -1,5 +1,5 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
-import { LANE_LEN, type Side, type SimEvent } from '../game/sim';
+import type { Side, SimEvent } from '../game/sim';
 import { t, unitName } from '../i18n';
 import { UNITS } from '../data/units';
 import { INK, g, mix, vgradA } from './draw';
@@ -12,6 +12,8 @@ export interface VfxHost {
   H: number;
   laneH: number;
   padL: number;
+  /** độ dài lane (đơn vị sim) */
+  laneLen: number;
 }
 
 const styleCache = new Map<string, TextStyle>();
@@ -270,7 +272,7 @@ export class Vfx {
         break;
       }
       case 'flagHit': {
-        const x = e.side === 0 ? h.sx(0) - 6 : h.sx(LANE_LEN) + 6;
+        const x = e.side === 0 ? h.sx(0) - 6 : h.sx(h.laneLen) + 6;
         const y = h.gy(e.lane, 0) - 14 * us;
         this.spark(x, y, 0xffd9a0, 5);
         this.dust(x, y + 14 * us, 2, 0.8);
@@ -281,7 +283,7 @@ export class Vfx {
         this.addProj(e);
         break;
       case 'aoe':
-        this.ring(h.sx(e.x), h.gy(e.lane, 0), (e.r / LANE_LEN) * (h.W - h.padL * 2), e.color);
+        this.ring(h.sx(e.x), h.gy(e.lane, 0), (e.r / h.laneLen) * (h.W - h.padL * 2), e.color);
         break;
       case 'heal': {
         const x = h.sx(e.x);
@@ -348,7 +350,7 @@ export class Vfx {
     const x = h.sx(e.x);
     const gyy = h.gy(e.lane, 0);
     const dir = e.dir;
-    const px = (r: number) => (r / LANE_LEN) * (h.W - h.padL * 2);
+    const px = (r: number) => (r / h.laneLen) * (h.W - h.padL * 2);
     switch (e.kind) {
       case 'palm': return this.fxPalm(x, gyy, dir, px(e.r ?? 190));
       case 'sweep': return this.fxSweep(x, gyy, dir);
@@ -778,7 +780,7 @@ export class Vfx {
   /** Lệnh kỳ: cờ chiến và mũi tên vàng bay lên khắp lane */
   private fxWarcry(x: number, gy: number, dir: number) {
     const us = this.h.us;
-    const kx = (this.h.W - this.h.padL * 2) / LANE_LEN;
+    const kx = (this.h.W - this.h.padL * 2) / this.h.laneLen;
     const flag = new Container();
     const fg = g();
     fg.moveTo(0, 0).lineTo(0, -38 * us).stroke({ width: 2.6, color: 0x3a2a1c, cap: 'round' });

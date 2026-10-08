@@ -2,6 +2,7 @@
 
 Game chiến thuật TypeScript + Vite + PixiJS 8, lưu tài khoản/tiến trình bằng Firebase Auth + Firestore, deploy trên Vercel. Xem [README.md](README.md).
 
+- ý tưởng tướng lấy từ truyện kim dung, tam quốc, tây du ký 
 ## Quy tắc bảo mật — KHÔNG push key lên Git
 
 - **Tuyệt đối không commit/push** bất kỳ giá trị cấu hình Firebase nào (`VITE_FIREBASE_*`: apiKey, appId, messagingSenderId...) hay bí mật khác. Chúng chỉ nằm trong file `.env` (đã có trong `.gitignore`) và trong Environment Variables của Vercel.

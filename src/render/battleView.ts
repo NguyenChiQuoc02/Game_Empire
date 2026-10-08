@@ -1,5 +1,5 @@
 import { Container, Graphics, Text, type Application } from 'pixi.js';
-import { Battle, LANE_COUNT, LANE_LEN, type Side, type UnitInst } from '../game/sim';
+import { Battle, LANE_COUNT, type Outpost, type Side, type UnitInst } from '../game/sim';
 import type { Station } from '../data/campaign';
 import { buildUnitArt, SIDE_COLOR, type UnitArt } from './unitArt';
 import { buildBattlefield, type Battlefield } from './scenery';
@@ -9,6 +9,7 @@ import { INK, ball, darker, g, lighter, mix, poly, rrect } from './draw';
 import { getLang, t, unitName } from '../i18n';
 import { UNITS } from '../data/units';
 import { RANDOM_EVENTS, eventParams } from '../data/terrain';
+import { BASE_LANE_LEN, LONG_UNIT_SCALE, OUTPOST_ICON, ZONES, type LaneZone } from '../data/lane';
 
 const easeOutBack = (k: number) => {
   const c1 = 1.70158;
@@ -18,6 +19,8 @@ const easeOutBack = (k: number) => {
 
 interface UV {
   art: UnitArt;
+  /** định nghĩa đã dựng hình (đổi khi boss đổi dạng) */
+  defRef: UnitInst['def'];
   /** lane đang chứa art (đổi khi quân rẽ qua đường nối) */
   lane: number;
   /** lane hiển thị (số thực): trượt mượt sang lane mới */
@@ -34,6 +37,25 @@ interface UV {
   swooshAt: number;
   dustT: number;
   lineT: number;
+}
+
+interface OutpostView {
+  o: Outpost;
+  c: Container;
+  body: Graphics;
+  bar: Graphics;
+  ring: Graphics;
+  lastOwner: number;
+  lastProg: number;
+  lastContested: boolean;
+  w: number;
+  h: number;
+}
+
+interface ZoneView {
+  lane: number;
+  z: LaneZone;
+  c: Container;
 }
 
 interface TowerView {
@@ -65,6 +87,9 @@ export class BattleView {
   private towers: TowerView[][] = [];
   private banners: Container[] = [];
   private bridgeGs: Graphics[] = [];
+  private outpostViews: OutpostView[] = [];
+  private zoneViews: ZoneView[] = [];
+  private hoverDef = false;
   private bannerAge: number[] = [];
   private clock = 0;
   private dragging = false;
@@ -80,8 +105,13 @@ export class BattleView {
   panoH = 0;
   padL = 60;
   us = 1;
+  /** độ dài lane (đơn vị sim) và hệ số thu nhỏ quân khi lane dài ra */
+  readonly laneLen: number;
+  readonly mini: number;
 
   constructor(private app: Application, private battle: Battle, private station: Station) {
+    this.laneLen = battle.len;
+    this.mini = battle.len > BASE_LANE_LEN ? LONG_UNIT_SCALE : 1;
     this.vfx = new Vfx(this);
     for (let i = 0; i < LANE_COUNT; i++) {
       const u = new Container();
@@ -102,7 +132,7 @@ export class BattleView {
     return this.panoH + lane * this.laneH;
   }
   sx(x: number) {
-    return this.padL + (x / LANE_LEN) * (this.W - this.padL * 2);
+    return this.padL + (x / this.laneLen) * (this.W - this.padL * 2);
   }
   gy(lane: number, yOff: number) {
     return this.laneTop(lane) + this.laneH * (0.52 + 0.27 * yOff);
@@ -120,7 +150,7 @@ export class BattleView {
 
   /** đổi toạ độ ngang trên màn hình sang toạ độ lane (0..1000) */
   toLaneX(px: number): number {
-    return ((px - this.padL) / (this.W - this.padL * 2)) * LANE_LEN;
+    return ((px - this.padL) / (this.W - this.padL * 2)) * this.laneLen;
   }
 
   /** đơn vị (còn sống) nằm dưới điểm (px, py) trong hệ tọa độ của chiến trường */
@@ -135,8 +165,8 @@ export class BattleView {
         const s = this.us * this.depth(v.laneF);
         const x = this.sx(u.x);
         const y = this.gy(v.laneF, u.yOff);
-        const halfW = 24 * u.def.scale * s;
-        const hgt = v.art.height * s;
+        const halfW = Math.max(24 * u.def.scale * s, 13);
+        const hgt = Math.max(v.art.height * s, 24);
         if (px >= x - halfW && px <= x + halfW && py >= y - hgt && py <= y + 8 * s && y > bestY) {
           best = u;
           bestY = y;
@@ -157,10 +187,12 @@ export class BattleView {
     return { x: this.sx(u.x), top: y - v.art.height * s - extra, bottom: y + 8 * s };
   }
 
-  setDrag(active: boolean, lane: number, laneX = -1) {
+  /** laneX: toạ độ lane dưới con trỏ (-1 = không có); defense: đang kéo công trình (hiện vị trí đặt) */
+  setDrag(active: boolean, lane: number, laneX = -1, defense = false) {
     this.dragging = active;
     this.hoverLane = lane;
     this.hoverX = laneX;
+    this.hoverDef = defense;
   }
 
   // ───────────────────────── dựng cảnh ─────────────────────────
@@ -178,11 +210,14 @@ export class BattleView {
       this.laneH = (H - this.panoH) / n;
     }
     this.padL = Math.max(54, Math.min(140, W * 0.13));
-    this.us = Math.max(0.5, Math.min(1.7, Math.min(this.laneH * 0.52, W * 0.135) / 60));
+    // lane dài (có căn cứ phụ): quân nhỏ lại để nhìn trọn bản đồ
+    this.us = Math.max(0.5, Math.min(1.7, Math.min(this.laneH * 0.52, W * 0.135) / 60)) * this.mini;
 
     this.overlays.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.towersLayer.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.towers = [];
+    this.outpostViews = [];
+    this.zoneViews = [];
     this.hl = [];
     this.banners = [];
     this.bannerAge = [];
@@ -198,6 +233,9 @@ export class BattleView {
     this.root.addChildAt(this.bf.back, 0);
     this.root.addChildAt(this.bf.front, this.root.children.indexOf(this.overlays));
 
+    // địa hình lane và căn cứ phụ nằm dưới tháp / quân
+    for (const lane of this.battle.lanes) for (const z of lane.zones) this.zoneViews.push(this.makeZone(lane.index, z));
+    for (const o of this.battle.outposts) this.outpostViews.push(this.makeOutpost(o));
     for (let i = 0; i < n; i++) {
       const row: TowerView[] = [];
       for (const side of [0, 1] as const) {
@@ -225,6 +263,120 @@ export class BattleView {
       return bg;
     });
     this.root.position.set(0, 0);
+  }
+
+  // ───────────────────────── địa hình lane ─────────────────────────
+  private zoneRx(z: LaneZone) {
+    return ((z.x1 - z.x0) / 2 / this.laneLen) * (this.W - this.padL * 2);
+  }
+
+  private makeZone(lane: number, z: LaneZone): ZoneView {
+    const def = ZONES[z.kind];
+    const c = new Container();
+    const rx = this.zoneRx(z);
+    const ry = this.laneH * 0.3;
+    c.position.set(this.sx((z.x0 + z.x1) / 2), this.gy(lane, 0));
+    const gz = new Graphics();
+    gz.ellipse(0, 0, rx, ry).fill({ color: def.color, alpha: 0.34 }).stroke({ width: 2, color: def.color, alpha: 0.7 });
+    gz.ellipse(0, 0, rx * 0.72, ry * 0.7).fill({ color: def.color, alpha: 0.16 });
+    // hoa văn nhỏ rải trong vùng (cố định theo vị trí)
+    let seed = Math.floor(z.x0 * 7 + lane * 131) % 2147483647 || 1;
+    const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+    const dot = Math.max(2.5, this.laneH * 0.035);
+    for (let k = 0; k < 9; k++) {
+      const dx = (rnd() * 2 - 1) * rx * 0.78;
+      const dy = (rnd() * 2 - 1) * ry * 0.66;
+      switch (z.kind) {
+        case 'swamp': gz.circle(dx, dy, dot * (0.6 + rnd())).stroke({ width: 1.3, color: 0xcfe8a0, alpha: 0.55 }); break;
+        case 'spring': gz.circle(dx, dy, dot * (0.5 + rnd())).stroke({ width: 1.3, color: 0xe8fbff, alpha: 0.7 }); break;
+        case 'scorch': gz.circle(dx, dy, dot * (0.4 + rnd() * 0.5)).fill({ color: rnd() < 0.5 ? 0xffb347 : 0xff5a2a, alpha: 0.8 }); break;
+        case 'forest': gz.poly([dx, dy - dot * 2.4, dx - dot * 1.2, dy + dot * 0.4, dx + dot * 1.2, dy + dot * 0.4]).fill({ color: 0x1f5a2a, alpha: 0.85 }); break;
+        case 'hill': gz.ellipse(dx, dy, dot * 2, dot).fill({ color: 0xb8a583, alpha: 0.7 }); break;
+        case 'ice': gz.poly([dx, dy - dot * 1.4, dx + dot, dy, dx, dy + dot * 1.4, dx - dot, dy]).fill({ color: 0xffffff, alpha: 0.7 }); break;
+        default: gz.circle(dx, dy, dot * (0.8 + rnd())).fill({ color: 0xb06adf, alpha: 0.35 }); break;
+      }
+    }
+    const icon = new Text({ text: def.icon, style: textStyle(Math.max(14, Math.min(34, this.laneH * 0.22)), 0xffffff) });
+    icon.anchor.set(0.5);
+    icon.alpha = 0.9;
+    c.addChild(gz, icon);
+    this.towersLayer.addChild(c);
+    return { lane, z, c };
+  }
+
+  /** chiến trường đổi (boss sang giai đoạn mới): dựng lại các vùng địa hình */
+  private rebuildZones() {
+    for (const zv of this.zoneViews) zv.c.destroy({ children: true });
+    this.zoneViews = [];
+    for (const lane of this.battle.lanes) for (const z of lane.zones) this.zoneViews.push(this.makeZone(lane.index, z));
+  }
+
+  // ───────────────────────── căn cứ phụ ─────────────────────────
+  private makeOutpost(o: Outpost): OutpostView {
+    const h = Math.min(this.laneH * 0.66, 96 * Math.min(1.2, Math.max(0.7, this.W / 900)));
+    const w = h / 1.5;
+    const c = new Container();
+    const ring = new Graphics();
+    ring.position.set(this.sx(o.x), this.gy(o.lane, 0));
+    const body = new Graphics();
+    const bar = new Graphics();
+    const icon = new Text({ text: OUTPOST_ICON[o.kind], style: textStyle(Math.max(13, w * 0.42), 0xffffff) });
+    icon.anchor.set(0.5, 1);
+    icon.position.set(0, -h * 1.02);
+    c.addChild(body, bar, icon);
+    c.position.set(this.sx(o.x), this.gy(o.lane, -0.55) + this.laneH * 0.04);
+    this.towersLayer.addChild(ring, c);
+    const ov: OutpostView = { o, c, body, bar, ring, lastOwner: -1, lastProg: -1, lastContested: false, w, h };
+    this.drawOutpost(ov);
+    return ov;
+  }
+
+  private drawOutpost(ov: OutpostView) {
+    const { w, h, body: b } = ov;
+    const side = ov.o.owner;
+    const accent = SIDE_COLOR[side];
+    const tile = mix(accent, 0x2a3350, 0.3);
+    b.clear();
+    rrect(b, -w * 0.6, -h * 0.08, w * 1.2, h * 0.08, 2, 0xb8b0a8);
+    rrect(b, -w * 0.45, -h * 0.4, w * 0.9, h * 0.32, 2, 0xf1e6cc);
+    for (const px of [-0.45, -0.15, 0.15, 0.45]) b.rect(w * px - 1.5, -h * 0.4, 3, h * 0.32).fill(0xc03a30);
+    b.roundRect(-w * 0.12, -h * 0.3, w * 0.24, h * 0.22, w * 0.1).fill({ color: INK, alpha: 0.75 });
+    b.rect(-w * 0.45, -h * 0.4, w * 0.9, 3).fill(accent);
+    roof(b, 0, -h * 0.4, w * 0.52, h * 0.24, tile);
+    // cột cờ nhỏ phía trên mái: cờ đổi màu theo bên đang giữ
+    b.rect(-1.2, -h * 0.9, 2.4, h * 0.5).fill(0x4a3426);
+    poly(b, [1.2, -h * 0.9, w * 0.5, -h * 0.82, 1.2, -h * 0.72], accent, 1.2);
+    ball(b, 0, -h * 0.92, 2.6, 0xffd34d);
+    ov.lastOwner = side;
+  }
+
+  private updateOutposts() {
+    const pulse = 0.5 + 0.5 * Math.sin(this.clock * 5);
+    for (const ov of this.outpostViews) {
+      const o = ov.o;
+      const done = this.battle.lanes[o.lane].winner !== null;
+      ov.c.alpha = ov.ring.alpha = done ? 0.35 : 1;
+      if (o.owner !== ov.lastOwner) this.drawOutpost(ov);
+      // vùng chiếm đóng dưới chân quân: màu theo bên giữ, nhấp nháy vàng khi hai bên giao tranh
+      const rx = (120 / this.laneLen) * (this.W - this.padL * 2);
+      const col = o.contested ? 0xffd34d : SIDE_COLOR[o.owner];
+      ov.ring.clear()
+        .ellipse(0, 0, rx, this.laneH * 0.3).fill({ color: col, alpha: o.contested ? 0.1 + pulse * 0.1 : 0.07 })
+        .stroke({ width: o.contested ? 3 : 2, color: col, alpha: o.contested ? 0.6 + pulse * 0.4 : 0.55 });
+      if (Math.abs(o.prog - ov.lastProg) > 0.004 || o.contested !== ov.lastContested) {
+        ov.lastProg = o.prog;
+        ov.lastContested = o.contested;
+        const bw = ov.w * 1.5;
+        const by = 7;
+        ov.bar.clear()
+          .roundRect(-bw / 2, by, bw, 7, 3.5).fill({ color: 0x0a0c14, alpha: 0.88 })
+          .roundRect(-bw / 2 + 1, by + 1, (bw - 2) * o.prog, 5, 2.5).fill(SIDE_COLOR[0])
+          .roundRect(-bw / 2 + 1 + (bw - 2) * o.prog, by + 1, (bw - 2) * (1 - o.prog), 5, 2.5).fill(SIDE_COLOR[1]);
+      }
+    }
+    for (const zv of this.zoneViews) {
+      zv.c.alpha = this.battle.lanes[zv.lane].winner !== null ? 0.25 : 0.88 + 0.12 * Math.sin(this.clock * 2 + zv.z.x0);
+    }
   }
 
   /** cây cầu gỗ nối hai lane kề nhau tại vị trí x */
@@ -395,6 +547,7 @@ export class BattleView {
     this.syncTowers(dt);
     this.updateOverlays(dt);
     this.updateBridges();
+    this.updateOutposts();
     this.vfx.update(dt);
     const sh = this.vfx.shake;
     if (sh > 0.1) this.root.position.set((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh);
@@ -409,6 +562,13 @@ export class BattleView {
         this.vfx.handle(e);
       } else if (e.t === 'capUp') {
         this.showToast(t('hud.capUp', { cap: e.cap }));
+      } else if (e.t === 'phase') {
+        this.showToast(t('hud.bossPhase', { name: t(`phase.${e.id}.${e.n}`), n: e.n, max: e.max }));
+      } else if (e.t === 'zones') {
+        this.rebuildZones();
+      } else if (e.t === 'outpost') {
+        const name = `${OUTPOST_ICON[e.kind]} ${t(`outpost.${e.kind}.name`)}`;
+        this.showToast(t(e.owner === 0 ? 'hud.outpostWin' : 'hud.outpostLost', { name }));
       } else if (e.t === 'cross') {
         this.vfx.dust(this.sx(e.x), this.gy(e.from, 0.5), 4, 0.9);
       } else if (e.t === 'event') {
@@ -460,7 +620,8 @@ export class BattleView {
     v.aura = aura;
     v.name = undefined;
     v.lastPct = -1;
-    if (u.def.kind === 'general' || u.def.kind === 'boss') {
+    // bản phân thân của boss không gắn tên (tránh chồng chữ)
+    if ((u.def.kind === 'general' || u.def.kind === 'boss') && !u.gen) {
       const text = this.nameFor(u);
       const tx = new Text({ text, style: textStyle(11, u.def.kind === 'boss' ? 0xff9a9a : 0xffe08a) });
       tx.anchor.set(0.5, 1);
@@ -486,7 +647,7 @@ export class BattleView {
 
   private makeUnitView(u: UnitInst): UV {
     const art = buildUnitArt(u.def, u.side);
-    const v: UV = { art, lane: u.lane, laneF: u.lane, aura: g(), formId: null, lastPct: -1, seed: u.uid * 0.77, born: this.clock, prevAtk: 0, swooshAt: 0, dustT: Math.random() * 0.2, lineT: 0 };
+    const v: UV = { art, defRef: u.def, lane: u.lane, laneF: u.lane, aura: g(), formId: null, lastPct: -1, seed: u.uid * 0.77, born: this.clock, prevAtk: 0, swooshAt: 0, dustT: Math.random() * 0.2, lineT: 0 };
     this.attachExtras(v, u);
     this.vfx.ring(this.sx(u.x), this.gy(u.lane, u.yOff), 24 * this.us * u.def.scale, SIDE_COLOR[u.side], 0.45, 2.5);
     v.art.root.scale.set(0.01);
@@ -495,7 +656,10 @@ export class BattleView {
 
   private updateUnitView(v: UV, u: UnitInst, dt: number) {
     const formId = u.form ?? null;
-    if (formId !== v.formId) this.swapForm(v, u, formId);
+    if (formId !== v.formId || u.def !== v.defRef) {
+      v.defRef = u.def;
+      this.swapForm(v, u, formId);
+    }
     const a = v.art;
     const diff = u.lane - v.laneF;
     const crossing = Math.abs(diff) > 0.001;
@@ -514,6 +678,11 @@ export class BattleView {
         v.nameLang = getLang();
       }
     }
+
+    // lane dài: quân nhỏ lại nhưng tên tướng và thanh máu vẫn phải đọc được
+    const k = this.mini < 1 ? 1 / this.mini * 0.7 : 1;
+    v.name?.scale.set(k);
+    a.hpBar.scale.set(k);
 
     const age = this.clock - v.born;
     const pop = age < 0.4 ? easeOutBack(age / 0.4) : 1;
@@ -590,7 +759,7 @@ export class BattleView {
         .roundRect(-w / 2 - 1, -1, w + 2, 7, 3.5).fill({ color: 0x0a0c14, alpha: 0.85 })
         .roundRect(-w / 2 + 0.5, 0.5, (w - 1) * pct, 4, 2).fill(col)
         .roundRect(-w / 2 + 0.5, 0.5, (w - 1) * pct, 1.6, 1).fill({ color: 0xffffff, alpha: 0.35 });
-      a.hpBar.position.y = -a.height - 8;
+      a.hpBar.position.y = -a.height - 8 - 3 * (k - 1);
     }
   }
 
@@ -613,7 +782,7 @@ export class BattleView {
       o.ellipse(0, 1.5, 26 * s, 7.6 * s).stroke({ width: 2, color: 0xffd34d, alpha: 0.5 + pulse * 0.4 });
     }
     if (u.def.skill === 'heal') {
-      const rx = (120 / LANE_LEN) * (this.W - this.padL * 2) / this.us;
+      const rx = (120 / this.laneLen) * (this.W - this.padL * 2) / this.us;
       o.ellipse(0, 1.5, rx, rx * 0.3).stroke({ width: 1.2, color: 0x7dffb0, alpha: 0.12 + pulse * 0.1 });
     }
     if (u.shield > 0) o.ellipse(0, -22 * s, 22 * s, 34 * s).fill({ color: 0x9ad0ff, alpha: 0.1 }).stroke({ width: 1.6, color: 0xcfe8ff, alpha: 0.7 });
@@ -623,7 +792,7 @@ export class BattleView {
     }
     // công trình có vùng tác dụng: vẽ vòng mờ
     if (u.def.kind === 'defense' && ['thorns', 'drum', 'altar', 'frost', 'firepit'].includes(u.def.skill)) {
-      const rx = (u.def.range / LANE_LEN) * (this.W - this.padL * 2) / (this.us * this.depth(u.lane) * u.def.scale);
+      const rx = (u.def.range / this.laneLen) * (this.W - this.padL * 2) / (this.us * this.depth(u.lane) * u.def.scale);
       const col = u.def.skill === 'frost' ? 0x9ad8ff : u.def.skill === 'altar' ? 0x7dffb0 : u.def.skill === 'firepit' ? 0xff7a2a : 0xffd34d;
       o.ellipse(0, 1.5, rx, rx * 0.28).fill({ color: col, alpha: u.def.skill === 'firepit' ? 0.16 : 0.05 }).stroke({ width: 1.2, color: col, alpha: 0.18 + pulse * 0.12 });
     }
@@ -700,16 +869,21 @@ export class BattleView {
           .rect(2, y0 + 2, this.W - 4, this.laneH - 4)
           .stroke({ width: hot ? 3 : 1.5, color: 0xffd34d, alpha: hot ? 0.95 : 0.35 });
         if (hot) {
-          if (this.hoverX >= 0) {
+          const post = this.hoverDef ? null : this.battle.forwardPost(0, i, this.hoverX >= 0 ? this.hoverX : undefined);
+          if (this.hoverDef && this.hoverX >= 0) {
             // vị trí đặt công trình phòng thủ
             const mx = this.sx(this.hoverX);
             hl.roundRect(mx - 20 * this.us, y0 + this.laneH * 0.18, 40 * this.us, this.laneH * 0.66, 8).fill({ color: 0x3d8bff, alpha: 0.22 }).stroke({ width: 2, color: 0xffd34d, alpha: 0.95 });
             hl.moveTo(mx, y0 + this.laneH * 0.1).lineTo(mx, y0 + this.laneH * 0.9).stroke({ width: 1.5, color: 0xffd34d, alpha: 0.7 });
+          } else if (post) {
+            // thả quân ngay tại tiền đồn đang giữ
+            const px = this.sx(post.x);
+            hl.roundRect(px - 34 * this.us - 16, y0 + this.laneH * 0.14, 68 * this.us + 32, this.laneH * 0.72, 10).fill({ color: 0x3d8bff, alpha: 0.28 + pulse * 0.1 }).stroke({ width: 2.5, color: 0xffd34d, alpha: 0.95 });
           } else {
             const zone = this.sx(180) - this.padL + 10;
             hl.rect(0, y0, this.padL + zone, this.laneH).fill({ color: 0x3d8bff, alpha: 0.14 });
           }
-          for (let k = 0; k < (this.hoverX >= 0 ? 0 : 3); k++) {
+          for (let k = 0; k < (this.hoverDef && this.hoverX >= 0 || post ? 0 : 3); k++) {
             const ax = this.padL + 20 + k * 22 + ((this.clock * 40) % 22);
             const ay = y0 + this.laneH * 0.55;
             hl.poly([ax, ay - 8, ax + 10, ay, ax, ay + 8]).fill({ color: 0xffd34d, alpha: 0.5 - k * 0.12 });

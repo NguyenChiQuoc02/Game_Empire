@@ -1,17 +1,18 @@
 import { MAX_DEFENSES_PER_LANE, UNIT_LIST, UNITS, levelMul, type SkillId, type UnitDef, flagHpMul, incomeUpgradeMul } from '../data/units';
 import { laneCountOf, type Bridge, type Station } from '../data/campaign';
+import { BOSS_PHASES, BOSS_SPLIT, bossPhaseCount, type BossPhase } from '../data/boss';
+import { BASE_LANE_LEN, LONG_LANE_LEN, OUTPOST, ZONES, rollZones, type LaneZone, type OutpostKind, type ZoneFx } from '../data/lane';
 import { GENERAL_SKILLS, GS, GSKILLS, enemyExtraCount, extraSkillsAt, type GSkillId } from '../data/gskills';
 import {
   EVENT_ARROW_HP, EVENT_CHANCE, EVENT_GHOSTS, EVENT_GOLD, EVENT_LIGHTNING_STRIKES, EVENT_TIME, FIRE_ZONE, GIANT_AT_HP, GIANT_AT_TIME,
   GIANT_MIN_TIME, LIGHTNING, RANDOM_EVENTS, lightningDamage, WEATHERS, effMul, effSum, envEffects, globalMul, type Effect, type RandomEventId,
 } from '../data/terrain';
 
-export const LANE_LEN = 1000;
+/** độ dài lane chuẩn; trạm có căn cứ phụ dài hơn (xem Battle.len) */
+export const LANE_LEN = BASE_LANE_LEN;
 /** số lane mặc định (màn Boss chỉ có 1 lane, xem laneCountOf) */
 export const LANE_COUNT = 3;
 export type Side = 0 | 1;
-export const SPAWN_X: [number, number] = [45, LANE_LEN - 45];
-export const FLAG_X: [number, number] = [0, LANE_LEN];
 export const GOLD_CAP = 100;
 /** các mốc giới hạn vàng của người chơi và giá nâng cấp lên mốc kế tiếp (trả bằng vàng trong trận) */
 export const CAP_STEPS = [100, 140, 190, 250, 320];
@@ -113,6 +114,10 @@ export interface UnitInst {
   stepN: number;
   /** bẫy/hố lửa: không bị nhắm tới, không chặn đường */
   ghost: boolean;
+  /** boss: kỹ năng chủ động nhận thêm ở các giai đoạn sau, số giai đoạn đã qua, đời phân thân (0 = bản gốc) */
+  bonusSkills: SkillId[];
+  phase: number;
+  gen: number;
 }
 
 export interface Lane {
@@ -120,6 +125,19 @@ export interface Lane {
   flags: [Flag, Flag];
   units: UnitInst[];
   winner: Side | null;
+  /** địa hình trong lane (vũng lầy, suối thần...): ảnh hưởng quân cả hai phe đứng trong vùng */
+  zones: LaneZone[];
+}
+
+/** căn cứ phụ của một lane: ai giữ thì nhận ưu đãi theo loại; chiếm bằng cách đứng trong vùng mà không còn quân địch */
+export interface Outpost {
+  lane: number;
+  kind: OutpostKind;
+  x: number;
+  owner: Side;
+  /** tiến độ chiếm: 0 = địch giữ trọn, 1 = ta giữ trọn */
+  prog: number;
+  contested: boolean;
 }
 
 export type FxKind =
@@ -145,6 +163,9 @@ export type SimEvent =
   | { t: 'boss'; id: string; lane: number; giant?: boolean }
   | { t: 'event'; id: RandomEventId }
   | { t: 'capUp'; cap: number }
+  | { t: 'outpost'; lane: number; owner: Side; kind: OutpostKind; x: number }
+  | { t: 'phase'; id: string; n: number; max: number }
+  | { t: 'zones' }
   | { t: 'cross'; uid: number; from: number; to: number; x: number }
   | { t: 'end'; winner: Side };
 
@@ -160,6 +181,8 @@ export interface BattleConfig {
   generalCap?: number;
   /** sự kiện ngẫu nhiên: bỏ trống = tung xúc xắc (10–20%), null = không có, hoặc ép một sự kiện (kiểm thử) */
   event?: RandomEventId | null;
+  /** địa hình lane: bỏ trống = tung xúc xắc, null = không có, hoặc truyền sẵn (kiểm thử) */
+  zones?: LaneZone[][] | null;
 }
 
 /** sét đang chờ đánh (có báo trước) */
@@ -175,6 +198,16 @@ interface FireZone {
   t: number;
   acc: number;
   fxT: number;
+  kind: 'fire' | 'poison';
+  /** thời gian báo trước trước khi bắt đầu gây sát thương */
+  delay: number;
+}
+/** thiên tai định kỳ do giai đoạn của boss kích hoạt */
+interface Hazard {
+  lane: number;
+  kind: 'fire' | 'poison';
+  every: number;
+  t: number;
 }
 
 interface SpawnOpts {
@@ -186,6 +219,7 @@ interface SpawnOpts {
   life?: number;
   owner?: number;
   noBounty?: boolean;
+  gen?: number;
 }
 
 /** thời gian hồi ban đầu của từng kỹ năng chủ động (giây) */
@@ -211,6 +245,10 @@ export class Battle {
   bountyTotal: [number, number] = [0, 0];
   boss: UnitInst | null = null;
   bossSpawned = false;
+  /** boss gốc và các bản phân thân (kể cả đã chết) */
+  bossKin: UnitInst[] = [];
+  private bossBarMax = 0;
+  private hazards: Hazard[] = [];
   /** tổng số quân (lính + tướng) địch được phép triển khai ở trạm này */
   enemyBudget: number;
   enemyDeployed = 0;
@@ -218,6 +256,13 @@ export class Battle {
   private tickN = 0;
   /** các đường nối lane của trạm */
   readonly bridges: Bridge[];
+  /** độ dài lane (dài hơn ở trạm có căn cứ phụ) và toạ độ cờ / điểm xuất quân */
+  readonly len: number;
+  readonly flagX: [number, number];
+  readonly spawnX: [number, number];
+  /** căn cứ phụ (mỗi lane tối đa một) */
+  readonly outposts: Outpost[] = [];
+  private baseIncome: [number, number];
 
   // ── địa hình / thời tiết / sự kiện
   /** hiệu ứng đang có hiệu lực (địa hình + thời tiết của trạm) */
@@ -243,7 +288,12 @@ export class Battle {
 
   constructor(public cfg: BattleConfig) {
     const st = cfg.station;
-    this.bridges = laneCountOf(st) > 1 ? st.bridges : [];
+    const n = laneCountOf(st);
+    this.len = st.outposts.length && n > 1 ? LONG_LANE_LEN : BASE_LANE_LEN;
+    this.flagX = [0, this.len];
+    this.spawnX = [45, this.len - 45];
+    // vị trí cầu khai báo theo lane chuẩn 1000: co giãn theo độ dài lane
+    this.bridges = n > 1 ? st.bridges.map((b) => ({ ...b, x: (b.x / BASE_LANE_LEN) * this.len })) : [];
     this.env = envEffects(st.theme, st.weather);
     const envIncome = globalMul(this.env, 'income');
     this.incomeMul = envIncome * incomeUpgradeMul(cfg.incomeLevel ?? 0);
@@ -256,9 +306,10 @@ export class Battle {
       this.randomEvent = Math.random() < chance ? RANDOM_EVENTS[Math.floor(Math.random() * RANDOM_EVENTS.length)].id : null;
     }
     this.eventAt = EVENT_TIME[0] + Math.random() * (EVENT_TIME[1] - EVENT_TIME[0]);
-    this.income = [PLAYER_INCOME * this.incomeMul, st.income * envIncome];
+    this.baseIncome = [PLAYER_INCOME * this.incomeMul, st.income * envIncome];
+    this.income = [...this.baseIncome];
     this.enemyBudget = st.units;
-    const n = laneCountOf(st);
+    const zones = cfg.zones === undefined ? rollZones(this.len, n) : cfg.zones ?? Array.from({ length: n }, () => []);
     // màn Boss chỉ có 1 lane: thành ta là phòng tuyến duy nhất nên bền hơn
     const myFlag = Math.round(PLAYER_FLAG_HP * (n === 1 ? 1.8 : 1) * flagHpMul(this.cfg.flagLevel ?? 0));
     for (let i = 0; i < n; i++) {
@@ -270,8 +321,28 @@ export class Battle {
         ],
         units: [],
         winner: null,
+        zones: zones[i] ?? [],
       });
     }
+    if (n > 1) {
+      st.outposts.slice(0, n).forEach((kind, i) => {
+        this.outposts.push({ lane: i, kind, x: this.len * OUTPOST.at, owner: 1, prog: 0, contested: false });
+      });
+    }
+    this.refreshIncome();
+  }
+
+  /** thu nhập vàng/giây = gốc (× mốc kho vàng) + ưu đãi Mỏ Vàng của các căn cứ đang giữ */
+  private refreshIncome() {
+    const capMul = CAP_INCOME_MUL[this.capLevel];
+    this.income[0] = this.baseIncome[0] * capMul + this.outpostGold(0) * this.incomeMul;
+    this.income[1] = this.baseIncome[1] + this.outpostGold(1) * globalMul(this.env, 'income');
+  }
+
+  private outpostGold(side: Side): number {
+    let n = 0;
+    for (const o of this.outposts) if (o.kind === 'gold' && o.owner === side && this.lanes[o.lane].winner === null) n++;
+    return n * OUTPOST.gold[side];
   }
 
   private emit(e: SimEvent) {
@@ -307,7 +378,7 @@ export class Battle {
     if (this.over || cost === null || this.gold[0] < cost) return false;
     this.gold[0] -= cost;
     this.capLevel++;
-    this.income[0] = PLAYER_INCOME * this.incomeMul * CAP_INCOME_MUL[this.capLevel];
+    this.refreshIncome();
     return true;
   }
 
@@ -360,14 +431,35 @@ export class Battle {
     const def = UNITS[id];
     this.gold[side] -= def.cost;
     if (def.kind === 'defense') {
-      // người chơi đặt ở nửa nhà (90–560), địch ở nửa của nó (440–910)
-      const lo = side === 0 ? 90 : LANE_LEN - 560;
-      const hi = side === 0 ? 560 : LANE_LEN - 90;
-      const px = Math.max(lo, Math.min(hi, x ?? (side === 0 ? 190 : LANE_LEN - 190)));
+      const [lo, hi] = this.defenseSpan(side, lane);
+      const px = Math.max(lo, Math.min(hi, x ?? (side === 0 ? 190 : this.len - 190)));
       return this.spawn(def, side, lane, px);
     }
     if (side === 1) this.enemyDeployed++;
-    return this.spawn(def, side, lane, SPAWN_X[side] + (Math.random() - 0.5) * 14);
+    const post = this.forwardPost(side, lane, x);
+    const at = post ? post.x + (side === 0 ? -24 : 24) : this.spawnX[side];
+    return this.spawn(def, side, lane, at + (Math.random() - 0.5) * 14);
+  }
+
+  /** đoạn lane được đặt công trình: nửa sân nhà (ta 90–560), mở rộng tới căn cứ tiền đồn đang giữ */
+  defenseSpan(side: Side, lane: number): [number, number] {
+    const post = this.outposts.find((o) => o.lane === lane && o.kind === 'deploy' && o.owner === side);
+    if (side === 0) return [90, Math.max(560, post ? post.x + OUTPOST.deployDefense : 0)];
+    return [Math.min(this.len - 560, post ? post.x - OUTPOST.deployDefense : Infinity), this.len - 90];
+  }
+
+  /** căn cứ tiền đồn mà `side` đang giữ trong lane và quân thả ra tại đó (ta: phải thả gần căn cứ; địch: luôn xuất quân từ đó) */
+  forwardPost(side: Side, lane: number, dropX?: number): Outpost | null {
+    const o = this.outposts.find((q) => q.lane === lane && q.kind === 'deploy' && q.owner === side);
+    if (!o || this.lanes[lane].winner !== null) return null;
+    if (side === 0 && (dropX === undefined || Math.abs(dropX - o.x) > OUTPOST.deployReach)) return null;
+    return o;
+  }
+
+  /** `side` đang giữ căn cứ loại `kind` ở lane (và lane chưa kết thúc) */
+  perk(side: Side, lane: number, kind: OutpostKind): boolean {
+    for (const o of this.outposts) if (o.lane === lane && o.kind === kind && o.owner === side) return this.lanes[lane].winner === null;
+    return false;
   }
 
   spawn(def: UnitDef, side: Side, laneIdx: number, x: number, o: SpawnOpts = {}): UnitInst {
@@ -396,8 +488,10 @@ export class Battle {
       buffs: [], stunT: 0, shield: 0, poison: null, form: null, formT: 0,
       life: o.life ?? def.life ?? Infinity, owner: o.owner ?? 0, noBounty: !!o.noBounty || def.kind === 'defense',
       ghost: !!def.tags?.includes('ghost'),
+      bonusSkills: [], phase: 0, gen: o.gen ?? 0,
     };
     if (def.kind === 'general' && o.hp === undefined) this.applyGSkills(u);
+    if (def.kind !== 'defense' && !u.ghost && !o.owner && this.perk(side, laneIdx, 'rally')) this.addBuff(u, 'speed', OUTPOST.rally.speed, OUTPOST.rally.sec);
     if (def.kind === 'defense') u.yOff = def.tags?.includes('ghost') ? (Math.random() - 0.5) * 0.6 : 0;
     const init = SKILL_INIT[def.skill];
     if (init !== undefined) u.timers[def.skill] = init;
@@ -429,9 +523,12 @@ export class Battle {
     }
     this.autoUpgradeCap();
     this.bossTick();
+    this.phaseTick();
+    this.hazardTick(dt);
     this.giantTick();
     this.weatherTick(dt);
     this.eventTick();
+    if (this.outposts.length) this.outpostTick(dt);
     for (const lane of this.lanes) {
       for (const f of lane.flags) f.flash = Math.max(0, f.flash - dt);
       if (lane.winner === null) {
@@ -459,10 +556,125 @@ export class Battle {
     const f = lane.flags[1];
     if (f.hp / f.maxHp <= BOSS_AT_HP || this.time >= BOSS_AT_TIME) {
       this.bossSpawned = true;
-      this.boss = this.spawn(UNITS[st.bossId], 1, 0, SPAWN_X[1] - 30);
+      this.boss = this.spawn(UNITS[st.bossId], 1, 0, this.spawnX[1] - 30);
+      this.bossKin = [this.boss];
+      this.bossBarMax = this.boss.maxHp;
       this.emit({ t: 'boss', id: st.bossId, lane: 0 });
       this.emit({ t: 'shake', power: 10 });
     }
+  }
+
+  // ───────────────────────── giai đoạn & phân thân của boss ─────────────────────────
+
+  /** thông tin cho thanh máu boss: máu cả họ boss, số giai đoạn, mốc chuyển giai đoạn */
+  bossInfo(): { id: string; hp: number; max: number; phase: number; phases: number; marks: number[]; kin: number } | null {
+    const b = this.bossKin[0];
+    if (!b) return null;
+    let hp = 0;
+    let kin = 0;
+    for (const k of this.bossKin) {
+      if (k.alive) {
+        hp += Math.max(0, k.hp);
+        kin++;
+      }
+    }
+    const split = this.bossKin.some((k) => k.gen > 0);
+    const marks = split ? [] : (BOSS_PHASES[b.def.id] ?? []).map((p) => p.at);
+    return { id: b.def.id, hp, max: this.bossBarMax || b.maxHp, phase: b.phase + 1, phases: bossPhaseCount(b.def.id), marks, kin };
+  }
+
+  /** boss gốc tụt máu qua ngưỡng thì sang giai đoạn kế (có thể qua nhiều ngưỡng một lúc) */
+  private phaseTick() {
+    const b = this.boss;
+    if (!b || !b.alive || b.gen > 0 || this.over) return;
+    const list = BOSS_PHASES[b.def.id];
+    while (list && b.alive && b.phase < list.length && b.hp <= b.maxHp * list[b.phase].at) this.enterPhase(b, list[b.phase]);
+  }
+
+  private enterPhase(u: UnitInst, p: BossPhase) {
+    u.phase++;
+    const dir = (u.side === 0 ? 1 : -1) as 1 | -1;
+    const bf = p.buff;
+    if (bf) {
+      if (bf.dmg) u.dmg *= bf.dmg;
+      if (bf.speed) u.speed *= bf.speed;
+      if (bf.rate) u.cd /= bf.rate;
+      if (bf.armor) u.armor += bf.armor;
+      if (bf.heal) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * bf.heal);
+      // đổi dạng: to hơn (hình vẽ dựng lại theo định nghĩa mới)
+      if (bf.scale) u.def = { ...u.def, scale: u.def.scale * bf.scale };
+    }
+    // vào giai đoạn nổi điên thì bỏ cơ chế nổi điên cũ (tránh cộng dồn hai lần)
+    u.enraged = true;
+    for (const k of p.skills ?? []) {
+      if (!u.bonusSkills.includes(k)) u.bonusSkills.push(k);
+      u.timers[k] = SKILL_INIT[k] ?? 4;
+    }
+    const lane = this.lanes[u.lane];
+    if (p.summon) {
+      for (let i = 0; i < p.summon.n; i++) this.spawn(UNITS[p.summon.id], u.side, u.lane, u.x - dir * (26 + i * 18), { noBounty: true });
+    }
+    if (p.zones?.length) {
+      const k = this.len / BASE_LANE_LEN;
+      p.zones.forEach((kind, i) => {
+        const w = (200 + Math.random() * 80) * k;
+        const c = this.len * (0.28 + 0.24 * i + Math.random() * 0.06);
+        lane.zones.push({ kind, x0: c - w / 2, x1: c + w / 2 });
+      });
+      lane.zones.sort((a, b) => a.x0 - b.x0);
+      this.emit({ t: 'zones' });
+    }
+    if (p.hazard) this.hazards.push({ lane: u.lane, kind: p.hazard.kind, every: p.hazard.every, t: 1.5 });
+    this.emit({ t: 'phase', id: u.def.id, n: u.phase + 1, max: bossPhaseCount(u.def.id) });
+    this.emit({ t: 'text', lane: u.lane, x: u.x, key: `phase.${u.def.id}.${u.phase + 1}`, color: 0xff6a4d, big: true });
+    this.emit({ t: 'fx', kind: 'enrage', lane: u.lane, x: u.x, dir });
+    this.emit({ t: 'shake', power: p.shake ?? 8 });
+  }
+
+  /** thiên tai của boss: rơi xuống chỗ quân ta đang đứng, có báo trước */
+  private hazardTick(dt: number) {
+    if (!this.hazards.length) return;
+    for (const h of this.hazards) {
+      const lane = this.lanes[h.lane];
+      if (lane.winner !== null || !this.bossKin.some((k) => k.alive)) {
+        h.every = Infinity;
+        continue;
+      }
+      h.t -= dt;
+      if (h.t > 0) continue;
+      h.t = h.every;
+      const mine = lane.units.filter((e) => e.alive && e.side === 0 && !e.ghost && e.def.kind !== 'defense');
+      const x = mine.length ? mine[Math.floor(Math.random() * mine.length)].x + (Math.random() - 0.5) * 60 : undefined;
+      this.startFireZone(h.lane, x, h.kind, 1.2);
+    }
+    this.hazards = this.hazards.filter((h) => h.every !== Infinity);
+  }
+
+  /** boss ngã xuống: còn đời phân thân thì tách làm 2 bản nhỏ hơn, hết thì thắng khi cả họ boss đã chết */
+  private onBossDown(v: UnitInst) {
+    const sp = BOSS_SPLIT[v.def.id];
+    if (sp && v.side === 1 && v.gen < sp.gens) {
+      const gen = v.gen + 1;
+      const def = { ...v.def, scale: v.def.scale * sp.size };
+      const kids: UnitInst[] = [];
+      for (let i = 0; i < 2; i++) {
+        const k = this.spawn(def, 1, v.lane, Math.max(30, Math.min(this.len - 30, v.x + (i ? 30 : -30))), {
+          pow: 1, hp: v.maxHp * sp.hp, dmg: v.dmg * sp.dmg, armor: v.armor, speed: v.speed * 1.1, gen,
+        });
+        k.enraged = true;
+        k.bonusSkills = [...v.bonusSkills];
+        for (const s of k.bonusSkills) k.timers[s] = SKILL_INIT[s] ?? 4;
+        k.invuln = 0.6;
+        kids.push(k);
+      }
+      this.bossKin.push(...kids);
+      this.boss = kids[0];
+      this.bossBarMax = kids.reduce((a, k) => a + k.maxHp, 0);
+      this.emit({ t: 'text', lane: v.lane, x: v.x, key: 'fx.split', color: 0xff9ecb, big: true });
+      this.emit({ t: 'fx', kind: 'summon', lane: v.lane, x: v.x, dir: -1 });
+      return;
+    }
+    if (!this.bossKin.some((k) => k.alive)) this.finish(v.side === 1 ? 0 : 1);
   }
 
   /** quái khổng lồ (trạm thứ 5): xuất hiện ở lane địch đang bị ép nhất khi cờ địch còn ≤ 50% máu hoặc sau 80 giây (không sớm hơn 35 giây) */
@@ -481,7 +693,7 @@ export class Battle {
     }
     if (!lane || (low > GIANT_AT_HP && this.time < GIANT_AT_TIME)) return;
     this.giantSpawned = true;
-    this.giant = this.spawn(UNITS[st.giantId], 1, lane.index, SPAWN_X[1] - 30);
+    this.giant = this.spawn(UNITS[st.giantId], 1, lane.index, this.spawnX[1] - 30);
     this.emit({ t: 'boss', id: st.giantId, lane: lane.index, giant: true });
     this.emit({ t: 'shake', power: 8 });
   }
@@ -497,7 +709,7 @@ export class Battle {
     const open = this.openLanes();
     if (!open.length) return;
     const lane = open[Math.floor(Math.random() * open.length)].index;
-    const x = 150 + Math.random() * 700;
+    const x = 150 + Math.random() * (this.len - 300);
     this.strikes.push({ lane, x, t: delay });
     this.emit({ t: 'text', lane, x, key: 'fx.lightningWarn', color: 0xfff0a0 });
   }
@@ -538,34 +750,41 @@ export class Battle {
     if (this.zones.length) this.fireZoneTick(dt);
   }
 
-  private startFireZone() {
+  /** lane (bỏ trống = ngẫu nhiên), tâm vùng (bỏ trống = ngẫu nhiên), loại; vùng của boss có báo trước */
+  private startFireZone(laneIdx?: number, atX?: number, kind: 'fire' | 'poison' = 'fire', warn = 0) {
     const open = this.openLanes();
     if (!open.length) return;
-    const lane = open[Math.floor(Math.random() * open.length)].index;
-    const x = 150 + Math.random() * 700;
-    this.zones.push({ lane, x, t: FIRE_ZONE.life, acc: 0, fxT: 0 });
-    this.emit({ t: 'text', lane, x, key: 'fx.fireRain', color: 0xff8a3d, big: true });
+    const lane = laneIdx ?? open[Math.floor(Math.random() * open.length)].index;
+    if (this.lanes[lane].winner !== null) return;
+    const x = atX ?? 150 + Math.random() * (this.len - 300);
+    this.zones.push({ lane, x, t: FIRE_ZONE.life, acc: 0, fxT: 0, kind, delay: warn });
+    this.emit({ t: 'text', lane, x, key: kind === 'fire' ? 'fx.fireRain' : 'fx.poisonRain', color: kind === 'fire' ? 0xff8a3d : 0x9aff6a, big: true });
+    if (warn > 0) this.emit({ t: 'aoe', lane, x, r: FIRE_ZONE.radius, color: kind === 'fire' ? 0xff5a2a : 0x7aff5a });
   }
 
   private fireZoneTick(dt: number) {
     for (const z of this.zones) {
       const lane = this.lanes[z.lane];
-      z.t -= dt;
       if (lane.winner !== null) {
         z.t = 0;
         continue;
       }
+      if (z.delay > 0) {
+        z.delay -= dt;
+        continue;
+      }
+      z.t -= dt;
       z.fxT -= dt;
       if (z.fxT <= 0) {
         z.fxT = 1;
-        this.emit({ t: 'fx', kind: 'fire', lane: z.lane, x: z.x, dir: 1, r: FIRE_ZONE.radius });
+        this.emit({ t: 'fx', kind: z.kind === 'fire' ? 'fire' : 'poisoncloud', lane: z.lane, x: z.x, dir: 1, r: FIRE_ZONE.radius });
       }
       z.acc += dt;
       if (z.acc >= FIRE_ZONE.tick) {
         z.acc -= FIRE_ZONE.tick;
         for (const e of lane.units.slice()) {
-          if (!e.alive || e.ghost || Math.abs(e.x - z.x) > FIRE_ZONE.radius) continue;
-          this.damage(e, FIRE_ZONE.dps * FIRE_ZONE.tick * this.fireMul, null, { aoe: true, pierce: 1, dot: true });
+          if (!e.alive || e.ghost || e.def.kind === 'boss' || Math.abs(e.x - z.x) > FIRE_ZONE.radius) continue;
+          this.damage(e, FIRE_ZONE.dps * FIRE_ZONE.tick * (z.kind === 'fire' ? this.fireMul : 0.8), null, { aoe: true, pierce: 1, dot: true });
         }
       }
     }
@@ -586,7 +805,7 @@ export class Battle {
       case 'dragon': {
         // Long Thần đứng về phía người chơi, xuất hiện ở lane ngẫu nhiên
         const lane = rnd();
-        this.spawn(UNITS.longthan, 0, lane.index, SPAWN_X[0] + 160, { noBounty: true });
+        this.spawn(UNITS.longthan, 0, lane.index, this.spawnX[0] + 160, { noBounty: true });
         this.emit({ t: 'shake', power: 8 });
         break;
       }
@@ -599,7 +818,7 @@ export class Battle {
       case 'arrowRain':
         for (const l of open) {
           for (let i = 0; i < 10; i++) {
-            const x = 60 + Math.random() * 880;
+            const x = 60 + Math.random() * (this.len - 120);
             this.emit({ t: 'proj', lane: l.index, from: x + 40, to: x, kind: 'arrow', y: Math.random() * 2 - 1 });
           }
           for (const u of l.units) {
@@ -617,7 +836,7 @@ export class Battle {
         // Quỷ Binh tràn vào phe địch
         for (let i = 0; i < EVENT_GHOSTS; i++) {
           const lane = open[i % open.length];
-          this.spawn(UNITS.quybinh, 1, lane.index, SPAWN_X[1] - 20 - i * 14, { noBounty: true });
+          this.spawn(UNITS.quybinh, 1, lane.index, this.spawnX[1] - 20 - i * 14, { noBounty: true });
         }
         this.emit({ t: 'shake', power: 6 });
         break;
@@ -630,7 +849,75 @@ export class Battle {
   private mod(u: UnitInst, stat: BuffStat): number {
     let m = 1;
     for (const b of u.buffs) if (b.stat === stat) m *= b.mul;
+    if (stat !== 'armor') m *= this.zoneMul(u, stat);
+    if (stat === 'rate' && this.outposts.length && this.perk(u.side, u.lane, 'drill')) m *= OUTPOST.drill.rate;
     return m;
+  }
+
+  // ───────────────────────── địa hình lane & căn cứ phụ ─────────────────────────
+
+  /** hệ số nhân từ các vùng địa hình lane mà đơn vị đang đứng trong */
+  private zoneMul(u: UnitInst, stat: 'speed' | 'dmg' | 'rate' | 'range'): number {
+    const zs = this.lanes[u.lane].zones;
+    if (!zs.length || u.ghost || u.def.kind === 'defense') return 1;
+    let m = 1;
+    for (const z of zs) if (u.x >= z.x0 && u.x <= z.x1) m *= ZONES[z.kind].fx[stat] ?? 1;
+    return m;
+  }
+
+  private zoneSum(u: UnitInst, stat: 'dodge' | 'hpRate'): number {
+    const zs = this.lanes[u.lane].zones;
+    if (!zs.length || u.ghost || u.def.kind === 'defense') return 0;
+    let v = 0;
+    for (const z of zs) if (u.x >= z.x0 && u.x <= z.x1) v += (ZONES[z.kind].fx as ZoneFx)[stat] ?? 0;
+    return v;
+  }
+
+  /** tầm đánh thực tế: địa hình (đồi) và căn cứ Tháp Canh */
+  private reach(u: UnitInst): number {
+    let r = u.range * this.zoneMul(u, 'range');
+    if (this.outposts.length && u.def.kind !== 'defense' && this.perk(u.side, u.lane, 'range')) r *= OUTPOST.range;
+    return r;
+  }
+
+  /** quân đứng trong vùng chiếm của căn cứ mà phe mình chưa giữ thì dừng lại để chiếm */
+  private holdsOutpost(lane: Lane, u: UnitInst): boolean {
+    if (!this.outposts.length || u.ghost) return false;
+    const o = this.outposts.find((q) => q.lane === lane.index);
+    return !!o && o.owner !== u.side && Math.abs(u.x - o.x) <= OUTPOST.radius * 0.5;
+  }
+
+  private outpostTick(dt: number) {
+    for (const o of this.outposts) {
+      const lane = this.lanes[o.lane];
+      if (lane.winner !== null) continue;
+      let n0 = 0;
+      let n1 = 0;
+      for (const u of lane.units) {
+        if (!u.alive || u.ghost || u.def.kind === 'defense' || Math.abs(u.x - o.x) > OUTPOST.radius) continue;
+        if (u.side === 0) n0++;
+        else n1++;
+      }
+      o.contested = n0 > 0 && n1 > 0;
+      if (o.contested) continue;
+      const n = n0 || n1;
+      if (n === 0) {
+        // không ai đứng trong căn cứ: tiến độ dở dang từ từ trở về chủ cũ
+        const home = o.owner === 0 ? 1 : 0;
+        o.prog += Math.sign(home - o.prog) * Math.min(Math.abs(home - o.prog), OUTPOST.drift * dt);
+        continue;
+      }
+      const rate = (Math.min(2, 1 + 0.25 * (n - 1)) / OUTPOST.captureSec) * dt;
+      o.prog = Math.max(0, Math.min(1, o.prog + (n0 ? rate : -rate)));
+      const next: Side | null = o.prog >= 1 ? 0 : o.prog <= 0 ? 1 : null;
+      if (next !== null && next !== o.owner) {
+        o.owner = next;
+        this.refreshIncome();
+        this.emit({ t: 'outpost', lane: o.lane, owner: next, kind: o.kind, x: o.x });
+        this.emit({ t: 'text', lane: o.lane, x: o.x, key: next === 0 ? 'fx.outpostWin' : 'fx.outpostLost', color: next === 0 ? 0x7dffb0 : 0xff8a8a, big: true });
+        this.emit({ t: 'shake', power: 4 });
+      }
+    }
   }
 
   /** đơn vị có kỹ năng này (của bản thân hoặc đang mượn khi hóa thân) */
@@ -651,7 +938,7 @@ export class Battle {
 
   /** đẩy lùi một đơn vị `dist` đơn vị theo hướng `dir` */
   private push(e: UnitInst, dist: number, dir: number) {
-    e.x = Math.max(12, Math.min(LANE_LEN - 12, e.x + dir * dist));
+    e.x = Math.max(12, Math.min(this.len - 12, e.x + dir * dist));
   }
 
   private foesAhead(lane: Lane, u: UnitInst, reach: number): UnitInst[] {
@@ -667,7 +954,7 @@ export class Battle {
       case 'troop':
       case 'beast': return Math.max(1, Math.round(v.def.cost * BOUNTY_TROOP));
       case 'general': return Math.round(v.def.cost * BOUNTY_GENERAL);
-      case 'boss': return BOUNTY_BOSS;
+      case 'boss': return v.gen ? 6 : BOUNTY_BOSS;
       default: return 0;
     }
   }
@@ -725,10 +1012,11 @@ export class Battle {
         return;
       }
     }
-    if (u.hpRate !== 0) {
+    const hpRate = u.hpRate + (lane.zones.length ? this.zoneSum(u, 'hpRate') : 0);
+    if (hpRate !== 0) {
       // địa hình hồi/mất máu theo thời gian; mất máu không gây chết (còn tối thiểu 10% máu tối đa)
-      const next = u.hp + u.maxHp * u.hpRate * dt;
-      u.hp = u.hpRate > 0 ? Math.min(u.maxHp, next) : Math.max(Math.min(u.hp, u.maxHp * 0.1), next);
+      const next = u.hp + u.maxHp * hpRate * dt;
+      u.hp = hpRate > 0 ? Math.min(u.maxHp, next) : Math.max(Math.min(u.hp, u.maxHp * 0.1), next);
     }
     if (u.formT > 0) {
       u.formT -= dt;
@@ -754,23 +1042,25 @@ export class Battle {
       return;
     }
 
+    const rng = this.reach(u);
     const near = this.nearestEnemy(lane, u);
-    if (near && near.d <= u.range) {
+    if (near && near.d <= rng) {
       if (u.atkTimer <= 0) this.attackUnit(lane, u, near.e);
       return;
     }
     // quân đã sát cờ địch thì vẫn ưu tiên đánh cờ (không quay lại đánh quân mới thả phía sau lưng)
-    const fx = FLAG_X[u.side === 0 ? 1 : 0];
-    if (Math.abs(fx - u.x) <= Math.max(u.range, 26)) {
+    const fx = this.flagX[u.side === 0 ? 1 : 0];
+    if (Math.abs(fx - u.x) <= Math.max(rng, 26)) {
       if (u.atkTimer <= 0) this.attackFlag(lane, u);
       return;
     }
     // địch đang phá thành nằm phía sau (quân mới thả ra sinh ở phía trước chúng): quay lại đánh, không bỏ qua
     const back = this.nearestEnemy(lane, u, true);
-    if (back && back.d <= u.range) {
+    if (back && back.d <= rng) {
       if (u.atkTimer <= 0) this.attackUnit(lane, u, back.e);
       return;
     }
+    if (this.holdsOutpost(lane, u)) return;
     const sp = u.speed * this.mod(u, 'speed');
     const prevX = u.x;
     u.x += dir * sp * dt;
@@ -823,9 +1113,9 @@ export class Battle {
     let front = -Infinity;
     for (const a of lane.units) {
       if (!a.alive || a.side !== u.side || a === u || this.has(a, 'heal')) continue;
-      front = Math.max(front, u.side === 0 ? a.x : LANE_LEN - a.x);
+      front = Math.max(front, u.side === 0 ? a.x : this.len - a.x);
     }
-    const progress = u.side === 0 ? u.x : LANE_LEN - u.x;
+    const progress = u.side === 0 ? u.x : this.len - u.x;
     if (front > -Infinity && progress < front - 55) {
       u.x += dir * u.speed * this.mod(u, 'speed') * dt;
       u.moving = true;
@@ -934,7 +1224,7 @@ export class Battle {
     u.firstHit = false;
     if (u.range > 70) {
       const kind = this.has(u, 'siege') ? 'rock' : this.projKind(u);
-      this.emit({ t: 'proj', lane: lane.index, from: u.x, to: FLAG_X[u.side === 0 ? 1 : 0], kind, y: u.yOff });
+      this.emit({ t: 'proj', lane: lane.index, from: u.x, to: this.flagX[u.side === 0 ? 1 : 0], kind, y: u.yOff });
     }
     this.damageFlag(lane, u.side === 0 ? 1 : 0, dmg, u.side);
   }
@@ -962,7 +1252,7 @@ export class Battle {
     }
     if (!o.noFlag) {
       const fs: Side = attacker.side === 0 ? 1 : 0;
-      if (Math.abs(FLAG_X[fs] - x) <= r) this.damageFlag(lane, fs, dmg * (o.flagMul ?? 1), attacker.side);
+      if (Math.abs(this.flagX[fs] - x) <= r) this.damageFlag(lane, fs, dmg * (o.flagMul ?? 1), attacker.side);
     }
   }
 
@@ -973,7 +1263,7 @@ export class Battle {
   ): number {
     if (!v.alive || v.invuln > 0 || v.ghost) return 0;
     if (!o.aoe && !o.dot) {
-      if (Math.random() < (this.has(v, 'ninja') ? 0.3 : 0) + v.dodge) {
+      if (Math.random() < (this.has(v, 'ninja') ? 0.3 : 0) + v.dodge + this.zoneSum(v, 'dodge')) {
         this.emit({ t: 'text', lane: v.lane, x: v.x, key: 'fx.dodge', color: 0xbfe9ff });
         return 0;
       }
@@ -1047,7 +1337,7 @@ export class Battle {
     if (attacker?.alive) this.onKill(attacker, v);
     if (v.def.kind === 'boss' && !this.over) {
       this.emit({ t: 'shake', power: 10 });
-      this.finish(v.side === 1 ? 0 : 1);
+      this.onBossDown(v);
     }
   }
 
@@ -1071,7 +1361,7 @@ export class Battle {
   private damageFlag(lane: Lane, flagSide: Side, dmg: number, attackerSide: Side) {
     if (lane.winner !== null) return;
     // màn Boss: boss còn sống thì cờ địch được bảo vệ
-    if (flagSide === 1 && this.boss?.alive) dmg *= BOSS_FLAG_GUARD;
+    if (flagSide === 1 && this.bossKin.some((k) => k.alive)) dmg *= BOSS_FLAG_GUARD;
     const f = lane.flags[flagSide];
     f.hp -= dmg;
     f.flash = 0.15;
@@ -1086,6 +1376,7 @@ export class Battle {
     if (lane.winner !== null) return;
     lane.winner = winner;
     this.wins[winner]++;
+    this.refreshIncome();
     for (const u of lane.units) {
       if (u.alive) {
         u.alive = false;
@@ -1108,9 +1399,12 @@ export class Battle {
   // ───────────────────────── kỹ năng chủ động ─────────────────────────
 
   private tickSkills(lane: Lane, u: UnitInst, dt: number) {
+    // Thao Trường: hồi chiêu nhanh hơn
+    if (this.outposts.length && this.perk(u.side, lane.index, 'drill')) dt *= OUTPOST.drill.skill;
     this.castSkill(lane, u, u.def.skill, dt);
     if (u.alive && u.def.skill2) this.castSkill(lane, u, u.def.skill2, dt);
     if (u.alive && u.form) this.castSkill(lane, u, UNITS[u.form].skill, dt);
+    if (u.alive && u.bonusSkills.length) for (const k of u.bonusSkills) if (u.alive) this.castSkill(lane, u, k, dt);
     if (u.alive && u.gs.length) this.castExtra(lane, u, dt);
   }
 
@@ -1247,7 +1541,7 @@ export class Battle {
       return T[skill] <= 0;
     };
     const idx = lane.index;
-    const eFlag = FLAG_X[u.side === 0 ? 1 : 0];
+    const eFlag = this.flagX[u.side === 0 ? 1 : 0];
     const foesAny = () => lane.units.some((e) => e.alive && e.side !== u.side && !e.ghost && e.def.kind !== 'defense');
     const dmgMul = this.mod(u, 'dmg');
 

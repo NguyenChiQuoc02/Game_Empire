@@ -1,5 +1,5 @@
 import { UNITS } from '../data/units';
-import { Battle, LANE_LEN } from './sim';
+import { Battle } from './sim';
 
 /** AI địch: lên kế hoạch (thẻ + lane), chờ đủ vàng rồi triển khai. Tổng số quân bị giới hạn theo trạm. */
 export class EnemyAI {
@@ -62,14 +62,17 @@ export class EnemyAI {
     let best = -1;
     for (const l of open) {
       let threat = 0;
-      for (const u of l.units) if (u.alive && u.side === 0 && u.def.kind !== 'defense') threat += (u.hp + u.dmg * 6) / 300 * (0.3 + u.x / LANE_LEN);
+      for (const u of l.units) if (u.alive && u.side === 0 && u.def.kind !== 'defense') threat += (u.hp + u.dmg * 6) / 300 * (0.3 + u.x / b.len);
       if (threat > best) {
         best = threat;
         lane = l;
       }
     }
     const id = defs[Math.floor(Math.random() * defs.length)];
-    if (b.canDeploy(1, id, lane.index)) b.deploy(1, id, lane.index, LANE_LEN - (150 + Math.random() * 170));
+    // lane có căn cứ phụ do địch giữ: thường dựng công trình che căn cứ, còn lại dựng gần thành
+    const post = b.outposts.find((o) => o.lane === lane.index && o.owner === 1);
+    const x = post && Math.random() < 0.5 ? post.x + 40 + Math.random() * 90 : b.len - (150 + Math.random() * 170);
+    if (b.canDeploy(1, id, lane.index)) b.deploy(1, id, lane.index, x);
   }
 
   private makePlan() {
@@ -84,7 +87,7 @@ export class EnemyAI {
       for (const u of l.units) {
         if (!u.alive || u.ghost || u.def.kind === 'defense') continue;
         const power = (u.hp + u.dmg * 6) / 300;
-        if (u.side === 0) threat += power * (0.3 + u.x / LANE_LEN);
+        if (u.side === 0) threat += power * (0.3 + u.x / b.len);
         else mine += power * 0.3;
       }
       const ownFlag = l.flags[1].hp / l.flags[1].maxHp;

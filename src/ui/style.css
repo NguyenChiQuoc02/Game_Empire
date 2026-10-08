@@ -469,9 +469,9 @@ b { font-weight: 700; }
   .sp-block { grid-area: rew; flex-direction: row; align-items: center; justify-content: space-between; padding: 4px 10px; }
   .sp-block .sp-label { display: none; }
   .sp-go { grid-area: go; margin: 0; padding: 12px 16px; font-size: 14px; min-height: 0; align-self: stretch; }
-  .chapter-plate { padding: 5px 18px 6px; top: 58px; }
-  .chapter-plate b { font-size: 13.5px; }
-  .chapter-plate small { font-size: 10.5px; }
+  .chapter-plate { padding: 3px 14px 4px; top: 56px; }
+  .chapter-plate b { font-size: 12.5px; }
+  .chapter-plate small { display: none; }
   .map-hint { display: none; }
   .map-win { top: 112px; }
   .map-node { width: 56px; }
@@ -910,3 +910,59 @@ b { font-weight: 700; }
 
 /* popup thông tin quân/thẻ/nút: thu nhỏ 10% toàn bộ (chữ, icon, hình), neo ở đáy-giữa để vị trí phía trên không lệch */
 .unit-tip { transform: scale(0.9); transform-origin: 50% 100%; }
+
+/* ═════════ ĐIỆN THOẠI NẰM NGANG: thẻ bài dồn sang cột bên phải, chiến trường chiếm trọn chiều cao ═════════ */
+@media (max-height: 520px) and (orientation: landscape) {
+  .screen.battle { flex-direction: row; }
+  .battle .field { flex: 1 1 0; min-width: 0; height: 100%; }
+  .battle .hand-host { flex: 0 0 clamp(214px, 32vw, 300px); width: clamp(214px, 32vw, 300px); min-height: 0; display: flex; }
+  .battle .hand-panel {
+    flex: 1; min-width: 0; display: flex; flex-direction: column; padding: calc(6px + var(--safe-t)) 6px calc(6px + var(--safe-b)) 8px;
+    border-top: 0; border-image: none; border-left: 3px solid var(--bronze); box-shadow: -8px 0 22px rgba(0, 0, 0, .5); overflow: hidden;
+  }
+  .battle .hand-row { flex: 1; min-height: 0; flex-direction: column; flex-wrap: nowrap; gap: 6px; align-items: stretch; max-width: none; margin: 0; }
+  .battle .gold-box { flex: none; width: auto; padding: 4px 8px; }
+  .battle .gold-box .gold-num small { display: block; font-size: 10px; margin-top: 1px; }
+  .battle .hand { flex: 1; min-height: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 5px 4px; align-items: stretch; align-content: stretch; }
+  .battle .hcard, .battle .hcard.general { display: flex; flex-direction: column; justify-content: flex-end; min-height: 0; margin-top: 0; }
+  .battle .hcard .portrait { flex: 1 1 0; min-height: 0; height: auto; }
+  .battle .hcard .face.card-face { flex: 1 1 0; min-height: 0; height: auto; }
+  .battle .hcard .nm { flex: none; font-size: 9.5px; }
+  .battle .hcard .cost { left: 50%; right: auto; bottom: auto; top: -8px; transform: translateX(-50%); min-width: 20px; height: 19px; font-size: 11px; }
+  .battle .hcard.selected { transform: translateY(-3px); }
+}
+/* nhiều thẻ ở màn rất thấp: thẻ thấp hơn thì chữ tên gọn lại */
+@media (max-height: 400px) and (orientation: landscape) {
+  .battle .hcard .nm { font-size: 9px; padding: 0 0 1px; }
+  .battle .gold-box .coin { width: 18px; height: 18px; }
+  .battle .gold-box .gold-num b { font-size: 17px; }
+}
+
+/* ═════════ ĐIỆN THOẠI DỌC: tên chỉ huy không bị cắt, nút tạm dừng nằm dưới thanh chỉ huy ═════════ */
+@media (max-width: 520px) and (min-height: 521px) {
+  .hud { gap: 4px; padding-left: 6px; padding-right: 6px; }
+  .cmd { flex: 1 1 0; max-width: 164px; padding-left: 42px; margin-left: 2px; }
+  .cmd.right { padding-right: 42px; padding-left: 6px; margin-right: 2px; }
+  .cmd .face { width: 46px; height: 46px; left: -6px; top: -3px; }
+  .cmd.right .face { left: auto; right: -6px; }
+  .stage-plate { min-width: 92px; padding: 4px 8px 6px; }
+  .cmd-info b { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 11px; line-height: 1.1; overflow: hidden; word-break: break-word; }
+  .cmd.right .cmd-info .lv { display: none; }
+  .cmd.left .icon-btn { position: absolute; left: 6px; top: calc(100% + 12px); width: 34px; height: 34px; z-index: 5; background: rgba(8, 6, 16, .78); }
+  .env-badges { left: 48px; top: 62px; max-width: calc(100vw - 48px - 96px); }
+}
+
+/* ═════════ thanh máu Boss nhiều giai đoạn ═════════ */
+.boss-bar { position: absolute; left: 50%; transform: translateX(-50%); top: 122px; width: min(520px, calc(100% - 20px)); z-index: 4; pointer-events: none; padding: 4px 10px 6px; border-radius: 12px; background: linear-gradient(180deg, rgba(60, 18, 18, .88), rgba(20, 8, 12, .9)); border: 2px solid #b0463a; box-shadow: 0 4px 14px rgba(0, 0, 0, .55); }
+.bb-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; line-height: 1.2; }
+.bb-head b { color: #ffd0c0; font-size: 13px; text-shadow: 0 1px 2px #000; }
+.bb-phase { color: #ffb08a; font-weight: 700; }
+.bb-kin { margin-left: auto; font-style: normal; color: #ff9ecb; font-weight: 800; }
+.bb-track { position: relative; height: 10px; margin-top: 3px; border-radius: 6px; background: rgba(0, 0, 0, .65); border: 1px solid rgba(255, 190, 170, .35); overflow: visible; }
+.bb-fill { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, #e24b4b, #ff9a7a); transition: width .15s linear; }
+.boss-bar.ph2 .bb-fill { background: linear-gradient(90deg, #e07a1a, #ffd04a); }
+.boss-bar.ph3 .bb-fill { background: linear-gradient(90deg, #a020c0, #ff5a9a); }
+.boss-bar.ph3 { border-color: #ff5a9a; animation: env-pulse 1.6s ease-in-out infinite; }
+.bb-marks s { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #fff; opacity: .85; box-shadow: 0 0 3px #000; }
+@media (max-width: 520px) and (min-height: 521px) { .boss-bar { top: 132px; padding: 3px 8px 5px; } .bb-head { font-size: 11px; } .bb-head b { font-size: 12px; } }
+@media (max-height: 520px) and (orientation: landscape) { .boss-bar { top: 90px; width: min(420px, calc(100% - 20px)); } }

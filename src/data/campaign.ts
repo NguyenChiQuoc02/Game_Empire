@@ -1,4 +1,5 @@
 import type { WeatherId } from './terrain';
+import { OUTPOST_TIME_MUL, outpostPlan, type OutpostKind } from './lane';
 
 export type StationTheme =
   | 'plains' | 'bamboo' | 'stone' | 'castle' | 'throne'
@@ -51,6 +52,8 @@ export interface Station {
   giantId?: string;
   /** đường nối giữa các lane (một số trạm) */
   bridges: Bridge[];
+  /** căn cứ phụ của địch ở từng lane (rỗng = trạm không có): lane dài ra, quân nhỏ lại */
+  outposts: OutpostKind[];
   desc: string;
 }
 
@@ -178,9 +181,13 @@ const ENEMY_INCOME_SCALE = 0.9;
 /** tổng quân địch của trạm thường: tăng 1,5 quân/trạm ở 3 bản đồ đầu, các bản đồ sau tăng chậm hơn để trận không quá dài */
 const troopBudget = (id: number) => (id < 30 ? 10 + 1.5 * id : 52 + 0.6 * (id - 30));
 
+/** trạm có căn cứ phụ: mỗi bản đồ ngẫu nhiên (cố định) 3–4 trạm, mỗi lane một loại căn cứ */
+const OUTPOST_PLANS = MAPS.map((_, ch) => outpostPlan(ch, STATIONS_PER_MAP));
+
 export const STATIONS: Station[] = MAPS.flatMap((defs, ch) =>
   defs.map((d, j): Station => {
     const id = ch * STATIONS_PER_MAP + j;
+    const outposts = OUTPOST_PLANS[ch].get(j) ?? [];
     const boss = !!d.bossId;
     const round5 = (n: number) => Math.round(n / 5) * 5;
     return {
@@ -188,6 +195,7 @@ export const STATIONS: Station[] = MAPS.flatMap((defs, ch) =>
       deck: d.deck, mod: d.mod, defenses: d.defenses, theme: d.theme, desc: d.desc,
       weather: WEATHER_PLAN[ch][j],
       giantId: j === GIANT_STATION ? GIANTS[ch] : undefined,
+      outposts,
       bridges: BRIDGE_PLAN[id] ? [{ a: BRIDGE_PLAN[id][0], b: BRIDGE_PLAN[id][1], x: BRIDGE_PLAN[id][2] }] : [],
       power: Math.round((boss ? BOSS_POWER[ch] : POWER[ch][0] + POWER[ch][1] * j) * 100) / 100,
       income: Math.round((INCOME[ch][0] + INCOME[ch][1] * j) * ENEMY_INCOME_SCALE * 100) / 100,
@@ -195,7 +203,7 @@ export const STATIONS: Station[] = MAPS.flatMap((defs, ch) =>
       units: Math.round(boss ? troopBudget(id) * 0.62 + 2 : troopBudget(id)),
       reward: Math.round(((100 + 30 * id) * (boss ? 1.8 : 1)) / 10) * 10,
       // thời gian cho 3 sao tăng dần theo độ sâu: 100s (trạm đầu) → ~200s (trạm cuối); Boss cần thêm thời gian chờ Boss xuất hiện
-      fastSec: round5(boss ? 140 + 2 * id : 100 + 3.5 * id),
+      fastSec: round5((boss ? 140 + 2 * id : 100 + 3.5 * id) * (outposts.length ? OUTPOST_TIME_MUL : 1)),
     };
   }),
 );
@@ -232,8 +240,9 @@ export function stationPos(idx: number, orient: 'l' | 'p'): [number, number] {
     const wobble = j === STATIONS_PER_MAP - 1 ? 0 : 0.07 * Math.sin(j * 2.3 + ch * 1.7);
     return [0.15 + 0.7 * t, 0.78 - 0.46 * t + wobble];
   }
-  const xs = [0.22, 0.52, 0.8, 0.52];
-  return [xs[j % 4], 0.9 - 0.0575 * j];
+  // zigzag 3 cột: hai trạm cùng cột cách nhau 3 bậc nên không chồng lên nhau trên màn dọc
+  const xs = [0.2, 0.5, 0.8];
+  return [xs[j % 3], 0.91 - 0.06 * j];
 }
 
 /** nhãn trạm kiểu "2-3" (bản đồ-trạm) */

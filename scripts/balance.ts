@@ -13,7 +13,7 @@ const smartBot: Bot = (b, deck) => {
   const open = b.lanes.filter((l) => l.winner === null);
   if (!open.length) return;
   const threat = (l: (typeof open)[number]) =>
-    l.units.reduce((a, u) => a + (u.alive && u.side === 1 ? (u.hp + u.dmg * 5) * (0.2 + (1 - u.x / 1000)) : 0), 0) -
+    l.units.reduce((a, u) => a + (u.alive && u.side === 1 ? (u.hp + u.dmg * 5) * (0.2 + (1 - u.x / b.len)) : 0), 0) -
     l.units.reduce((a, u) => a + (u.alive && u.side === 0 ? (u.hp + u.dmg * 5) * 0.4 : 0), 0);
   open.sort((a, c) => threat(c) - threat(a));
   const lane = open[0].index;
