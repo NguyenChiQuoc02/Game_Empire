@@ -27,6 +27,8 @@ export interface SaveData {
   defSlots?: number;
   /** cấp nâng cấp máu thành trì (0..10) */
   flagLv?: number;
+  /** cấp nâng cấp tốc độ sản xuất vàng trong trận (0..10) */
+  incomeLv?: number;
   /** phiên bản bố cục trạm (2 = 3 bản đồ x 10 trạm) */
   sv?: number;
   /** Số phiên bản trên server, tăng mỗi lần ghi; dùng để phát hiện thiết bị khác đã ghi trước */

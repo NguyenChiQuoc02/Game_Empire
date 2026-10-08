@@ -41,7 +41,7 @@ export class EnemyAI {
         const cheap = this.deck.filter((id) => UNITS[id].kind === 'troop' && UNITS[id].cost <= 20 && b.canDeploy(1, id, lane));
         if (cheap.length) b.deploy(1, cheap[Math.floor(Math.random() * cheap.length)], lane);
       }
-      this.think = 0.5 + Math.random() * 1.1;
+      this.think = 0.7 + Math.random() * 1.4;
       return;
     }
     if (this.think > 0) return;

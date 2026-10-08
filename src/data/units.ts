@@ -79,7 +79,8 @@ export interface UnitDef {
 }
 
 export const MAX_LEVEL = 5;
-export const levelMul = (lv: number) => 1 + 0.12 * (lv - 1);
+/** nhân chỉ số theo cấp: +12%/cấp đến cấp 5, từ cấp 6 (chỉ tướng) +5%/cấp → cấp 20 gấp ~2,2 lần */
+export const levelMul = (lv: number) => 1 + 0.12 * (Math.min(lv, MAX_LEVEL) - 1) + 0.05 * Math.max(0, lv - MAX_LEVEL);
 export const upgradeCost = (def: UnitDef, lv: number) =>
   Math.round((def.kind === 'general' ? 140 : def.kind === 'defense' ? 70 : def.kind === 'pet' ? 80 : 60) * lv);
 
@@ -249,7 +250,7 @@ export const UNIT_LIST: UnitDef[] = [
     id: 'tonngokhong', name: 'Tôn Ngộ Không', kind: 'general', cost: 70,
     hp: 640, dmg: 34, cd: 0.7, speed: 70, range: 36, armor: 8,
     skill: 'wukong', skill2: 'monkeys', skillName: 'Bảy Mươi Hai Phép Biến Hóa',
-    desc: 'Kỹ năng 1: cứ 5 giây (hồi chiêu tính khi đã hết hình dạng) biến thành một vị tướng bất kỳ và lập tức thi triển kỹ năng của vị tướng đó, giữ hình dạng 8 giây. Kỹ năng 2: cứ 20 giây thổi lông hóa 2 khỉ con (30% máu, sát thương, giáp của Ngộ Không) tồn tại 5 giây.',
+    desc: 'Cứ 5 giây (hồi chiêu tính khi đã hết hình dạng) biến thành một vị tướng bất kỳ và lập tức thi triển kỹ năng của vị tướng đó, giữ hình dạng 8 giây. Ngoài ra có kỹ năng đặc biệt Phân Thân (xem bên dưới).',
     unlockCost: 950, scale: 1.3,
   }),
   U({
@@ -490,6 +491,43 @@ export const UNIT_LIST: UnitDef[] = [
     desc: 'Rồng lửa nhỏ: mỗi 8 giây phun lửa xuống chỗ địch đông nhất lane (130 sát thương, xuyên giáp).',
     unlockCost: 0, scale: 1.1,
   }),
+  // ───────────── QUÁI THÚ KHỔNG LỒ (trạm thứ 5 mỗi bản đồ, xuất hiện gần cuối trận) ─────────────
+  U({
+    id: 'nguoida', name: 'Người Đá Khổng Lồ', kind: 'beast', cost: 120,
+    hp: 1100, dmg: 34, cd: 1.6, speed: 16, range: 40, armor: 22,
+    skill: 'trample', skillName: 'Giậm Đất',
+    desc: 'Pho tượng đá sống dậy gần cuối trận. Giáp cực dày, chậm chạp; mỗi đòn giậm gây sát thương lan bán kính 55.',
+    tags: ['giant'], unlockCost: 0, scale: 2.1,
+  }),
+  U({
+    id: 'cumang', name: 'Cự Mãng Ngàn Năm', kind: 'beast', cost: 120,
+    hp: 900, dmg: 26, cd: 1.2, speed: 20, range: 130, armor: 10,
+    skill: 'poisoner', skill2: 'poisonCloud', skillName: 'Độc Mãng',
+    desc: 'Rắn khổng lồ phun nọc từ xa (9 máu/giây trong 5 giây, xuyên giáp); mỗi 9 giây thả mây độc lên cụm quân đông nhất.',
+    tags: ['giant'], unlockCost: 0, scale: 2.1,
+  }),
+  U({
+    id: 'culong', name: 'Cổ Long Thiên Hỏa', kind: 'beast', cost: 120,
+    hp: 1000, dmg: 22, cd: 1.3, speed: 18, range: 240, armor: 12,
+    skill: 'fireAttack', skillName: 'Thiên Hỏa',
+    desc: 'Rồng cổ đại bay xuống gần cuối trận: mỗi 8 giây phun lửa xuống chỗ địch đông nhất lane (130 sát thương, xuyên giáp).',
+    tags: ['giant'], unlockCost: 0, scale: 1.9,
+  }),
+  // ───────────── SỰ KIỆN NGẪU NHIÊN ─────────────
+  U({
+    id: 'longthan', name: 'Long Thần', kind: 'summon', cost: 0,
+    hp: 900, dmg: 34, cd: 1.1, speed: 40, range: 230, armor: 10,
+    skill: 'fireAttack', skillName: 'Long Thần Giáng Thế',
+    desc: 'Rồng thần từ sự kiện "Long Thần giáng thế": đứng về phía người chơi, phun lửa xuống chỗ địch đông nhất, tồn tại 30 giây.',
+    unlockCost: 0, scale: 1.6, life: 30,
+  }),
+  U({
+    id: 'quybinh', name: 'Quỷ Binh', kind: 'summon', cost: 0,
+    hp: 170, dmg: 15, cd: 0.7, speed: 48, range: 28, armor: 4,
+    skill: 'berserk', skillName: 'Oán Khí',
+    desc: 'Quái từ sự kiện "Quỷ môn mở": 5 con tràn vào phe địch, càng mất máu càng điên cuồng.',
+    unlockCost: 0, scale: 1.05,
+  }),
 
   // ───────────── THÚ CƯNG (ta) ─────────────
   U({
@@ -556,6 +594,10 @@ export const DEF_EXTRA_COSTS = [300, 700];
 export const FLAG_MAX_LV = 10;
 export const flagUpgradeCost = (lv: number) => 100 * (lv + 1);
 export const flagHpMul = (lv: number) => 1 + 0.12 * lv;
+/** nâng cấp tốc độ sản xuất vàng trong trận (mua bằng xu ở tab Binh đoàn): tối đa 10 cấp, mỗi cấp +6% vàng/giây của người chơi */
+export const INCOME_MAX_LV = 10;
+export const incomeUpgradeCost = (lv: number) => 120 * (lv + 1);
+export const incomeUpgradeMul = (lv: number) => 1 + 0.06 * lv;
 /** quái thú: chỉ xuất hiện ở phía địch */
 export const BEASTS = UNIT_LIST.filter((u) => u.kind === 'beast');
 /** thú cưng của người chơi (tab Thú cưng): xuất trận như lính nhưng chọn bộ riêng */

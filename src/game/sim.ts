@@ -1,5 +1,10 @@
-import { MAX_DEFENSES_PER_LANE, UNIT_LIST, UNITS, levelMul, type SkillId, type UnitDef, flagHpMul } from '../data/units';
-import { laneCountOf, type Station } from '../data/campaign';
+import { MAX_DEFENSES_PER_LANE, UNIT_LIST, UNITS, levelMul, type SkillId, type UnitDef, flagHpMul, incomeUpgradeMul } from '../data/units';
+import { laneCountOf, type Bridge, type Station } from '../data/campaign';
+import { GENERAL_SKILLS, GS, GSKILLS, enemyExtraCount, extraSkillsAt, type GSkillId } from '../data/gskills';
+import {
+  EVENT_ARROW_HP, EVENT_CHANCE, EVENT_GHOSTS, EVENT_GOLD, EVENT_LIGHTNING_STRIKES, EVENT_TIME, FIRE_ZONE, GIANT_AT_HP, GIANT_AT_TIME,
+  GIANT_MIN_TIME, LIGHTNING, RANDOM_EVENTS, lightningDamage, WEATHERS, effMul, effSum, envEffects, globalMul, type Effect, type RandomEventId,
+} from '../data/terrain';
 
 export const LANE_LEN = 1000;
 /** số lane mặc định (màn Boss chỉ có 1 lane, xem laneCountOf) */
@@ -90,6 +95,22 @@ export interface UnitInst {
   owner: number;
   /** hạ quân triệu hồi không được thưởng vàng */
   noBounty: boolean;
+  /** xác suất né cộng thêm từ địa hình/thời tiết */
+  dodge: number;
+  /** hồi (+) / mất (−) máu mỗi giây theo tỉ lệ máu tối đa (địa hình) */
+  hpRate: number;
+  /** kỹ năng mở thêm của tướng (theo cấp, xem data/gskills.ts) */
+  gs: GSkillId[];
+  /** xuyên giáp cộng thêm / hút máu / phản sát thương từ kỹ năng tướng */
+  pierceAdd: number;
+  lifesteal: number;
+  reflectAdd: number;
+  /** Bất Khuất chỉ kích hoạt một lần */
+  lsUsed: boolean;
+  /** đếm ngược trước khi được rẽ lane lần nữa (đường nối) */
+  crossCd: number;
+  /** bước mô phỏng đã xử lý đơn vị này (tránh xử lý hai lần khi đổi lane) */
+  stepN: number;
   /** bẫy/hố lửa: không bị nhắm tới, không chặn đường */
   ghost: boolean;
 }
@@ -121,7 +142,9 @@ export type SimEvent =
   | { t: 'death'; lane: number; x: number; big: boolean }
   | { t: 'shake'; power: number }
   | { t: 'fx'; kind: FxKind; lane: number; x: number; dir: 1 | -1; r?: number; x2?: number }
-  | { t: 'boss'; id: string; lane: number }
+  | { t: 'boss'; id: string; lane: number; giant?: boolean }
+  | { t: 'event'; id: RandomEventId }
+  | { t: 'cross'; uid: number; from: number; to: number; x: number }
   | { t: 'end'; winner: Side };
 
 export interface BattleConfig {
@@ -130,8 +153,27 @@ export interface BattleConfig {
   levels: Record<string, number>;
   /** cấp nâng cấp máu thành trì của người chơi (0..10) */
   flagLevel?: number;
+  /** cấp nâng cấp tốc độ sản xuất vàng của người chơi (0..10) */
+  incomeLevel?: number;
   /** số tướng tối đa của người chơi cùng lúc trên chiến trường (bỏ trống = không giới hạn) */
   generalCap?: number;
+  /** sự kiện ngẫu nhiên: bỏ trống = tung xúc xắc (10–20%), null = không có, hoặc ép một sự kiện (kiểm thử) */
+  event?: RandomEventId | null;
+}
+
+/** sét đang chờ đánh (có báo trước) */
+interface Strike {
+  lane: number;
+  x: number;
+  t: number;
+}
+/** vùng cháy của thời tiết Mưa Lửa */
+interface FireZone {
+  lane: number;
+  x: number;
+  t: number;
+  acc: number;
+  fxT: number;
 }
 
 interface SpawnOpts {
@@ -172,10 +214,48 @@ export class Battle {
   enemyBudget: number;
   enemyDeployed = 0;
   private nextUid = 1;
+  private tickN = 0;
+  /** các đường nối lane của trạm */
+  readonly bridges: Bridge[];
+
+  // ── địa hình / thời tiết / sự kiện
+  /** hiệu ứng đang có hiệu lực (địa hình + thời tiết của trạm) */
+  readonly env: Effect[];
+  /** hệ số vàng/giây của người chơi (địa hình × nâng cấp ngoài trận); sát thương lửa, sức mạnh băng (toàn cục) */
+  readonly incomeMul: number;
+  readonly fireMul: number;
+  readonly frostMul: number;
+  private weatherT: number;
+  /** đã hẹn sét cho chu kỳ hiện tại */
+  private strikeArmed = false;
+  private strikes: Strike[] = [];
+  private zones: FireZone[] = [];
+  /** sự kiện ngẫu nhiên của trận này (null = không có) và thời điểm kích hoạt */
+  readonly randomEvent: RandomEventId | null;
+  private eventAt: number;
+  eventFired = false;
+  /** thời gian còn lại của Kho Vàng (vàng ×2) */
+  goldBoostT = 0;
+  /** quái khổng lồ (trạm thứ 5) */
+  giant: UnitInst | null = null;
+  giantSpawned = false;
 
   constructor(public cfg: BattleConfig) {
     const st = cfg.station;
-    this.income = [PLAYER_INCOME, st.income];
+    this.bridges = laneCountOf(st) > 1 ? st.bridges : [];
+    this.env = envEffects(st.theme, st.weather);
+    const envIncome = globalMul(this.env, 'income');
+    this.incomeMul = envIncome * incomeUpgradeMul(cfg.incomeLevel ?? 0);
+    this.fireMul = globalMul(this.env, 'fire');
+    this.frostMul = globalMul(this.env, 'frost');
+    this.weatherT = WEATHERS[st.weather].event?.every ?? Infinity;
+    if (cfg.event !== undefined) this.randomEvent = cfg.event;
+    else {
+      const chance = EVENT_CHANCE[0] + Math.random() * (EVENT_CHANCE[1] - EVENT_CHANCE[0]);
+      this.randomEvent = Math.random() < chance ? RANDOM_EVENTS[Math.floor(Math.random() * RANDOM_EVENTS.length)].id : null;
+    }
+    this.eventAt = EVENT_TIME[0] + Math.random() * (EVENT_TIME[1] - EVENT_TIME[0]);
+    this.income = [PLAYER_INCOME * this.incomeMul, st.income * envIncome];
     this.enemyBudget = st.units;
     const n = laneCountOf(st);
     // màn Boss chỉ có 1 lane: thành ta là phòng tuyến duy nhất nên bền hơn
@@ -226,7 +306,7 @@ export class Battle {
     if (this.over || cost === null || this.gold[0] < cost) return false;
     this.gold[0] -= cost;
     this.capLevel++;
-    this.income[0] = PLAYER_INCOME * CAP_INCOME_MUL[this.capLevel];
+    this.income[0] = PLAYER_INCOME * this.incomeMul * CAP_INCOME_MUL[this.capLevel];
     return true;
   }
 
@@ -286,14 +366,19 @@ export class Battle {
     const st = this.cfg.station;
     const pow = o.pow ?? this.mulFor(side, def.id);
     const armorBonus = side === 1 && st.mod === 'armored' ? 6 : 0;
-    const speedMul = side === 1 && st.mod === 'quick' ? 1.2 : 1;
-    const hp = o.hp ?? def.hp * pow;
+    const speedMul = (side === 1 && st.mod === 'quick' ? 1.2 : 1) * effMul(this.env, 'speed', def);
+    const hp = o.hp ?? def.hp * pow * effMul(this.env, 'hp', def);
+    // tầm xa giữ nguyên là "tầm xa" (>70) dù bị sương mù/rừng thu hẹp
+    const rangeMul = effMul(this.env, 'range', def);
+    const range = def.range > 70 ? Math.max(71, Math.round(def.range * rangeMul)) : def.range;
     const u: UnitInst = {
       uid: this.nextUid++,
       def, side, lane: laneIdx, x,
       hp, maxHp: hp,
-      dmg: o.dmg ?? def.dmg * pow, armor: (o.armor ?? def.armor) + armorBonus, speed: (o.speed ?? def.speed) * speedMul,
-      range: def.range, cd: def.cd,
+      dmg: o.dmg ?? def.dmg * pow * effMul(this.env, 'dmg', def), armor: (o.armor ?? def.armor) + armorBonus, speed: (o.speed ?? def.speed) * speedMul,
+      range, cd: def.cd,
+      dodge: effSum(this.env, 'dodge', def), hpRate: effSum(this.env, 'hpRate', def),
+      gs: [], pierceAdd: 0, lifesteal: 0, reflectAdd: 0, lsUsed: false, crossCd: 0, stepN: 0,
       pow,
       atkTimer: 0.3, travelled: 0, firstHit: true,
       alive: true, deadTimer: 0, vanish: false, moving: false,
@@ -304,6 +389,7 @@ export class Battle {
       life: o.life ?? def.life ?? Infinity, owner: o.owner ?? 0, noBounty: !!o.noBounty || def.kind === 'defense',
       ghost: !!def.tags?.includes('ghost'),
     };
+    if (def.kind === 'general' && o.hp === undefined) this.applyGSkills(u);
     if (def.kind === 'defense') u.yOff = def.tags?.includes('ghost') ? (Math.random() - 0.5) * 0.6 : 0;
     const init = SKILL_INIT[def.skill];
     if (init !== undefined) u.timers[def.skill] = init;
@@ -326,15 +412,27 @@ export class Battle {
 
   private step(dt: number) {
     this.time += dt;
+    this.tickN++;
+    const boost = this.goldBoostT > 0 ? EVENT_GOLD.mul : 1;
+    this.goldBoostT = Math.max(0, this.goldBoostT - dt);
     for (const s of [0, 1] as const) {
       const ramp = s === 1 ? Math.min(1, ENEMY_RAMP_FROM + (1 - ENEMY_RAMP_FROM) * (this.time / ENEMY_RAMP_SEC)) : 1;
-      this.gold[s] = Math.min(this.goldCap(s), this.gold[s] + this.income[s] * ramp * dt);
+      this.gold[s] = Math.min(this.goldCap(s), this.gold[s] + this.income[s] * boost * ramp * dt);
     }
     this.bossTick();
+    this.giantTick();
+    this.weatherTick(dt);
+    this.eventTick();
     for (const lane of this.lanes) {
       for (const f of lane.flags) f.flash = Math.max(0, f.flash - dt);
       if (lane.winner === null) {
-        for (const u of lane.units.slice()) if (u.alive) this.stepUnit(lane, u, dt);
+        for (const u of lane.units.slice()) {
+          // đơn vị vừa rẽ sang lane sau trong cùng bước thì không xử lý lần hai
+          if (u.alive && u.stepN !== this.tickN) {
+            u.stepN = this.tickN;
+            this.stepUnit(this.lanes[u.lane], u, dt);
+          }
+        }
       }
       for (const u of lane.units) {
         if (!u.alive) u.deadTimer -= dt;
@@ -355,6 +453,165 @@ export class Battle {
       this.boss = this.spawn(UNITS[st.bossId], 1, 0, SPAWN_X[1] - 30);
       this.emit({ t: 'boss', id: st.bossId, lane: 0 });
       this.emit({ t: 'shake', power: 10 });
+    }
+  }
+
+  /** quái khổng lồ (trạm thứ 5): xuất hiện ở lane địch đang bị ép nhất khi cờ địch còn ≤ 50% máu hoặc sau 80 giây (không sớm hơn 35 giây) */
+  private giantTick() {
+    const st = this.cfg.station;
+    if (!st.giantId || this.giantSpawned || this.over || this.time < GIANT_MIN_TIME) return;
+    let lane: Lane | null = null;
+    let low = Infinity;
+    for (const l of this.lanes) {
+      if (l.winner !== null) continue;
+      const r = l.flags[1].hp / l.flags[1].maxHp;
+      if (r < low) {
+        low = r;
+        lane = l;
+      }
+    }
+    if (!lane || (low > GIANT_AT_HP && this.time < GIANT_AT_TIME)) return;
+    this.giantSpawned = true;
+    this.giant = this.spawn(UNITS[st.giantId], 1, lane.index, SPAWN_X[1] - 30);
+    this.emit({ t: 'boss', id: st.giantId, lane: lane.index, giant: true });
+    this.emit({ t: 'shake', power: 8 });
+  }
+
+  // ───────────────────────── thời tiết ─────────────────────────
+
+  private openLanes(): Lane[] {
+    return this.lanes.filter((l) => l.winner === null);
+  }
+
+  /** hẹn một cú sét ở vị trí ngẫu nhiên (có báo trước) */
+  private scheduleStrike(delay: number) {
+    const open = this.openLanes();
+    if (!open.length) return;
+    const lane = open[Math.floor(Math.random() * open.length)].index;
+    const x = 150 + Math.random() * 700;
+    this.strikes.push({ lane, x, t: delay });
+    this.emit({ t: 'text', lane, x, key: 'fx.lightningWarn', color: 0xfff0a0 });
+  }
+
+  private lightning(s: Strike) {
+    const lane = this.lanes[s.lane];
+    if (lane.winner !== null) return;
+    this.emit({ t: 'fx', kind: 'bolt', lane: s.lane, x: s.x, dir: 1, r: LIGHTNING.radius });
+    this.emit({ t: 'text', lane: s.lane, x: s.x, key: 'fx.lightning', color: 0xfff07a, big: true });
+    this.emit({ t: 'shake', power: 5 });
+    for (const e of lane.units.slice()) {
+      if (!e.alive || e.ghost || Math.abs(e.x - s.x) > LIGHTNING.radius) continue;
+      this.damage(e, lightningDamage(e.maxHp), null, { aoe: true, pierce: 0.5 });
+      if (e.alive && e.def.kind !== 'defense') e.stunT = Math.max(e.stunT, LIGHTNING.stun);
+    }
+  }
+
+  private weatherTick(dt: number) {
+    const ev = WEATHERS[this.cfg.station.weather].event;
+    if (ev) {
+      this.weatherT -= dt;
+      if (ev.kind === 'lightning' && !this.strikeArmed && this.weatherT <= LIGHTNING.warn) {
+        this.strikeArmed = true;
+        this.scheduleStrike(Math.max(0, this.weatherT));
+      }
+      if (this.weatherT <= 0) {
+        this.weatherT = ev.every;
+        this.strikeArmed = false;
+        if (ev.kind === 'fireZone') this.startFireZone();
+      }
+    }
+    for (const s of this.strikes) s.t -= dt;
+    const due = this.strikes.filter((s) => s.t <= 0);
+    if (due.length) {
+      this.strikes = this.strikes.filter((s) => s.t > 0);
+      for (const s of due) this.lightning(s);
+    }
+    if (this.zones.length) this.fireZoneTick(dt);
+  }
+
+  private startFireZone() {
+    const open = this.openLanes();
+    if (!open.length) return;
+    const lane = open[Math.floor(Math.random() * open.length)].index;
+    const x = 150 + Math.random() * 700;
+    this.zones.push({ lane, x, t: FIRE_ZONE.life, acc: 0, fxT: 0 });
+    this.emit({ t: 'text', lane, x, key: 'fx.fireRain', color: 0xff8a3d, big: true });
+  }
+
+  private fireZoneTick(dt: number) {
+    for (const z of this.zones) {
+      const lane = this.lanes[z.lane];
+      z.t -= dt;
+      if (lane.winner !== null) {
+        z.t = 0;
+        continue;
+      }
+      z.fxT -= dt;
+      if (z.fxT <= 0) {
+        z.fxT = 1;
+        this.emit({ t: 'fx', kind: 'fire', lane: z.lane, x: z.x, dir: 1, r: FIRE_ZONE.radius });
+      }
+      z.acc += dt;
+      if (z.acc >= FIRE_ZONE.tick) {
+        z.acc -= FIRE_ZONE.tick;
+        for (const e of lane.units.slice()) {
+          if (!e.alive || e.ghost || Math.abs(e.x - z.x) > FIRE_ZONE.radius) continue;
+          this.damage(e, FIRE_ZONE.dps * FIRE_ZONE.tick * this.fireMul, null, { aoe: true, pierce: 1, dot: true });
+        }
+      }
+    }
+    this.zones = this.zones.filter((z) => z.t > 0);
+  }
+
+  // ───────────────────────── sự kiện ngẫu nhiên ─────────────────────────
+
+  private eventTick() {
+    if (!this.randomEvent || this.eventFired || this.over || this.time < this.eventAt) return;
+    const open = this.openLanes();
+    if (!open.length) return;
+    this.eventFired = true;
+    const id = this.randomEvent;
+    this.emit({ t: 'event', id });
+    const rnd = () => open[Math.floor(Math.random() * open.length)];
+    switch (id) {
+      case 'dragon': {
+        // Long Thần đứng về phía người chơi, xuất hiện ở lane ngẫu nhiên
+        const lane = rnd();
+        this.spawn(UNITS.longthan, 0, lane.index, SPAWN_X[0] + 160, { noBounty: true });
+        this.emit({ t: 'shake', power: 8 });
+        break;
+      }
+      case 'goldRush':
+        this.goldBoostT = EVENT_GOLD.sec;
+        break;
+      case 'lightning':
+        for (let i = 0; i < EVENT_LIGHTNING_STRIKES; i++) this.scheduleStrike(1 + i * 0.5);
+        break;
+      case 'arrowRain':
+        for (const l of open) {
+          for (let i = 0; i < 10; i++) {
+            const x = 60 + Math.random() * 880;
+            this.emit({ t: 'proj', lane: l.index, from: x + 40, to: x, kind: 'arrow', y: Math.random() * 2 - 1 });
+          }
+          for (const u of l.units) {
+            if (!u.alive || u.ghost || u.def.kind === 'defense') continue;
+            // không gây chết: để lại tối thiểu 1 máu
+            const loss = Math.min(u.maxHp * EVENT_ARROW_HP, u.hp - 1);
+            if (loss <= 0) continue;
+            u.hp -= loss;
+            u.hitFlash = 0.12;
+            this.emit({ t: 'hit', lane: l.index, x: u.x, amount: loss, victimSide: u.side, big: false });
+          }
+        }
+        break;
+      case 'ghostGate':
+        // Quỷ Binh tràn vào phe địch
+        for (let i = 0; i < EVENT_GHOSTS; i++) {
+          const lane = open[i % open.length];
+          this.spawn(UNITS.quybinh, 1, lane.index, SPAWN_X[1] - 20 - i * 14, { noBounty: true });
+        }
+        this.emit({ t: 'shake', power: 6 });
+        break;
     }
   }
 
@@ -428,6 +685,7 @@ export class Battle {
 
   private stepUnit(lane: Lane, u: UnitInst, dt: number) {
     u.atkTimer -= dt;
+    u.crossCd = Math.max(0, u.crossCd - dt);
     u.attackAnim = Math.max(0, u.attackAnim - dt);
     u.hitFlash = Math.max(0, u.hitFlash - dt);
     u.invuln = Math.max(0, u.invuln - dt);
@@ -457,6 +715,11 @@ export class Battle {
         this.emit({ t: 'death', lane: lane.index, x: u.x, big: false });
         return;
       }
+    }
+    if (u.hpRate !== 0) {
+      // địa hình hồi/mất máu theo thời gian; mất máu không gây chết (còn tối thiểu 10% máu tối đa)
+      const next = u.hp + u.maxHp * u.hpRate * dt;
+      u.hp = u.hpRate > 0 ? Math.min(u.maxHp, next) : Math.max(Math.min(u.hp, u.maxHp * 0.1), next);
     }
     if (u.formT > 0) {
       u.formT -= dt;
@@ -500,9 +763,51 @@ export class Battle {
       return;
     }
     const sp = u.speed * this.mod(u, 'speed');
+    const prevX = u.x;
     u.x += dir * sp * dt;
     u.travelled += sp * dt;
     u.moving = true;
+    if (this.bridges.length) this.checkBridge(u, prevX);
+  }
+
+  // ───────────────────────── đường nối lane ─────────────────────────
+
+  /** sức mạnh còn sống của một phe trong lane (để quân tự quyết định rẽ sang lane cần chi viện) */
+  private lanePower(laneIdx: number, side: Side): number {
+    let p = 0;
+    for (const e of this.lanes[laneIdx].units) {
+      if (e.alive && e.side === side && !e.ghost && e.def.kind !== 'defense') p += (e.hp + e.dmg * 6) / 100;
+    }
+    return p;
+  }
+
+  /** quân vừa đi qua điểm nối: có thể rẽ sang lane kia (ưu tiên lane địch đang đông hơn ta) */
+  private checkBridge(u: UnitInst, prevX: number) {
+    if (u.crossCd > 0 || u.ghost || u.owner) return;
+    for (const b of this.bridges) {
+      if (u.lane !== b.a && u.lane !== b.b) continue;
+      if ((prevX - b.x) * (u.x - b.x) > 0) continue;
+      const to = u.lane === b.a ? b.b : b.a;
+      if (this.lanes[to].winner !== null || this.lanes[u.lane].winner !== null) continue;
+      const foe: Side = u.side === 0 ? 1 : 0;
+      const needHere = this.lanePower(u.lane, foe) - this.lanePower(u.lane, u.side);
+      const needThere = this.lanePower(to, foe) - this.lanePower(to, u.side);
+      let chance = 0.25;
+      if (this.lanePower(u.lane, foe) === 0 && this.lanePower(to, foe) > 0) chance = 0.9;
+      else if (needThere > needHere + 4) chance = 0.7;
+      else if (needThere < needHere - 4) chance = 0.1;
+      if (Math.random() < chance) this.moveLane(u, to);
+      return;
+    }
+  }
+
+  private moveLane(u: UnitInst, to: number) {
+    const from = this.lanes[u.lane];
+    from.units = from.units.filter((x) => x !== u);
+    this.lanes[to].units.push(u);
+    this.emit({ t: 'cross', uid: u.uid, from: u.lane, to, x: u.x });
+    u.lane = to;
+    u.crossCd = 4;
   }
 
   private moveSupport(lane: Lane, u: UnitInst, dt: number, dir: number) {
@@ -549,6 +854,7 @@ export class Battle {
       }
     }
     if (this.has(u, 'antiCav') && t.def.tags?.includes('cav')) dmg *= 2.2;
+    if (u.gs.includes('execute') && t.hp < t.maxHp * GS.execute.below) dmg *= GS.execute.mul;
 
     if (this.has(u, 'sweep') && u.attacks % 3 === 0) {
       this.emit({ t: 'text', lane: lane.index, x: u.x, key: 'fx.sweep', color: 0x7dffb0, big: true });
@@ -600,6 +906,7 @@ export class Battle {
     }
     u.firstHit = false;
 
+    if (u.pierceAdd > 0) pierce = 1 - (1 - pierce) * (1 - u.pierceAdd);
     if (ranged) this.emit({ t: 'proj', lane: lane.index, from: u.x, to: t.x, kind: this.projKind(u), y: u.yOff });
     this.damage(t, dmg, u, { ranged, big, pierce });
     if (this.has(u, 'poisoner') && t.alive) this.applyPoison(t, 9 * u.pow, 5, u.side);
@@ -628,7 +935,7 @@ export class Battle {
     this.emit({ t: 'text', lane: lane.index, x: u.x, key: 'fx.boom', color: 0xff7a3d, big: true });
     this.emit({ t: 'shake', power: 4 });
     this.emit({ t: 'fx', kind: 'boom', lane: lane.index, x: u.x + dir * 18, dir, r: 62 });
-    this.aoe(lane, u.x + dir * 18, 62, u.dmg * this.mod(u, 'dmg'), u, { ranged: false, color: 0xff7a3d, flagMul: 3, quiet: true });
+    this.aoe(lane, u.x + dir * 18, 62, u.dmg * this.mod(u, 'dmg') * this.fireMul, u, { ranged: false, color: 0xff7a3d, flagMul: 3, quiet: true });
     u.alive = false;
     u.deadTimer = 0.05;
     u.hp = 0;
@@ -657,7 +964,7 @@ export class Battle {
   ): number {
     if (!v.alive || v.invuln > 0 || v.ghost) return 0;
     if (!o.aoe && !o.dot) {
-      if (this.has(v, 'ninja') && Math.random() < 0.3) {
+      if (Math.random() < (this.has(v, 'ninja') ? 0.3 : 0) + v.dodge) {
         this.emit({ t: 'text', lane: v.lane, x: v.x, key: 'fx.dodge', color: 0xbfe9ff });
         return 0;
       }
@@ -681,9 +988,23 @@ export class Battle {
     v.hp -= dmg;
     v.hitFlash = 0.12;
     this.emit({ t: 'hit', lane: v.lane, x: v.x, amount: dmg, victimSide: v.side, big: !!o.big });
-    // Càn Khôn Đại Na Di: phản 30% sát thương cho kẻ đánh gần
-    if (this.has(v, 'reflect') && attacker && attacker.alive && !o.reflected && !o.dot && Math.abs(attacker.x - v.x) <= 90) {
-      this.damage(attacker, dmg * 0.3, v, { aoe: true, pierce: 1, reflected: true });
+    // Hấp Huyết: hồi máu theo sát thương gây ra
+    if (attacker && attacker.lifesteal > 0 && attacker.alive && !o.dot && !o.reflected) {
+      attacker.hp = Math.min(attacker.maxHp, attacker.hp + dmg * attacker.lifesteal);
+    }
+    // Bất Khuất: lần đầu xuống dưới ngưỡng máu thì có khiên và tăng sức mạnh
+    if (v.hp > 0 && !v.lsUsed && v.gs.includes('lastStand') && v.hp < v.maxHp * GS.lastStand.below) {
+      v.lsUsed = true;
+      v.shield = Math.max(v.shield, v.maxHp * GS.lastStand.shield);
+      this.addBuff(v, 'dmg', GS.lastStand.dmg, GS.lastStand.sec);
+      this.addBuff(v, 'speed', GS.lastStand.speed, GS.lastStand.sec);
+      this.emit({ t: 'text', lane: v.lane, x: v.x, key: 'fx.g.lastStand', color: 0xffc04d, big: true });
+      this.emit({ t: 'fx', kind: 'enrage', lane: v.lane, x: v.x, dir: v.side === 0 ? 1 : -1 });
+    }
+    // Càn Khôn Đại Na Di (30%) và Phản Chấn: phản một phần sát thương cho kẻ đánh gần
+    const refl = (this.has(v, 'reflect') ? 0.3 : 0) + v.reflectAdd;
+    if (refl > 0 && attacker && attacker.alive && !o.reflected && !o.dot && Math.abs(attacker.x - v.x) <= 90) {
+      this.damage(attacker, dmg * refl, v, { aoe: true, pierce: 1, reflected: true });
     }
     if (v.hp <= 0) this.kill(v, attacker, o.creditSide);
     return dmg;
@@ -781,6 +1102,124 @@ export class Battle {
     this.castSkill(lane, u, u.def.skill, dt);
     if (u.alive && u.def.skill2) this.castSkill(lane, u, u.def.skill2, dt);
     if (u.alive && u.form) this.castSkill(lane, u, UNITS[u.form].skill, dt);
+    if (u.alive && u.gs.length) this.castExtra(lane, u, dt);
+  }
+
+  // ───────────────────────── kỹ năng mở thêm của tướng ─────────────────────────
+
+  /** áp các kỹ năng thụ động; tướng ta theo cấp thẻ, tướng địch theo độ sâu của trạm */
+  private applyGSkills(u: UnitInst) {
+    const id = u.def.id;
+    u.gs = u.side === 0
+      ? extraSkillsAt(id, this.cfg.levels[id] ?? 1)
+      : (GENERAL_SKILLS[id] ?? []).slice(0, enemyExtraCount(this.cfg.station.id));
+    for (const k of u.gs) {
+      switch (k) {
+        case 'ironSkin':
+          u.maxHp *= 1 + GS.ironSkin.hp;
+          u.hp = u.maxHp;
+          u.armor += GS.ironSkin.armor;
+          break;
+        case 'fury': u.dmg *= 1 + GS.fury.dmg; break;
+        case 'swift':
+          u.speed *= 1 + GS.swift.speed;
+          u.dodge += GS.swift.dodge;
+          break;
+        case 'regen': u.hpRate += GS.regen.rate; break;
+        case 'keen': u.pierceAdd = Math.max(u.pierceAdd, GS.keen.pierce); break;
+        case 'lifesteal': u.lifesteal += GS.lifesteal.pct; break;
+        case 'thornsAura': u.reflectAdd += GS.thornsAura.reflect; break;
+        case 'rapid': u.cd /= 1 + GS.rapid.rate; break;
+        default: break;
+      }
+    }
+  }
+
+  private castExtra(lane: Lane, u: UnitInst, dt: number) {
+    for (const k of u.gs) {
+      if (GSKILLS[k].kind !== 'active') continue;
+      const cd = (GS[k] as { cd: number }).cd;
+      const key = `g_${k}`;
+      u.timers[key] = (u.timers[key] ?? cd * 0.5) - dt;
+      if (u.timers[key] > 0) continue;
+      u.timers[key] = this.castG(lane, u, k) ? cd : 0;
+      if (!u.alive) return;
+    }
+  }
+
+  /** thi triển một kỹ năng chủ động; trả về false nếu chưa có mục tiêu (thử lại ngay khung sau) */
+  private castG(lane: Lane, u: UnitInst, k: GSkillId): boolean {
+    const dir = (u.side === 0 ? 1 : -1) as 1 | -1;
+    const idx = lane.index;
+    const dmgMul = this.mod(u, 'dmg');
+    const foes = lane.units.filter((e) => e.alive && e.side !== u.side && !e.ghost && e.def.kind !== 'defense');
+    const near = (r: number) => foes.filter((e) => Math.abs(e.x - u.x) <= r);
+    const say = (color: number) => this.emit({ t: 'text', lane: idx, x: u.x, key: `fx.g.${k}`, color, big: true });
+    switch (k) {
+      case 'warcry': {
+        if (!foes.length) return false;
+        u.attackAnim = 0.4;
+        for (const a of lane.units) {
+          if (a.alive && a.side === u.side && !a.ghost && a.def.kind !== 'defense' && Math.abs(a.x - u.x) <= GS.warcry.range) this.addBuff(a, 'dmg', GS.warcry.dmg, GS.warcry.sec);
+        }
+        say(0xffd34d);
+        this.emit({ t: 'fx', kind: 'warcry', lane: idx, x: u.x, dir });
+        return true;
+      }
+      case 'guard': {
+        if (!near(GS.guard.reach).length) return false;
+        u.shield = Math.max(u.shield, u.maxHp * GS.guard.shield);
+        say(0x9ad0ff);
+        this.emit({ t: 'fx', kind: 'shield', lane: idx, x: u.x, dir });
+        return true;
+      }
+      case 'shockwave': {
+        if (!near(GS.shockwave.r).length) return false;
+        u.attackAnim = 0.4;
+        say(0xffb36b);
+        this.emit({ t: 'shake', power: 4 });
+        this.emit({ t: 'fx', kind: 'rockhit', lane: idx, x: u.x, dir, r: GS.shockwave.r });
+        this.aoe(lane, u.x, GS.shockwave.r, u.dmg * GS.shockwave.mul * dmgMul, u, { ranged: false, color: 0xffb36b, quiet: true, noFlag: true });
+        for (const e of near(GS.shockwave.r)) if (e.alive) e.stunT = Math.max(e.stunT, GS.shockwave.stun);
+        return true;
+      }
+      case 'mend': {
+        const hurt = lane.units.filter((a) => a.alive && a.side === u.side && !a.ghost && a.def.kind !== 'defense' && a.hp < a.maxHp && Math.abs(a.x - u.x) <= GS.mend.r);
+        if (!hurt.length) return false;
+        u.attackAnim = 0.3;
+        for (const a of hurt) this.healUnit(a, a.maxHp * GS.mend.pct);
+        this.healUnit(u, u.maxHp * GS.mend.self);
+        say(0x7dffb0);
+        this.emit({ t: 'fx', kind: 'healwave', lane: idx, x: u.x, dir, r: GS.mend.r });
+        return true;
+      }
+      case 'bladeStorm': {
+        const ahead = this.foesAhead(lane, u, GS.bladeStorm.reach);
+        if (!ahead.length) return false;
+        const c = this.densest(ahead).x;
+        u.attackAnim = 0.4;
+        say(0xc8a0ff);
+        this.emit({ t: 'fx', kind: 'splash', lane: idx, x: c, dir, r: GS.bladeStorm.r });
+        this.emit({ t: 'shake', power: 3 });
+        this.aoe(lane, c, GS.bladeStorm.r, u.dmg * GS.bladeStorm.mul * dmgMul, u, { ranged: true, color: 0xc8a0ff, quiet: true, noFlag: true, pierce: 0.3 });
+        return true;
+      }
+      case 'dread': {
+        const hit = near(GS.dread.r);
+        if (!hit.length) return false;
+        u.attackAnim = 0.4;
+        say(0xb8a0ff);
+        this.emit({ t: 'fx', kind: 'frost', lane: idx, x: u.x, dir, r: GS.dread.r });
+        for (const e of hit) {
+          this.addBuff(e, 'speed', 1 - GS.dread.slow, GS.dread.sec);
+          this.addBuff(e, 'rate', 1 - GS.dread.slow * 0.7, GS.dread.sec);
+          this.damage(e, u.dmg * GS.dread.mul * dmgMul, u, { aoe: true, pierce: 0.3 });
+        }
+        return true;
+      }
+      default:
+        return false;
+    }
   }
 
   private endForm(u: UnitInst) {
@@ -864,7 +1303,7 @@ export class Battle {
         this.emit({ t: 'text', lane: idx, x: best.x, key: 'fx.fire', color: 0xff6a3d, big: true });
         this.emit({ t: 'shake', power: 4 });
         this.emit({ t: 'fx', kind: 'fire', lane: idx, x: best.x, dir, r: 90 });
-        this.aoe(lane, best.x, 90, 130 * u.pow * dmgMul, u, { ranged: true, color: 0xff6a3d, pierce: 1, noFlag: true, quiet: true });
+        this.aoe(lane, best.x, 90, 130 * u.pow * dmgMul * this.fireMul, u, { ranged: true, color: 0xff6a3d, pierce: 1, noFlag: true, quiet: true });
         break;
       }
       case 'tyrant': {
@@ -1138,10 +1577,10 @@ export class Battle {
         this.emit({ t: 'fx', kind: 'inferno', lane: idx, x: u.x, dir, r: 260 });
         for (const e of lane.units.slice()) {
           if (!e.alive || e.side === u.side || Math.abs(e.x - cx) > 130) continue;
-          this.damage(e, 85 * u.pow * dmgMul, u, { aoe: true });
-          if (e.alive) this.applyPoison(e, 10 * u.pow, 4, u.side);
+          this.damage(e, 85 * u.pow * dmgMul * this.fireMul, u, { aoe: true });
+          if (e.alive) this.applyPoison(e, 10 * u.pow * this.fireMul, 4, u.side);
         }
-        if (Math.abs(eFlag - cx) <= 130) this.damageFlag(lane, u.side === 0 ? 1 : 0, 85 * u.pow * dmgMul, u.side);
+        if (Math.abs(eFlag - cx) <= 130) this.damageFlag(lane, u.side === 0 ? 1 : 0, 85 * u.pow * dmgMul * this.fireMul, u.side);
         break;
       }
       default:
@@ -1234,7 +1673,7 @@ export class Battle {
       case 'firepit': {
         if (!cdReady('burn', 0.5)) break;
         for (const e of foes) {
-          if (e.def.kind !== 'defense' && inRange(e, u.range)) this.applyPoison(e, dmg, 1.2, side);
+          if (e.def.kind !== 'defense' && inRange(e, u.range)) this.applyPoison(e, dmg * this.fireMul, 1.2, side);
         }
         break;
       }
@@ -1269,9 +1708,9 @@ export class Battle {
         T.frost = u.cd;
         this.emit({ t: 'fx', kind: 'frost', lane: idx, x: u.x, dir, r: u.range });
         for (const e of hit) {
-          this.addBuff(e, 'speed', 0.55, 3);
-          this.addBuff(e, 'rate', 0.75, 3);
-          this.damage(e, dmg, u, { aoe: true, pierce: 1 });
+          this.addBuff(e, 'speed', Math.max(0.2, 1 - 0.45 * this.frostMul), 3);
+          this.addBuff(e, 'rate', Math.max(0.3, 1 - 0.25 * this.frostMul), 3);
+          this.damage(e, dmg * this.frostMul, u, { aoe: true, pierce: 1 });
         }
         break;
       }

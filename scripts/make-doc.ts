@@ -7,9 +7,23 @@ import {
 } from 'docx';
 import {
   UNIT_LIST, UNITS, DEFENSES, levelMul, upgradeCost, DECK_SIZE, DEFENSE_DECK_SIZE, MAX_DEFENSES_PER_LANE, MAX_GENERALS_IN_DECK, MAX_LEVEL,
-  STARTER_DEFENSES, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, GENERAL_EXTRA_COSTS, FLAG_MAX_LV, flagHpMul, flagUpgradeCost, type UnitDef,
+  STARTER_DEFENSES, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, GENERAL_EXTRA_COSTS, FLAG_MAX_LV, flagHpMul, flagUpgradeCost, INCOME_MAX_LV, incomeUpgradeCost, incomeUpgradeMul, type UnitDef,
 } from '../src/data/units';
 import { CHAPTERS, STATIONS, STATIONS_PER_MAP, stationLabel } from '../src/data/campaign';
+import {
+  EVENT_CHANCE, EVENT_TIME, FIRE_ZONE, GIANT_AT_HP, GIANT_AT_TIME, GIANT_MIN_TIME, GLOBAL_STATS, LIGHTNING, RANDOM_EVENTS, TERRAINS, WEATHERS,
+  eventParams, type Effect,
+} from '../src/data/terrain';
+import { STRINGS } from '../src/i18n/strings';
+import {
+  GENERAL_MAX_LEVEL, GENERAL_SKILLS, GSKILLS, SKILL_UNLOCK_LEVELS, enemyExtraCount, gskillParams,
+} from '../src/data/gskills';
+
+/** chuỗi tiếng Việt (có thay {tham số}) */
+const vi = (key: string, params: Record<string, string | number> = {}) =>
+  Object.entries(params).reduce((a, [k, v]) => a.split(`{${k}}`).join(String(v)), STRINGS.vi[key] ?? key);
+const effPct = (v: number) => `${v > 0 ? '+' : '−'}${Number((Math.abs(v) * 100).toFixed(1))}%`;
+const effText = (e: Effect) => vi(`eff.${e.stat}`, { who: GLOBAL_STATS.includes(e.stat) ? '' : vi(`who.${e.who}`), v: effPct(e.v) });
 import {
   BOSS_AT_HP, BOSS_AT_TIME, BOSS_FLAG_GUARD, BOUNTY_BOSS, BOUNTY_GENERAL, BOUNTY_TROOP, CAP_COSTS, CAP_INCOME_MUL, CAP_STEPS, LANE_COUNT,
   PLAYER_FLAG_HP, PLAYER_INCOME, PLAYER_START_GOLD,
@@ -330,7 +344,7 @@ function build() {
     `${pets.length} thú cưng (tab riêng trong Binh đoàn, xuất trận như lính) và ${beasts.length} loài quái thú xuất hiện ở phía địch (sói, lợn rừng, gấu, hổ, mãng xà, báo đen, tê giác, hỏa long).`,
     `${bosses.length} Boss: Đổng Trác, Đông Phương Bất Bại, Ngưu Ma Vương; mỗi trạm Boss chỉ có 1 lane, Boss xuất hiện gần cuối trận và rất trâu.`,
     'Số quân địch của mỗi trạm là cố định và tăng dần theo độ sâu của trạm; hạ quân địch được thưởng vàng; có thể nâng cấp giới hạn vàng để thả được nhiều quân hơn.',
-    'Hệ thống binh đoàn: mở khóa thẻ mới, nâng cấp tối đa 5 cấp, chọn bộ bài 6 thẻ (tối đa 2 tướng) và bộ đồ phòng thủ 3 món.',
+    'Hệ thống binh đoàn: mở khóa thẻ mới, nâng cấp (lính tối đa cấp 5, tướng tối đa cấp 20 và mở thêm kỹ năng), chọn bộ bài 6 thẻ (tối đa 2 tướng) và bộ đồ phòng thủ 3 món.',
     'Chấm 1–3 sao cho từng trạm, khuyến khích đánh lại để hoàn hảo.',
     'Đồ họa 2D vẽ hoàn toàn bằng code (PixiJS): nhân vật cel-shading, chiến trường liền mạch, bản đồ chiến dịch minh họa, hiệu ứng kỹ năng riêng cho từng chiêu.',
     'Mỗi tài khoản một game riêng (Firebase Auth + Firestore); chơi được trên laptop và điện thoại (tối ưu iPhone 15); hỗ trợ tiếng Việt / tiếng Anh.',
@@ -485,6 +499,76 @@ function build() {
     `Khi Boss còn sống, cờ địch chỉ nhận ${Math.round(BOSS_FLAG_GUARD * 100)}% sát thương: bắt buộc phải hạ Boss. Hạ gục Boss là chiến thắng ngay lập tức.`,
     'Boss có nhiều máu hơn hẳn tướng thường (3.150–3.450) và chiêu thức riêng (xem mục 11).',
   );
+  h2('3.10. Địa hình và thời tiết');
+  p('Mỗi trạm có một ĐỊA HÌNH (theo cảnh nền) và một THỜI TIẾT. Cả hai là hiệu ứng áp dụng cho CẢ HAI PHE: bảng thông tin trạm (và các huy hiệu ngay dưới đồng hồ trong trận) có các ô để bấm xem chi tiết, giúp bạn chọn đội hình phù hợp trước khi ra trận. Ví dụ trạm có tuyết rơi: mọi lính, tướng, thú đều chậm đi 15%, nên kỵ sĩ và ninja mất lợi thế tốc độ.');
+  table(
+    ['Địa hình', 'Hiệu ứng'],
+    (Object.keys(TERRAINS) as (keyof typeof TERRAINS)[]).map((id) => [`${TERRAINS[id].icon} ${vi(`terrain.${id}.name`)}`, TERRAINS[id].effects.map(effText).join('; ')]),
+    [2000, 7300],
+  );
+  table(
+    ['Thời tiết', 'Hiệu ứng'],
+    (Object.keys(WEATHERS) as (keyof typeof WEATHERS)[]).map((id) => {
+      const w = WEATHERS[id];
+      const parts = w.effects.map(effText);
+      if (w.event?.kind === 'lightning') parts.push(vi('weather.event.lightning', { n: w.event.every, warn: LIGHTNING.warn, dmg: LIGHTNING.damage, pct: Math.round(LIGHTNING.hpPct * 100), cap: LIGHTNING.cap, sec: LIGHTNING.stun }));
+      if (w.event?.kind === 'fireZone') parts.push(vi('weather.event.fireZone', { n: w.event.every, life: FIRE_ZONE.life, dps: FIRE_ZONE.dps }));
+      return [`${w.icon} ${vi(`weather.${id}.name`)}`, parts.length ? parts.join('; ') : 'Không có hiệu ứng'];
+    }),
+    [2000, 7300],
+  );
+  p('Ghi chú: "quân tầm xa" là quân có tầm bắn trên 70; sương mù/rừng/ban đêm chỉ thu hẹp tầm, không biến quân tầm xa thành cận chiến. Mất máu ở Núi lửa không gây chết (còn tối thiểu 10% máu tối đa). Sét và vùng cháy không cho vàng thưởng khi hạ quân.', { italic: true });
+  h2('3.11. Quái thú khổng lồ (trạm thứ 5 mỗi bản đồ)');
+  ul(
+    'Trạm thứ 5 của mỗi bản đồ (các trạm 1-5, 2-5, 3-5) có một quái thú khổng lồ của địch: Người Đá Khổng Lồ, Cự Mãng Ngàn Năm, Cổ Long Thiên Hỏa.',
+    `Nó xuất hiện gần cuối trận, ở lane địch đang bị ép nhất: khi cờ địch ở lane đó còn ≤ ${Math.round(GIANT_AT_HP * 100)}% máu, hoặc sau ${GIANT_AT_TIME} giây (không sớm hơn ${GIANT_MIN_TIME} giây). Có thông báo "XUẤT HIỆN!" trên màn hình. Nếu bạn thắng nhanh hơn, nó không kịp xuất hiện.`,
+    'Khác Boss: hạ nó không kết thúc trận và cờ địch không được bảo vệ, nhưng nó rất trâu nên cần dồn sát thương mạnh/xuyên giáp.',
+  );
+  table(
+    ['Quái khổng lồ', 'Trạm', 'Máu', 'Sát thương', 'Giáp', 'Kỹ năng'],
+    STATIONS.filter((x) => x.giantId).map((x) => {
+      const u = UNITS[x.giantId!];
+      return [u.name, stationLabel(x.id), String(u.hp), String(u.dmg), String(u.armor), `${u.skillName}: ${u.desc}`];
+    }),
+    [1700, 700, 700, 900, 700, 4600],
+  );
+  h2('3.12. Sự kiện ngẫu nhiên');
+  p(vi('env.eventChance', { lo: Math.round(EVENT_CHANCE[0] * 100), hi: Math.round(EVENT_CHANCE[1] * 100), from: EVENT_TIME[0], to: EVENT_TIME[1] }).replace(/:$/, '.') + ' Khi xảy ra sẽ có thông báo trên màn hình và một huy hiệu sự kiện cạnh huy hiệu địa hình/thời tiết.');
+  table(
+    ['Sự kiện', 'Ảnh hưởng'],
+    RANDOM_EVENTS.map((ev) => [`${ev.icon} ${vi(`event.${ev.id}.name`)}`, vi(`event.${ev.id}.desc`, eventParams(ev.id))]),
+    [2300, 7000],
+  );
+  h2('3.13. Cấp tướng và kỹ năng');
+  ul(
+    `Tướng nâng được tối đa cấp ${GENERAL_MAX_LEVEL} (lính, đồ phòng thủ, thú cưng vẫn tối đa cấp 5). Chỉ số tăng 12%/cấp đến cấp 5, từ cấp 6 tăng 5%/cấp: cấp 20 gấp khoảng ${levelMul(GENERAL_MAX_LEVEL).toFixed(2)} lần cấp 1. Giá nâng cấp tướng = 140 xu × cấp hiện tại.`,
+    `Mỗi tướng có tối đa ${SKILL_UNLOCK_LEVELS.length} kỹ năng: kỹ năng gốc có từ Lv1, cứ 4 cấp mở thêm 1 kỹ năng mới (Lv ${SKILL_UNLOCK_LEVELS.slice(1).join(', ')}). Thẻ tướng ở tab Binh đoàn hiển thị đủ 5 ô (ô chưa mở ghi cấp mở khóa); rê chuột/chạm vào ô để xem mô tả.`,
+    'Tôn Ngộ Không có 5 kỹ năng như các tướng khác (kỹ năng gốc Bảy Mươi Hai Phép Biến Hóa + 4 kỹ năng mở theo cấp) và thêm 1 KỸ NĂNG ĐẶC BIỆT là Phân Thân (luôn có sẵn, không tính vào 5 kỹ năng).',
+    `Tướng địch cũng có kỹ năng mở thêm tùy độ sâu của chiến dịch: ${[0, 7, 14, 21, 28].map((id) => `từ trạm ${id + 1}: ${enemyExtraCount(id)}`).join(', ')} kỹ năng mở thêm.`,
+  );
+  table(
+    ['Kỹ năng', 'Loại', 'Mô tả'],
+    (Object.keys(GSKILLS) as (keyof typeof GSKILLS)[]).map((id) => [
+      `${GSKILLS[id].icon} ${vi(`gskill.${id}.name`)}`, vi(GSKILLS[id].kind === 'active' ? 'gskill.active' : 'gskill.passive'), vi(`gskill.${id}.desc`, gskillParams(id)),
+    ]),
+    [1800, 1000, 6500],
+  );
+  table(
+    ['Tướng', 'Lv5', 'Lv9', 'Lv13', 'Lv17'],
+    Object.entries(GENERAL_SKILLS).map(([id, ks]) => [UNITS[id].name + (id === 'tonngokhong' ? ' (+ Phân Thân đặc biệt)' : ''), ...ks.map((k) => vi(`gskill.${k}.name`))]),
+    [2900, 1600, 1600, 1600, 1600],
+  );
+  h2('3.14. Đường nối lane');
+  ul(
+    'Một số trạm (không phải Boss) có ĐƯỜNG NỐI giữa hai lane kề nhau, vẽ thành một cây cầu gỗ trên chiến trường. Thông tin (lane nào nối lane nào, ở vị trí nào) hiện trong ô "Đường nối lane" của bảng thông tin trạm và bằng huy hiệu 🌉 trong trận.',
+    'Lính, tướng và thú của CẢ HAI PHE khi đi qua điểm nối có thể rẽ sang lane bên kia và tiếp tục chiến đấu ở đó (ưu tiên lane đang cần chi viện: địch đông hơn ta; nếu lane hiện tại không còn địch mà lane kia còn thì gần như chắc chắn rẽ). Quân vừa rẽ phải chờ vài giây mới rẽ lại; lane đã phân thắng bại thì không đi qua được.',
+    'Vì quân có thể đổ sang lane kề, đừng bỏ trống lane cạnh đường nối và nên đặt công trình phòng thủ ở cả hai lane.',
+  );
+  table(
+    ['Trạm', 'Tên', 'Nối', 'Vị trí'],
+    STATIONS.filter((x) => x.bridges.length).map((x) => [stationLabel(x.id), x.name, x.bridges.map((b) => `Lane ${b.a + 1} ↔ ${b.b + 1}`).join(', '), x.bridges.map((b) => `${Math.round(b.x / 10)}%`).join(', ')]),
+    [900, 3700, 2700, 2000],
+  );
   B.push({ k: 'break' });
 
   // 4
@@ -501,16 +585,18 @@ function build() {
   CHAPTERS.forEach((ch, ci) => {
     h2(`Bản đồ ${ci + 1}: ${ch.name} — ${ch.subtitle}`);
     table(
-      ['Trạm', 'Tên', 'Địa hình', 'Số quân', 'Sức mạnh', 'Thu nhập', 'Máu cờ', 'Thưởng'],
+      ['Trạm', 'Tên', 'Địa hình', 'Thời tiết', 'Số quân', 'Sức mạnh', 'Thu nhập', 'Máu cờ', 'Thưởng'],
       stationsOf(ci).map((s) => [
-        stationLabel(s.id), s.name + (s.boss ? ' (Boss)' : '') + (s.mod ? ` · ${MOD[s.mod]}` : ''), THEME[s.theme], String(s.units), `×${s.power}`, `${s.income}/s`, String(s.flagHp), `${s.reward} xu`,
+        stationLabel(s.id), s.name + (s.boss ? ' (Boss)' : '') + (s.mod ? ` · ${MOD[s.mod]}` : ''), THEME[s.theme], `${WEATHERS[s.weather].icon} ${vi(`weather.${s.weather}.name`)}`, String(s.units), `×${s.power}`, `${s.income}/s`, String(s.flagHp), `${s.reward} xu`,
       ]),
-      [750, 3350, 1200, 800, 900, 900, 750, 900],
+      [700, 2600, 1150, 1050, 750, 850, 850, 700, 900],
     );
     for (const s of stationsOf(ci)) {
       h3(`Trạm ${stationLabel(s.id)}: ${s.name} — ${s.subtitle}`);
       p(s.desc);
       const bd = s.bossId ? [UNITS[s.bossId].name] : [];
+      if (s.giantId) p(`Quái khổng lồ gần cuối trận: ${UNITS[s.giantId].name}`, { italic: true });
+      if (s.bridges.length) p(`Đường nối lane: ${s.bridges.map((b) => `Lane ${b.a + 1} ↔ ${b.b + 1}`).join(', ')}`, { italic: true });
       p(`Quân địch: ${[...bd, ...s.deck.map((id) => UNITS[id].name)].join(', ')}${s.defenses?.length ? ` · Công trình: ${s.defenses.map((id) => UNITS[id].name).join(', ')}` : ''}`, { italic: true });
     }
     B.push({ k: 'break' });
@@ -523,21 +609,23 @@ function build() {
   ul(
     `Bộ bài ra trận gồm tối đa ${DECK_SIZE} thẻ lính/tướng, trong đó tối đa ${MAX_GENERALS_IN_DECK} tướng; tối thiểu 1 thẻ. Bộ đồ phòng thủ riêng, tối đa ${DEFENSE_DECK_SIZE} món.`,
     'Mở khóa thẻ bằng xu (giá mỗi loại ở phần danh sách). Thẻ mới mở ở cấp 1. Tab Binh đoàn chia ba mục: Lính · Phòng thủ · Tướng.',
-    `Nâng cấp tối đa ${MAX_LEVEL} cấp: mỗi cấp tăng 12% máu và 12% sát thương (kể cả sát thương kỹ năng, hồi máu...) so với cấp 1. Cấp 5 = +48%.`,
+    `Nâng cấp tối đa ${MAX_LEVEL} cấp (riêng tướng tối đa ${GENERAL_MAX_LEVEL} cấp, xem mục 3.13): mỗi cấp tăng 12% máu và 12% sát thương (kể cả sát thương kỹ năng, hồi máu...) so với cấp 1. Cấp 5 = +48%; tướng từ cấp 6 tăng thêm 5%/cấp.`,
     'Giá nâng cấp: lính = 60 × cấp hiện tại; đồ phòng thủ = 70 × cấp; tướng = 140 × cấp (ví dụ lính từ cấp 2 lên 3 tốn 120 xu).',
     'Tab THÚ CƯNG: mở khóa/nâng cấp thú cưng bằng xu (giá nâng cấp 80 × cấp), chọn tối đa 2 thú mang vào trận (mở thêm ô thứ 3 với 500 xu). Thú cưng xuất trận như lính (tốn vàng trong trận); có sẵn Sói Bạc miễn phí.',
     'Ô BỘ BÀI và ô ĐỒ PHÒNG THỦ mở thêm bằng xu (xem bảng dưới): nhấn ô "+" viền vàng cuối hàng ô trong tab Binh đoàn.',
     'Rê chuột vào mọi nút nâng cấp/mở khóa trong tab Binh đoàn (thẻ, ô bộ bài, thành trì, số tướng) để xem chi tiết chỉ số tăng thêm: từ giá trị hiện tại → kế tiếp, chi phí và ghi chú.',
+    'Tab Binh đoàn chia thành các tab con: ĐỘI HÌNH (bộ bài, đồ phòng thủ, danh sách thẻ), THÀNH TRÌ, SẢN LƯỢNG VÀNG và SỐ TƯỚNG. Mỗi tab nâng cấp có bảng các cấp (hiệu quả và chi phí), cấp hiện tại được tô sáng.',
     'THÀNH TRÌ: nâng cấp máu cờ nhà bằng xu (mỗi cấp +12% máu, tối đa 10 cấp), áp dụng cho mọi trận.',
+    `SẢN LƯỢNG VÀNG: nâng cấp tốc độ sản xuất vàng trong trận bằng xu (mỗi cấp +${Math.round((incomeUpgradeMul(1) - 1) * 100)}% vàng/giây của bạn, tối đa ${INCOME_MAX_LV} cấp, giá ${incomeUpgradeCost(0)} xu × (cấp + 1)); nhân cùng nâng cấp kho vàng trong trận.`,
     'Trong trận, thẻ xếp theo thứ tự: lính | đồ phòng thủ | thú cưng | tướng; thẻ lính nền xanh, đồ phòng thủ nền nâu, thú cưng nền xanh ngọc, thẻ tướng nền đỏ thẫm viền vàng với chân dung lớn.',
   );
   table(
     ['Cấp', 'Hệ số máu/sát thương', 'Giá lên cấp (lính)', 'Giá lên cấp (phòng thủ)', 'Giá lên cấp (tướng)'],
-    [1, 2, 3, 4, 5].map((lv) => [
+    [1, 2, 3, 4, 5, 10, 15, 20].map((lv) => [
       String(lv), `×${levelMul(lv).toFixed(2)}`,
       lv < MAX_LEVEL ? `${upgradeCost(UNITS.samurai, lv)} xu` : '—',
       lv < MAX_LEVEL ? `${upgradeCost(UNITS.wall, lv)} xu` : '—',
-      lv < MAX_LEVEL ? `${upgradeCost(UNITS.duongqua, lv)} xu` : '—',
+      lv < GENERAL_MAX_LEVEL ? `${upgradeCost(UNITS.duongqua, lv)} xu` : '—',
     ]),
     [900, 2300, 2000, 2100, 2000],
   );

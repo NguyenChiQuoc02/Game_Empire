@@ -40,6 +40,8 @@ const STYLE: Record<string, Quad> = {
   baoden: { fur: 0x2c2c3a, belly: 0x40405a, len: 15, legH: 12, ear: 'point', snout: 8, headR: 8.5, tail: 'long', eye: 0xb6ff5a, gait: 16 },
   tegiac: { fur: 0x8c8c98, belly: 0xa8a8b4, len: 23, legH: 10, ear: 'round', snout: 6, headR: 11, tail: 'short', horn: 'rhino', gait: 7 },
   honglong: { fur: 0xc8402a, belly: 0xf0b45a, len: 17, legH: 10, ear: 'point', snout: 9, headR: 9.5, tail: 'long', eye: 0xffe066, horn: 'dragon', wings: 0x8a2a1a, gait: 9 },
+  culong: { fur: 0x5a2a6a, belly: 0xe89a4a, len: 26, legH: 12, ear: 'point', snout: 11, headR: 12, tail: 'long', eye: 0xffe066, horn: 'dragon', wings: 0x8a2a5a, gait: 7 },
+  longthan: { fur: 0xe8b830, belly: 0xfff0b0, len: 20, legH: 11, ear: 'point', snout: 10, headR: 11, tail: 'long', eye: 0x58e8ff, horn: 'dragon', wings: 0x3ec6a4, mane: 0xffffff, gait: 9 },
   // ── thú cưng (ta): dễ thương hơn, có khăn theo màu phe
   silverwolf: { fur: 0xdfe6f2, belly: 0xffffff, len: 13, legH: 11, ear: 'point', snout: 9, headR: 8.5, tail: 'long', eye: 0x58b8ff, scarf: true, gait: 16 },
   panda: { fur: 0xf6f6f4, len: 18, legH: 10, ear: 'round', snout: 6, headR: 11, tail: 'short', panda: true, scarf: true, gait: 8 },
@@ -48,11 +50,12 @@ const STYLE: Record<string, Quad> = {
   qilin: { fur: 0xc8f0dc, belly: 0xffffff, len: 15, legH: 14, ear: 'point', snout: 8, headR: 8.5, tail: 'long', eye: 0xff9acb, horn: 'qilin', mane: GOLD, scarf: true, gait: 12 },
 };
 
-export const hasBeastArt = (id: string) => id in STYLE || id === 'mangxa' || id === 'jadesnake';
+export const hasBeastArt = (id: string) => id in STYLE || id === 'mangxa' || id === 'jadesnake' || id === 'cumang';
 
 /** thú bốn chân, quay mặt sang phải */
 export function buildBeast(id: string, accent: number): ExtraArt {
   if (id === 'mangxa') return buildSnake(0x4a8a3a, 0xd8e8a0, accent, false);
+  if (id === 'cumang') return buildSnake(0x2e5a3c, 0xcfe39a, accent, false);
   if (id === 'jadesnake') return buildSnake(0x38c4a0, 0xf4ffe0, accent, true);
   const s = STYLE[id];
   const body = new Container();

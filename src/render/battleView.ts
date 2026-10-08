@@ -8,6 +8,7 @@ import { Vfx, textStyle } from './vfx';
 import { INK, ball, darker, g, lighter, mix, poly, rrect } from './draw';
 import { getLang, t, unitName } from '../i18n';
 import { UNITS } from '../data/units';
+import { RANDOM_EVENTS, eventParams } from '../data/terrain';
 
 const easeOutBack = (k: number) => {
   const c1 = 1.70158;
@@ -17,6 +18,10 @@ const easeOutBack = (k: number) => {
 
 interface UV {
   art: UnitArt;
+  /** lane đang chứa art (đổi khi quân rẽ qua đường nối) */
+  lane: number;
+  /** lane hiển thị (số thực): trượt mượt sang lane mới */
+  laneF: number;
   aura: Graphics;
   name?: Text;
   nameLang?: string;
@@ -59,6 +64,7 @@ export class BattleView {
   private views = new Map<number, UV>();
   private towers: TowerView[][] = [];
   private banners: Container[] = [];
+  private bridgeGs: Graphics[] = [];
   private bannerAge: number[] = [];
   private clock = 0;
   private dragging = false;
@@ -126,9 +132,9 @@ export class BattleView {
         if (!u.alive) continue;
         const v = this.views.get(u.uid);
         if (!v) continue;
-        const s = this.us * this.depth(u.lane);
+        const s = this.us * this.depth(v.laneF);
         const x = this.sx(u.x);
-        const y = this.gy(u.lane, u.yOff);
+        const y = this.gy(v.laneF, u.yOff);
         const halfW = 24 * u.def.scale * s;
         const hgt = v.art.height * s;
         if (px >= x - halfW && px <= x + halfW && py >= y - hgt && py <= y + 8 * s && y > bestY) {
@@ -144,8 +150,8 @@ export class BattleView {
   unitBox(u: UnitInst): { x: number; top: number; bottom: number } | null {
     const v = this.views.get(u.uid);
     if (!v) return null;
-    const s = this.us * this.depth(u.lane);
-    const y = this.gy(u.lane, u.yOff);
+    const s = this.us * this.depth(v.laneF);
+    const y = this.gy(v.laneF, u.yOff);
     // chừa chỗ cho thanh máu và tên tướng phía trên đầu
     const extra = (u.def.kind === 'troop' ? 16 : 30) * s;
     return { x: this.sx(u.x), top: y - v.art.height * s - extra, bottom: y + 8 * s };
@@ -212,7 +218,49 @@ export class BattleView {
       this.bannerAge.push(0);
     }
     for (const lane of this.battle.lanes) if (lane.winner !== null) this.showLaneBanner(lane.index, lane.winner);
+    this.bridgeGs = this.battle.bridges.map((b) => {
+      const bg = new Graphics();
+      this.drawBridge(bg, b.a, b.b, b.x);
+      this.towersLayer.addChild(bg);
+      return bg;
+    });
     this.root.position.set(0, 0);
+  }
+
+  /** cây cầu gỗ nối hai lane kề nhau tại vị trí x */
+  private drawBridge(bg: Graphics, a: number, b: number, x: number) {
+    const px = this.sx(x);
+    const w = 46 * this.us;
+    const y1 = this.gy(a, 0.5);
+    const y2 = this.gy(b, -0.5);
+    bg.zIndex = 0;
+    // bóng + mặt cầu
+    bg.roundRect(px - w / 2 - 3, y1 - 2, w + 6, y2 - y1 + 10, 6).fill({ color: 0x000000, alpha: 0.22 });
+    bg.roundRect(px - w / 2, y1 - 6, w, y2 - y1 + 10, 5).fill(0x8a5a32).stroke({ width: 2, color: 0x3a2412 });
+    const step = Math.max(6, 8 * this.us);
+    for (let yy = y1; yy < y2 + 2; yy += step) bg.moveTo(px - w / 2 + 2, yy).lineTo(px + w / 2 - 2, yy).stroke({ width: 1.2, color: 0x5a3a1c, alpha: 0.9 });
+    bg.rect(px - w / 2, y1 - 6, 4, y2 - y1 + 10).fill(0x5a3a1c);
+    bg.rect(px + w / 2 - 4, y1 - 6, 4, y2 - y1 + 10).fill(0x5a3a1c);
+    // cột đèn hai đầu cầu
+    for (const yy of [y1 - 6, y2 + 4]) {
+      for (const sx of [-1, 1]) {
+        bg.circle(px + sx * (w / 2 + 3), yy, 3.2 * this.us).fill(0xd23a2a).stroke({ width: 1, color: 0x3a2412 });
+      }
+    }
+    // mũi tên hai chiều
+    const my = (y1 + y2) / 2;
+    const ah = 6 * this.us;
+    bg.poly([px, my - ah * 1.7, px - ah, my - ah * 0.6, px + ah, my - ah * 0.6]).fill({ color: 0xffe9a8, alpha: 0.85 });
+    bg.poly([px, my + ah * 1.7, px - ah, my + ah * 0.6, px + ah, my + ah * 0.6]).fill({ color: 0xffe9a8, alpha: 0.85 });
+  }
+
+  private updateBridges() {
+    this.battle.bridges.forEach((b, i) => {
+      const bg = this.bridgeGs[i];
+      if (!bg) return;
+      const closed = this.battle.lanes[b.a].winner !== null || this.battle.lanes[b.b].winner !== null;
+      bg.alpha = closed ? 0.3 : 1;
+    });
   }
 
   // ───────────────────────── tháp canh kiểu chùa ─────────────────────────
@@ -346,6 +394,7 @@ export class BattleView {
     this.syncUnits(dt);
     this.syncTowers(dt);
     this.updateOverlays(dt);
+    this.updateBridges();
     this.vfx.update(dt);
     const sh = this.vfx.shake;
     if (sh > 0.1) this.root.position.set((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh);
@@ -356,8 +405,13 @@ export class BattleView {
     const evs = this.battle.events;
     for (const e of evs) {
       if (e.t === 'boss') {
-        this.showToast(t('hud.bossAppear', { name: unitName(UNITS[e.id]) }));
+        this.showToast(t(e.giant ? 'hud.giantAppear' : 'hud.bossAppear', { name: unitName(UNITS[e.id]) }));
         this.vfx.handle(e);
+      } else if (e.t === 'cross') {
+        this.vfx.dust(this.sx(e.x), this.gy(e.from, 0.5), 4, 0.9);
+      } else if (e.t === 'event') {
+        const ev = RANDOM_EVENTS.find((r) => r.id === e.id)!;
+        this.showToast(`${ev.icon} ${t(`event.${e.id}.name`)}: ${t(`event.${e.id}.short`, eventParams(e.id))}`);
       } else {
         if (e.t === 'laneEnd') this.showLaneBanner(e.lane, e.winner);
         this.vfx.handle(e);
@@ -376,6 +430,11 @@ export class BattleView {
           v = this.makeUnitView(u);
           this.views.set(u.uid, v);
           this.unitsC[lane.index].addChild(v.art.root);
+          v.lane = lane.index;
+        } else if (v.lane !== lane.index) {
+          // quân rẽ qua đường nối: chuyển sang lớp của lane mới (vị trí trượt mượt trong updateUnitView)
+          this.unitsC[lane.index].addChild(v.art.root);
+          v.lane = lane.index;
         }
         this.updateUnitView(v, u, dt);
       }
@@ -425,7 +484,7 @@ export class BattleView {
 
   private makeUnitView(u: UnitInst): UV {
     const art = buildUnitArt(u.def, u.side);
-    const v: UV = { art, aura: g(), formId: null, lastPct: -1, seed: u.uid * 0.77, born: this.clock, prevAtk: 0, swooshAt: 0, dustT: Math.random() * 0.2, lineT: 0 };
+    const v: UV = { art, lane: u.lane, laneF: u.lane, aura: g(), formId: null, lastPct: -1, seed: u.uid * 0.77, born: this.clock, prevAtk: 0, swooshAt: 0, dustT: Math.random() * 0.2, lineT: 0 };
     this.attachExtras(v, u);
     this.vfx.ring(this.sx(u.x), this.gy(u.lane, u.yOff), 24 * this.us * u.def.scale, SIDE_COLOR[u.side], 0.45, 2.5);
     v.art.root.scale.set(0.01);
@@ -436,10 +495,13 @@ export class BattleView {
     const formId = u.form ?? null;
     if (formId !== v.formId) this.swapForm(v, u, formId);
     const a = v.art;
-    const us = this.us * this.depth(u.lane);
+    const diff = u.lane - v.laneF;
+    const crossing = Math.abs(diff) > 0.001;
+    if (crossing) v.laneF += Math.sign(diff) * Math.min(Math.abs(diff), dt / 0.9);
+    const us = this.us * this.depth(v.laneF);
     const dir = u.side === 0 ? 1 : -1;
     const sxp = this.sx(u.x);
-    const y = this.gy(u.lane, u.yOff);
+    const y = this.gy(v.laneF, u.yOff);
     a.root.position.set(sxp, y);
     a.root.zIndex = y;
     if (v.name) {
@@ -456,7 +518,7 @@ export class BattleView {
     a.root.scale.set(Math.max(0.01, us * pop));
 
     const atk = u.attackAnim > 0 ? Math.max(0.001, Math.min(1, 1 - u.attackAnim / 0.3)) : 0;
-    a.update(this.clock + v.seed, u.moving, atk);
+    a.update(this.clock + v.seed, u.moving || crossing, atk);
 
     if (u.alive && u.attackAnim > v.prevAtk + 0.05 && (a.mode === 'swing' || a.mode === 'thrust')) {
       v.swooshAt = this.clock + (a.mode === 'swing' ? 0.09 : 0.05);

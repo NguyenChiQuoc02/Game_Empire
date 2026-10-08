@@ -5,17 +5,20 @@ import { getApp } from '../render/app';
 import { peekMapArt, renderMapArt, type MapSpec } from '../render/mapArt';
 import { CHAPTERS, STATIONS, STATIONS_PER_MAP, stationLabel, stationPos } from '../data/campaign';
 import {
-  DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, GENERAL_EXTRA_COSTS, PET_EXTRA_COSTS, PETS, DEFENSES, FLAG_MAX_LV, MAX_LEVEL, PLAYABLE, UNITS, flagHpMul, flagUpgradeCost, upgradeCost,
+  DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, GENERAL_EXTRA_COSTS, PET_EXTRA_COSTS, PETS, DEFENSES, FLAG_MAX_LV, INCOME_MAX_LV, PLAYABLE, UNITS, flagHpMul, flagUpgradeCost, incomeUpgradeCost, incomeUpgradeMul, upgradeCost,
   type UnitDef,
 } from '../data/units';
 import { deckSizeOf, defSizeOf, generalCapOf, petSizeOf } from '../backend/save';
-import { PLAYER_FLAG_HP } from '../game/sim';
+import { PLAYER_FLAG_HP, PLAYER_INCOME } from '../game/sim';
 import { DECK_SIZE, DEFENSE_DECK_SIZE, PET_DECK_SIZE, MAX_GENERALS_IN_DECK, levelMul } from '../data/units';
 import { mutate, state } from '../state';
 import { fmt, portrait, statLine, toast } from './common';
 import { openSettings } from './settings';
 import { openInbox } from './inbox';
 import { attachInfoTip, attachUnitTip, hideMapTip } from './tip';
+import { envPanel } from './env';
+import { maxLevelOf } from '../data/gskills';
+import { skillPanel, unlockAtNext } from './gskills';
 import { unread } from '../notices';
 import { rewardFor } from '../game/rewards';
 
@@ -23,6 +26,9 @@ type Tab = 'campaign' | 'army';
 let tab: Tab = 'campaign';
 let selected = -1;
 let armyFilter: 'troop' | 'defense' | 'pet' | 'general' = 'troop';
+/** tab con của Binh đoàn: đội hình hoặc từng loại nâng cấp */
+type ArmyTab = 'deck' | 'castle' | 'income' | 'general';
+let armyTab: ArmyTab = 'deck';
 
 /** Chọn sẵn một trạm khi quay lại màn chiến dịch */
 export function focusStation(i: number) {
@@ -229,6 +235,7 @@ function stationPanel(ctx: HomeCtx): HTMLElement {
       h('div', { class: 'sp-cond' }, h('i', { text: '🚩' }), h('span', { text: st.boss ? t('map.condBoss') : t('map.condLanes') })),
       h('div', { class: 'sp-label', text: t('map.stars') }),
       star(1, t('map.star1')), star(2, t('map.star2')), star(3, t('map.star3', { sec: st.fastSec }))),
+    envPanel(st),
     h('div', { class: 'sp-block sp-detail' },
       h('div', { class: 'sp-label', text: t('map.forces') }),
       h('div', { class: 'foes' }, ...foes.map((d) => {
@@ -282,9 +289,13 @@ function army(ctx: HomeCtx): HTMLElement {
   const extraDef = save.defSlots ?? 0;
   if (extraDef < DEF_EXTRA_COSTS.length) defSlots.append(slotBuy('defSlots', DEF_EXTRA_COSTS[extraDef], ctx));
   defSlots.style.setProperty('--cols', String(Math.min(defN + (extraDef < DEF_EXTRA_COSTS.length ? 1 : 0), 6)));
+  const tabBtn = (k: ArmyTab, ico: string, label: string) =>
+    h('button', { class: `pill${armyTab === k ? ' active' : ''}`, text: `${ico} ${label}`, attrs: { type: 'button' }, on: { click: () => { armyTab = k; ctx.redraw(); } } });
+  wrap.append(h('div', { class: 'pills army-tabs' }, tabBtn('deck', '🃏', t('army.tabDeck')), tabBtn('castle', '🏯', t('army.tabCastle')), tabBtn('income', '💰', t('army.tabIncome')), tabBtn('general', '👑', t('army.tabGen'))));
+  if (armyTab === 'castle') return wrap.appendChild(castlePanel(ctx)), wrap.appendChild(castleTable()), wrap;
+  if (armyTab === 'income') return wrap.appendChild(incomePanel(ctx)), wrap.appendChild(incomeTable()), wrap;
+  if (armyTab === 'general') return wrap.appendChild(generalCapPanel(ctx)), wrap.appendChild(generalCapTable()), wrap;
   wrap.append(
-    castlePanel(ctx),
-    generalCapPanel(ctx),
     h('h2', { class: 'section-title', text: t('army.deck') }),
     h('div', { class: 'deck' }, slots, h('div', { class: 'deck-info', text: t('army.deckInfo', { n: save.deck.length, max: deckN, g: gens, gmax: generalCapOf(save) }) })),
     h('h2', { class: 'section-title', text: t('army.defDeck') }),
@@ -388,13 +399,66 @@ function generalCapPanel(ctx: HomeCtx): HTMLElement {
   );
 }
 
+// ───────────── bảng các cấp của từng loại nâng cấp ─────────────
+const castleHp = (l: number) => Math.round(PLAYER_FLAG_HP * flagHpMul(l));
+const incomeRate = (l: number) => Number((PLAYER_INCOME * incomeUpgradeMul(l)).toFixed(2));
+
+/** bảng: mỗi dòng là một cấp (đã mua/hiện tại/chưa mua), cột giá trị và chi phí để lên cấp đó */
+function levelTable(rows: { value: string; cost: number | null }[], cur: number): HTMLElement {
+  return h('table', { class: 'lv-table' },
+    h('thead', {}, h('tr', {}, h('th', { text: t('army.colLevel') }), h('th', { text: t('army.colValue') }), h('th', { text: t('army.colCost') }))),
+    h('tbody', {}, ...rows.map((r, i) => h('tr', { class: i < cur ? 'done' : i === cur ? 'cur' : '' },
+      h('td', { text: String(i) }), h('td', { text: r.value }), h('td', { text: r.cost === null ? '—' : i <= cur ? '✔' : `🪙 ${fmt(r.cost)}` })))));
+}
+const castleTable = () => levelTable(Array.from({ length: FLAG_MAX_LV + 1 }, (_, l) => ({ value: `❤ ${castleHp(l)}`, cost: l ? flagUpgradeCost(l - 1) : null })), state.save!.flagLv ?? 0);
+const incomeTable = () => levelTable(Array.from({ length: INCOME_MAX_LV + 1 }, (_, l) => ({ value: `+${incomeRate(l)}/s`, cost: l ? incomeUpgradeCost(l - 1) : null })), state.save!.incomeLv ?? 0);
+const generalCapTable = () => levelTable(Array.from({ length: GENERAL_EXTRA_COSTS.length + 1 }, (_, l) => ({ value: t('army.genCapNow', { n: MAX_GENERALS_IN_DECK + l }), cost: l ? GENERAL_EXTRA_COSTS[l - 1] : null })), state.save!.genSlots ?? 0);
+
+/** nâng cấp tốc độ sản xuất vàng trong trận bằng xu */
+function incomePanel(ctx: HomeCtx): HTMLElement {
+  const save = state.save!;
+  const lv = save.incomeLv ?? 0;
+  const maxed = lv >= INCOME_MAX_LV;
+  const cost = incomeUpgradeCost(lv);
+  const rate = incomeRate;
+  const can = save.coins >= cost;
+  return h('section', { class: 'castle income' },
+    h('div', { class: 'castle-ico', text: '💰' }),
+    h('div', { class: 'castle-info' },
+      h('b', { text: t('army.income') }),
+      h('div', { class: 'castle-hp' }, h('span', { text: `+${rate(lv)}/s` }), maxed ? h('em', { text: t('army.castleMax') }) : h('em', { text: `→ +${rate(lv + 1)}/s` })),
+      h('div', { class: 'castle-bar' }, h('i', { attrs: { style: `width:${(lv / INCOME_MAX_LV) * 100}%` } })),
+      h('small', { text: t('army.castleLv', { lv, max: INCOME_MAX_LV }) + ' · ' + t('army.incomeNote') })),
+    attachInfoTip(h('button', {
+      class: `btn gold${maxed || !can ? ' disabled' : ''}`,
+      text: maxed ? t('army.maxLevel') : `⬆ ${t('army.upgrade')} · 🪙 ${fmt(cost)}`,
+      attrs: { type: 'button' },
+      on: {
+        click: () => {
+          if (maxed) return;
+          if (state.save!.coins < cost) return toast(t('army.needCoins'), 'error');
+          mutate((s) => { s.coins -= cost; s.incomeLv = (s.incomeLv ?? 0) + 1; }, true);
+          toast(t('army.incomeUp', { rate: rate(lv + 1) }), 'good');
+          ctx.redraw();
+        },
+      },
+    }), () => [
+      h('div', { class: 'tip-head' }, h('b', { text: `💰 ${t('army.income')}` }), h('em', { text: t('up.level', { a: lv, b: lv + 1 }) })),
+      maxed
+        ? h('div', { class: 'cap-max', text: t('up.maxedVal', { v: `+${rate(lv)}/s` }) })
+        : h('div', { class: 'up-body' }, upRow(t('hud.capIncome'), `+${rate(lv)} → +${rate(lv + 1)} /s`, 'up'), upRow(t('up.pct'), `+${Math.round((incomeUpgradeMul(lv + 1) / incomeUpgradeMul(lv) - 1) * 100)}%`, 'up'), costRow(cost)),
+      h('p', { class: 'cap-note', text: t('army.incomeNote') }),
+    ]),
+  );
+}
+
 /** nâng cấp máu thành trì (cờ nhà) bằng xu */
 function castlePanel(ctx: HomeCtx): HTMLElement {
   const save = state.save!;
   const lv = save.flagLv ?? 0;
   const maxed = lv >= FLAG_MAX_LV;
   const cost = flagUpgradeCost(lv);
-  const hp = (l: number) => Math.round(PLAYER_FLAG_HP * flagHpMul(l));
+  const hp = castleHp;
   const can = save.coins >= cost;
   return h('section', { class: 'castle' },
     h('div', { class: 'castle-ico', text: '🏯' }),
@@ -441,16 +505,18 @@ function scaledStats(d: UnitDef, mul: number): { key: string; icon: string; labe
 }
 
 function unitUpgradeTip(d: UnitDef, lv: number): HTMLElement[] {
-  const head = h('div', { class: 'tip-head' }, h('b', { text: `⬆ ${unitName(d)}` }), h('em', { text: lv >= MAX_LEVEL ? `Lv${lv} MAX` : `Lv${lv} → Lv${lv + 1}` }));
-  if (lv >= MAX_LEVEL) return [head, h('div', { class: 'cap-max', text: t('up.maxed', { n: lv }) })];
+  const maxLv = maxLevelOf(d);
+  const head = h('div', { class: 'tip-head' }, h('b', { text: `⬆ ${unitName(d)}` }), h('em', { text: lv >= maxLv ? `Lv${lv} MAX` : `Lv${lv} → Lv${lv + 1}` }));
+  if (lv >= maxLv) return [head, h('div', { class: 'cap-max', text: t('up.maxed', { n: lv }) })];
   const a = scaledStats(d, levelMul(lv));
   const b = scaledStats(d, levelMul(lv + 1));
   const rows = b.map((s, i) => upRow(`${s.icon} ${s.label}`, `${Math.round(a[i].val)} → ${Math.round(s.val)} (+${Math.round(s.val - a[i].val)})`, 'up'));
   return [
     head,
     h('div', { class: 'up-body' }, ...rows, upRow(t('up.pct'), `+${Math.round((levelMul(lv + 1) / levelMul(lv) - 1) * 100)}%`, 'up'), costRow(upgradeCost(d, lv))),
+    unlockAtNext(d, lv),
     h('p', { class: 'cap-note', text: t('up.skillNote') }),
-  ];
+  ].filter((x): x is HTMLElement => !!x);
 }
 
 function unitUnlockTip(d: UnitDef): HTMLElement[] {
@@ -489,7 +555,7 @@ function unitCard(d: UnitDef, ctx: HomeCtx): HTMLElement {
       }), () => unitUnlockTip(d)),
     );
   } else {
-    const maxed = lv >= MAX_LEVEL;
+    const maxed = lv >= maxLevelOf(d);
     const cost = upgradeCost(d, lv);
     actions.append(
       h('button', { class: `btn ${inDeck ? 'ghost' : 'primary'}`, text: inDeck ? t('army.remove') : t('army.add'), attrs: { type: 'button' }, on: { click: () => toggleDeck(d, ctx) } }),
@@ -518,10 +584,11 @@ function unitCard(d: UnitDef, ctx: HomeCtx): HTMLElement {
         h('b', { text: unitName(d) }),
         h('div', { class: 'u-badges' },
           h('span', { class: 'badge cost', text: `💰 ${d.cost}` }),
-          owned ? h('span', { class: 'badge lv', text: `Lv ${lv}` }) : h('span', { class: 'badge', text: `🔒` }),
+          owned ? h('span', { class: 'badge lv', text: d.kind === 'general' ? `Lv ${lv}/${maxLevelOf(d)}` : `Lv ${lv}` }) : h('span', { class: 'badge', text: `🔒` }),
           inDeck ? h('span', { class: 'badge deck', text: t('army.inDeck') }) : null))),
     statLine(d, lv ?? 1),
     h('div', { class: 'u-skill' }, h('b', { text: unitSkill(d) }), h('span', { text: unitDesc(d) })),
+    skillPanel(d, lv),
     actions,
   );
 }

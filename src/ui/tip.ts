@@ -1,6 +1,7 @@
 import { h } from './dom';
 import { t, unitDesc, unitName, unitSkill } from '../i18n';
 import { type UnitDef } from '../data/units';
+import { GSKILLS, type GSkillId } from '../data/gskills';
 
 // ───────────────────────── nội dung tooltip (quân trên chiến trường và thẻ bài) ─────────────────────────
 export interface TipData {
@@ -15,6 +16,8 @@ export interface TipData {
   cd: number;
   pow: number;
   level?: number;
+  /** kỹ năng mở thêm của tướng */
+  gs?: GSkillId[];
 }
 
 export function tipBody(d: TipData): HTMLElement[] {
@@ -45,7 +48,8 @@ export function tipBody(d: TipData): HTMLElement[] {
     h('div', { class: 'tip-hp' }, h('span', { text: `❤ ${Math.ceil(d.hp)} / ${Math.ceil(d.maxHp)}` }), h('span', { class: 'bar' }, h('i', { attrs: { style: `width:${pct * 100}%` } }))),
     h('div', { class: 'tip-stats' }, ...stats),
     h('div', { class: 'tip-skill' }, h('b', { text: `✦ ${unitSkill(def)}` }), h('p', { text: unitDesc(def) })),
-  ];
+    d.gs?.length ? h('div', { class: 'tip-gs' }, ...d.gs.map((id) => h('span', { class: 'tg', text: `${GSKILLS[id].icon} ${t(`gskill.${id}.name`)}` }))) : null,
+  ].filter((x): x is HTMLDivElement => !!x);
 }
 
 

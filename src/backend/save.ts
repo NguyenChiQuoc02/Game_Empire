@@ -1,5 +1,6 @@
-import { STARTERS, STARTER_DEFENSES, STARTER_PETS, DECK_SIZE, DEFENSE_DECK_SIZE, PET_DECK_SIZE, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, PET_EXTRA_COSTS, GENERAL_EXTRA_COSTS, MAX_GENERALS_IN_DECK, FLAG_MAX_LV, UNITS } from '../data/units';
+import { STARTERS, STARTER_DEFENSES, STARTER_PETS, DECK_SIZE, DEFENSE_DECK_SIZE, PET_DECK_SIZE, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, PET_EXTRA_COSTS, GENERAL_EXTRA_COSTS, MAX_GENERALS_IN_DECK, FLAG_MAX_LV, INCOME_MAX_LV, UNITS } from '../data/units';
 import { STATIONS } from '../data/campaign';
+import { maxLevelOf } from '../data/gskills';
 import type { SaveData } from './types';
 
 /** v2: bố cục 3 bản đồ x 10 trạm (tiến trình trạm của bản cũ không còn khớp nên được đặt lại) */
@@ -34,6 +35,7 @@ export function newSave(name: string): SaveData {
     petSlots: 0,
     genSlots: 0,
     flagLv: 0,
+    incomeLv: 0,
     sv: STATION_LAYOUT_VERSION,
   };
 }
@@ -45,7 +47,7 @@ export function normalizeSave(raw: Partial<SaveData> | null, name: string): Save
   const unlocked: Record<string, number> = {};
   for (const [id, lv] of Object.entries(raw.unlocked ?? base.unlocked)) {
     const k = UNITS[id]?.kind;
-    if (k === 'troop' || k === 'general' || k === 'defense' || k === 'pet') unlocked[id] = Math.max(1, Math.min(5, Number(lv) || 1));
+    if (k === 'troop' || k === 'general' || k === 'defense' || k === 'pet') unlocked[id] = Math.max(1, Math.min(maxLevelOf(UNITS[id]), Number(lv) || 1));
   }
   for (const id of [...STARTERS, ...STARTER_DEFENSES, ...STARTER_PETS]) unlocked[id] ??= 1;
   const clampInt = (v: unknown, hi: number) => Math.max(0, Math.min(hi, Math.floor(Number(v) || 0)));
@@ -79,6 +81,7 @@ export function normalizeSave(raw: Partial<SaveData> | null, name: string): Save
     petSlots,
     genSlots,
     flagLv: clampInt(raw.flagLv, FLAG_MAX_LV),
+    incomeLv: clampInt(raw.incomeLv, INCOME_MAX_LV),
     sv: STATION_LAYOUT_VERSION,
   };
 }
@@ -107,6 +110,7 @@ export function mergeSaves(remote: SaveData, local: SaveData, baseCoins: number)
       deckSlots: Math.max(remote.deckSlots ?? 0, local.deckSlots ?? 0),
       defSlots: Math.max(remote.defSlots ?? 0, local.defSlots ?? 0),
       flagLv: Math.max(remote.flagLv ?? 0, local.flagLv ?? 0),
+      incomeLv: Math.max(remote.incomeLv ?? 0, local.incomeLv ?? 0),
       wins: Math.max(remote.wins, local.wins),
       losses: Math.max(remote.losses, local.losses),
       updatedAt: Math.max(remote.updatedAt, local.updatedAt),

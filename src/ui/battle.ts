@@ -11,6 +11,8 @@ import { langSwitch, openModal, portrait, toast, fmt, type Modal } from './commo
 import { faceUrl, iconUrl } from '../render/icons';
 import { rewardFor, starsFor } from '../game/rewards';
 import { tipBody } from './tip';
+import { envBadges } from './env';
+import { extraSkillsAt } from '../data/gskills';
 import { generalCapOf } from '../backend/save';
 
 export type ExitAction = 'menu' | 'retry' | 'next';
@@ -36,6 +38,8 @@ export class BattleScreen {
   private speed = 1;
   private speedBtns: HTMLElement[] = [];
   private genBadge: HTMLElement | null = null;
+  private badges: ReturnType<typeof envBadges> | null = null;
+  private eventBadged = false;
   private lastW = 0;
   private lastH = 0;
   private mq = window.matchMedia('(max-width: 760px), (max-height: 520px)');
@@ -74,7 +78,7 @@ export class BattleScreen {
       ...(save.petDeck ?? []).filter((id) => UNITS[id]?.kind === 'pet'),
       ...save.deck.filter((id) => UNITS[id]?.kind === 'general'),
     ];
-    this.battle = new Battle({ station: this.station, levels: { ...save.unlocked }, flagLevel: save.flagLv ?? 0, generalCap: generalCapOf(save) });
+    this.battle = new Battle({ station: this.station, levels: { ...save.unlocked }, flagLevel: save.flagLv ?? 0, incomeLevel: save.incomeLv ?? 0, generalCap: generalCapOf(save) });
     this.ai = new EnemyAI(this.battle, this.station.deck);
     this.view = new BattleView(app, this.battle, this.station);
 
@@ -82,7 +86,7 @@ export class BattleScreen {
     if (import.meta.env.DEV) (window as unknown as { __empire?: unknown }).__empire = { battle: this.battle, view: this.view, screen: this };
 
     this.screen.append(this.field, this.handHost, this.cardTip);
-    this.field.append(app.canvas, this.hudHost, this.tip);
+    this.field.append(app.canvas, h('div', { class: `weather-fx wx-${this.station.weather} tx-${this.station.theme}` }), this.hudHost, this.tip);
     this.root.replaceChildren(this.screen);
     this.buildUi();
 
@@ -170,6 +174,9 @@ export class BattleScreen {
             h('div', { class: 'foe-left', attrs: { title: t('hud.foeLeft') } }, h('i', { text: '☠' }), foeLeft)),
           this.face(enemyId, 1, 'enemy'))),
     );
+    this.badges = envBadges(st);
+    this.eventBadged = false;
+    this.hudHost.append(this.badges.el);
 
     const capText = h('small', { class: 'cap', text: '/100' });
     const capCost = h('b', { text: '' });
@@ -184,7 +191,7 @@ export class BattleScreen {
     capBtn.addEventListener('blur', () => this.hideCardTip());
     const gold = h('b', { text: '0' });
     const goldBar = h('div', { class: 'gold-fill' });
-    const income = h('small', { text: `+${PLAYER_INCOME}/s` });
+    const income = h('small', { text: `+${Number((PLAYER_INCOME * this.battle.incomeMul).toFixed(2))}/s` });
     const goldRow = h('div', { class: 'gold-box' },
       h('span', { class: 'coin' }),
       h('div', { class: 'gold-num' }, gold, income),
@@ -269,13 +276,17 @@ export class BattleScreen {
     e.gold!.textContent = String(Math.floor(b.gold[0]));
     e.goldBar!.style.width = `${Math.min(100, (b.gold[0] / cap) * 100)}%`;
     e.capText!.textContent = `/${cap}`;
-    e.income!.textContent = `+${Number(b.income[0].toFixed(2))}/s`;
+    e.income!.textContent = b.goldBoostT > 0 ? `+${Number((b.income[0] * 2).toFixed(2))}/s 💰${Math.ceil(b.goldBoostT)}s` : `+${Number(b.income[0].toFixed(2))}/s`;
     const upCost = b.capUpgradeCost();
     e.capCost!.textContent = upCost === null ? 'MAX' : String(upCost);
     e.capLv!.textContent = t('hud.capLv', { n: b.capLevel + 1 });
     e.capBtn!.classList.toggle('max', upCost === null);
     e.capBtn!.classList.toggle('poor', upCost !== null && b.gold[0] < upCost);
     e.foeLeft!.textContent = String(b.enemyLeft + b.enemyAlive);
+    if (b.eventFired && !this.eventBadged && this.badges) {
+      this.eventBadged = true;
+      this.badges.addEvent(b.randomEvent!);
+    }
     if (this.genBadge) this.genBadge.textContent = `👑 ${b.generalsAlive(0)}/${b.cfg.generalCap ?? 0}`;
     // trạng thái thẻ (chỉ cập nhật DOM khi đổi)
     const st = this.deck.map((id) => {
@@ -492,7 +503,7 @@ export class BattleScreen {
       tip.className = `unit-tip ${u.side === 0 ? 'ally' : 'foe'} ${u.def.kind}`;
       tip.replaceChildren(...tipBody({
         def: u.def, side: u.side, hp: u.hp, maxHp: u.maxHp, dmg: u.dmg, armor: u.armor, speed: u.speed, range: u.range, cd: u.cd, pow: u.pow,
-        level: u.side === 0 ? state.save?.unlocked[u.def.id] : undefined,
+        level: u.side === 0 ? state.save?.unlocked[u.def.id] : undefined, gs: u.gs,
       }));
     }
     tip.style.display = 'block';
@@ -515,7 +526,7 @@ export class BattleScreen {
     const m = levelMul(lv);
     const tip = this.cardTip;
     tip.className = `unit-tip card-tip ${d.kind === 'general' ? 'ally general' : 'ally'}`;
-    tip.replaceChildren(...tipBody({ def: d, side: 0, hp: d.hp * m, maxHp: d.hp * m, dmg: d.dmg * m, armor: d.armor, speed: d.speed, range: d.range, cd: d.cd, pow: m, level: lv }));
+    tip.replaceChildren(...tipBody({ def: d, side: 0, hp: d.hp * m, maxHp: d.hp * m, dmg: d.dmg * m, armor: d.armor, speed: d.speed, range: d.range, cd: d.cd, pow: m, level: lv, gs: d.kind === 'general' ? extraSkillsAt(id, lv) : undefined }));
     tip.style.display = 'block';
     const sr = this.screen.getBoundingClientRect();
     const cr = card.getBoundingClientRect();
@@ -543,7 +554,7 @@ export class BattleScreen {
         ? h('div', { class: 'cap-max', text: t('hud.capMaxInfo', { cap: cur }) })
         : h('div', { class: 'cap-body' },
           row(t('hud.capGold'), `${cur} → ${next}  (+${next - cur})`, 'up'),
-          row(t('hud.capIncome'), `${Number((PLAYER_INCOME * CAP_INCOME_MUL[lv]).toFixed(2))} → ${Number((PLAYER_INCOME * CAP_INCOME_MUL[lv + 1]).toFixed(2))} /s`, 'up'),
+          row(t('hud.capIncome'), `${Number((PLAYER_INCOME * b.incomeMul * CAP_INCOME_MUL[lv]).toFixed(2))} → ${Number((PLAYER_INCOME * b.incomeMul * CAP_INCOME_MUL[lv + 1]).toFixed(2))} /s`, 'up'),
           row(t('hud.capCost'), t('hud.capCostVal', { n: cost! }), b.gold[0] >= cost! ? 'ok' : 'poor')),
       steps,
       h('p', { class: 'cap-note', text: t('hud.capNote') }),

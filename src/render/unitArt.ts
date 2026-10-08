@@ -75,6 +75,8 @@ const STYLES: Record<string, Style> = {
   truongvoky: { skin: SK, cloth: 0xeaf0ff, pants: 0x3a4a8a, armor: 0xf0c85a, hat: 'topknot', hatColor: 0x1d1a2a, weapon: 'sword', wc: 0xffe27a, cape: true },
   auduongphong: { skin: 0xe0c8a0, cloth: 0x5a8a3a, pants: 0x2a4a22, armor: 0xb0c850, hat: 'band', hatColor: 0xe8e8e8, weapon: 'snakestaff', beard: { color: 0xeeeeee, len: 12 }, cape: true },
   dongphuongbatbai: { skin: 0xf6dcc8, cloth: 0xc02a3a, pants: 0x4a1020, armor: 0xe84a5a, hat: 'bun', hatColor: 0x1a1a22, weapon: 'needle', wc: 0xffb0c8, cape: true, boss: true, bulk: 1.1 },
+  nguoida: { skin: 0x9aa0a8, cloth: 0x7a808a, pants: 0x5e646e, armor: 0x8a909a, hat: 'bald', hatColor: 0x9aa0a8, weapon: 'fist', wc: 0xc8ccd4, bulk: 1.65 },
+  quybinh: { skin: 0xcfd8e8, cloth: 0x3a2a55, pants: 0x241a38, armor: 0x5a4a80, hat: 'horns', hatColor: 0x9a8ac0, weapon: 'cleaver' },
   nguumavuong: { skin: 0x8a5a3a, cloth: 0x7a2018, pants: 0x3a1010, armor: 0xc03a28, hat: 'bullhorns', hatColor: 0xf0e0b8, weapon: 'axe', beard: { color: 0x2a1410, len: 6 }, cape: true, boss: true, bulk: 1.5 },
 };
 
@@ -755,7 +757,8 @@ export function buildUnitArt(def: UnitDef, side: Side, withSquad = false): UnitA
   const sc = def.scale;
   const root = new Container();
   const art = new Container();
-  const elite = def.kind === 'general' || def.kind === 'boss';
+  const giant = !!def.tags?.includes('giant');
+  const elite = def.kind === 'general' || def.kind === 'boss' || giant;
 
   const base = g();
   base.ellipse(0, 1.5, 21 * sc, 6 * sc).fill({ color: 0x000000, alpha: 0.34 });
@@ -763,7 +766,7 @@ export function buildUnitArt(def: UnitDef, side: Side, withSquad = false): UnitA
   base.ellipse(0, 1.5, 17 * sc, 4.8 * sc).fill({ color: accent, alpha: 0.2 });
   base.ellipse(0, 1.5, 17 * sc, 4.8 * sc).stroke({ width: 2, color: accent, alpha: 0.9 });
   if (elite) {
-    const c = def.kind === 'boss' ? 0xff4d4d : GOLD;
+    const c = def.kind === 'boss' || giant ? 0xff4d4d : GOLD;
     base.ellipse(0, 1.5, 25 * sc, 7.4 * sc).stroke({ width: 2.2, color: c, alpha: 0.95 });
     base.ellipse(0, 1.5, 25 * sc, 7.4 * sc).fill({ color: c, alpha: 0.12 });
   }

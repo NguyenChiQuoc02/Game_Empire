@@ -1,3 +1,5 @@
+import type { WeatherId } from './terrain';
+
 export type StationTheme =
   | 'plains' | 'bamboo' | 'stone' | 'castle' | 'throne'
   | 'sea' | 'snow' | 'desert' | 'heaven' | 'volcano' | 'night';
@@ -7,6 +9,14 @@ export type StationMod = 'armored' | 'quick' | 'swarm';
 
 /** số trạm của mỗi bản đồ (trạm cuối là Boss) */
 export const STATIONS_PER_MAP = 10;
+
+/** đường nối hai lane kề nhau: quân đi qua vị trí `x` (0..1000) có thể rẽ sang lane bên kia */
+export interface Bridge {
+  /** chỉ số lane (0-based), b = a + 1 */
+  a: number;
+  b: number;
+  x: number;
+}
 
 export interface Station {
   /** chỉ số toàn cục (0..29) */
@@ -35,6 +45,12 @@ export interface Station {
   fastSec: number;
   mod?: StationMod;
   theme: StationTheme;
+  /** thời tiết của trạm (địa hình lấy theo `theme`, xem data/terrain.ts) */
+  weather: WeatherId;
+  /** quái thú khổng lồ xuất hiện gần cuối trận (trạm thứ 5 của mỗi bản đồ) */
+  giantId?: string;
+  /** đường nối giữa các lane (một số trạm) */
+  bridges: Bridge[];
   desc: string;
 }
 
@@ -104,10 +120,28 @@ const MAP3: Def[] = [
 
 const MAPS: Def[][] = [MAP1, MAP2, MAP3];
 
+/** thời tiết từng trạm của mỗi bản đồ */
+const WEATHER_PLAN: WeatherId[][] = [
+  ['sunny', 'rain', 'thunder', 'sunny', 'fog', 'fireRain', 'sunny', 'thunder', 'rain', 'sunny'],
+  ['rain', 'fog', 'sunny', 'fog', 'thunder', 'sunny', 'rain', 'sunny', 'fog', 'thunder'],
+  ['sunny', 'thunder', 'fog', 'fireRain', 'sunny', 'thunder', 'fog', 'sunny', 'thunder', 'fireRain'],
+];
+/** trạm có đường nối lane (id toàn cục → [lane a, lane b, vị trí x]): rải đều các bản đồ, không có ở trạm Boss/quái khổng lồ */
+const BRIDGE_PLAN: Record<number, [number, number, number]> = {
+  2: [0, 1, 520], 6: [1, 2, 480], 8: [0, 1, 500],
+  11: [1, 2, 500], 13: [0, 1, 460], 16: [0, 1, 540], 18: [1, 2, 500],
+  21: [0, 1, 500], 23: [1, 2, 460], 25: [1, 2, 540], 26: [0, 1, 500], 28: [0, 1, 480],
+};
+/** quái thú khổng lồ của mỗi bản đồ (xuất hiện ở trạm thứ 5) */
+export const GIANT_STATION = 4;
+const GIANTS = ['nguoida', 'cumang', 'culong'];
+
 /** hệ số sức mạnh / thu nhập địch theo bản đồ (bắt đầu, bước mỗi trạm) */
 const POWER: [number, number][] = [[1.0, 0.027], [1.2, 0.024], [1.3, 0.017]];
 const INCOME: [number, number][] = [[1.9, 0.17], [3.1, 0.1], [3.8, 0.08]];
 const BOSS_POWER = [1.04, 1.04, 0.95];
+/** hệ số vàng/giây của địch (giảm để địch ra quân chậm lại một chút) */
+const ENEMY_INCOME_SCALE = 0.9;
 
 export const STATIONS: Station[] = MAPS.flatMap((defs, ch) =>
   defs.map((d, j): Station => {
@@ -117,8 +151,11 @@ export const STATIONS: Station[] = MAPS.flatMap((defs, ch) =>
     return {
       id, chapter: ch, name: d.name, subtitle: d.subtitle, boss, bossId: d.bossId,
       deck: d.deck, mod: d.mod, defenses: d.defenses, theme: d.theme, desc: d.desc,
+      weather: WEATHER_PLAN[ch][j],
+      giantId: j === GIANT_STATION ? GIANTS[ch] : undefined,
+      bridges: BRIDGE_PLAN[id] ? [{ a: BRIDGE_PLAN[id][0], b: BRIDGE_PLAN[id][1], x: BRIDGE_PLAN[id][2] }] : [],
       power: Math.round((boss ? BOSS_POWER[ch] : POWER[ch][0] + POWER[ch][1] * j) * 100) / 100,
-      income: Math.round((INCOME[ch][0] + INCOME[ch][1] * j) * 10) / 10,
+      income: Math.round((INCOME[ch][0] + INCOME[ch][1] * j) * ENEMY_INCOME_SCALE * 100) / 100,
       flagHp: Math.round((340 + 33 * id) * (boss ? 1.15 : 1) / 10) * 10,
       units: Math.round(boss ? (10 + 1.5 * id) * 0.62 + 2 : 10 + 1.5 * id),
       reward: Math.round(((100 + 30 * id) * (boss ? 1.8 : 1)) / 10) * 10,
