@@ -1,4 +1,4 @@
-import { STARTERS, STARTER_DEFENSES, STARTER_PETS, DECK_SIZE, DEFENSE_DECK_SIZE, PET_DECK_SIZE, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, PET_EXTRA_COSTS, GENERAL_EXTRA_COSTS, MAX_GENERALS_IN_DECK, INCOME_MAX_LV, UNITS } from '../data/units';
+import { STARTERS, STARTER_DEFENSES, STARTER_PETS, STARTER_POSTS, POST_DECK_SIZE, isPost, DECK_SIZE, DEFENSE_DECK_SIZE, PET_DECK_SIZE, DECK_EXTRA_COSTS, DEF_EXTRA_COSTS, PET_EXTRA_COSTS, GENERAL_EXTRA_COSTS, MAX_GENERALS_IN_DECK, INCOME_MAX_LV, UNITS } from '../data/units';
 import { STATIONS } from '../data/campaign';
 import { maxLevelOf } from '../data/gskills';
 import { SIEGE_WAVE_COUNT } from '../data/siege';
@@ -16,7 +16,7 @@ export const petSizeOf = (s: Pick<SaveData, 'petSlots'>) => PET_DECK_SIZE + (s.p
 
 export function newSave(name: string): SaveData {
   const unlocked: Record<string, number> = {};
-  for (const id of [...STARTERS, ...STARTER_DEFENSES, ...STARTER_PETS]) unlocked[id] = 1;
+  for (const id of [...STARTERS, ...STARTER_DEFENSES, ...STARTER_PETS, ...STARTER_POSTS]) unlocked[id] = 1;
   return {
     v: 1,
     name,
@@ -25,6 +25,7 @@ export function newSave(name: string): SaveData {
     deck: [...STARTERS].slice(0, DECK_SIZE),
     defDeck: [...STARTER_DEFENSES].slice(0, DEFENSE_DECK_SIZE),
     petDeck: [...STARTER_PETS].slice(0, PET_DECK_SIZE),
+    postDeck: [...STARTER_POSTS].slice(0, POST_DECK_SIZE),
     progress: 0,
     cleared: STATIONS.map(() => false),
     stars: STATIONS.map(() => 0),
@@ -53,18 +54,22 @@ export function normalizeSave(raw: Partial<SaveData> | null, name: string): Save
     const k = UNITS[id]?.kind;
     if (k === 'troop' || k === 'general' || k === 'defense' || k === 'pet') unlocked[id] = Math.max(1, Math.min(maxLevelOf(UNITS[id]), Math.floor(Number(lv)) || 1));
   }
-  for (const id of [...STARTERS, ...STARTER_DEFENSES, ...STARTER_PETS]) unlocked[id] ??= 1;
+  for (const id of [...STARTERS, ...STARTER_DEFENSES, ...STARTER_PETS, ...STARTER_POSTS]) unlocked[id] ??= 1;
   const clampInt = (v: unknown, hi: number) => Math.max(0, Math.min(hi, Math.floor(Number(v) || 0)));
   const deckSlots = clampInt(raw.deckSlots, DECK_EXTRA_COSTS.length);
   const defSlots = clampInt(raw.defSlots, DEF_EXTRA_COSTS.length);
   const petSlots = clampInt(raw.petSlots, PET_EXTRA_COSTS.length);
   const genSlots = clampInt(raw.genSlots, GENERAL_EXTRA_COSTS.length);
   const petDeck = (raw.petDeck ?? base.petDeck ?? []).filter((id, i, a) => unlocked[id] && UNITS[id]?.kind === 'pet' && a.indexOf(id) === i).slice(0, PET_DECK_SIZE + petSlots);
+  const postDeck = (raw.postDeck ?? base.postDeck ?? []).filter((id, i, a) => unlocked[id] && UNITS[id] && isPost(UNITS[id]) && a.indexOf(id) === i).slice(0, POST_DECK_SIZE);
   const deck = (raw.deck ?? base.deck).filter((id, i, a) => unlocked[id] && UNITS[id]?.kind !== 'defense' && a.indexOf(id) === i).slice(0, DECK_SIZE + deckSlots);
-  const defDeck = (raw.defDeck ?? base.defDeck).filter((id, i, a) => unlocked[id] && UNITS[id]?.kind === 'defense' && a.indexOf(id) === i).slice(0, DEFENSE_DECK_SIZE + defSlots);
+  const defDeck = (raw.defDeck ?? base.defDeck).filter((id, i, a) => unlocked[id] && UNITS[id]?.kind === 'defense' && !isPost(UNITS[id]) && a.indexOf(id) === i).slice(0, DEFENSE_DECK_SIZE + defSlots);
   // save cũ (trước v2) có bố cục trạm khác: giữ xu/thẻ/bộ bài, đặt lại tiến trình trạm
   const legacy = (raw.sv ?? 1) < STATION_LAYOUT_VERSION;
   const cleared = STATIONS.map((_, i) => !legacy && !!raw.cleared?.[i]);
+  // trạm mới thêm sau trạm đã thắng: mở khóa tiếp (progress cũ dừng ở trạm cuối cũ)
+  let unlockedTo = legacy ? 0 : Math.max(0, Math.min(STATIONS.length - 1, Number(raw.progress) || 0));
+  while (cleared[unlockedTo] && unlockedTo < STATIONS.length - 1) unlockedTo++;
   return {
     v: 1,
     name: raw.name || name,
@@ -73,7 +78,8 @@ export function normalizeSave(raw: Partial<SaveData> | null, name: string): Save
     deck: deck.length ? deck : base.deck,
     defDeck,
     petDeck,
-    progress: legacy ? 0 : Math.max(0, Math.min(STATIONS.length - 1, Number(raw.progress) || 0)),
+    postDeck,
+    progress: unlockedTo,
     cleared,
     stars: STATIONS.map((_, i) => (legacy ? 0 : Math.max(0, Math.min(3, Number(raw.stars?.[i]) || (cleared[i] ? 1 : 0))))),
     wins: Number(raw.wins) || 0,
@@ -108,6 +114,7 @@ export function mergeSaves(remote: SaveData, local: SaveData, baseCoins: number)
       deck: local.deck.filter((id) => unlocked[id]),
       defDeck: local.defDeck.filter((id) => unlocked[id]),
       petDeck: (local.petDeck ?? []).filter((id) => unlocked[id]),
+      postDeck: (local.postDeck ?? []).filter((id) => unlocked[id]),
       petSlots: Math.max(remote.petSlots ?? 0, local.petSlots ?? 0),
       genSlots: Math.max(remote.genSlots ?? 0, local.genSlots ?? 0),
       coins: remote.coins + (local.coins - baseCoins),

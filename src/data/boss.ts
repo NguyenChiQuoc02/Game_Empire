@@ -40,6 +40,30 @@ export const BOSS_PHASES: Record<string, BossPhase[]> = {
     { at: 0.5, buff: { rate: 1.15 }, skills: ['fireAttack'], summon: { id: 'quybinh', n: 3 }, shake: 9 },
     { at: 0.2, buff: { dmg: 1.25, speed: 1.2, heal: 0.08 }, summon: { id: 'quybinh', n: 4 }, zones: ['miasma', 'miasma'], hazard: { kind: 'poison', every: 6 }, shake: 12 },
   ],
+  cuumatri: [
+    { at: 0.5, buff: { armor: 6, rate: 1.15 }, skills: ['freeze'], summon: { id: 'lahan', n: 3 }, shake: 9 },
+    { at: 0.2, buff: { dmg: 1.25, heal: 0.06 }, zones: ['scorch', 'scorch'], hazard: { kind: 'fire', every: 6 }, shake: 12 },
+  ],
+  hoangmi: [
+    { at: 0.5, buff: { dmg: 1.2, speed: 1.2 }, skills: ['poisonCloud'], summon: { id: 'hocnui', n: 2 }, shake: 9 },
+    { at: 0.2, buff: { rate: 1.2, armor: 8, heal: 0.08, scale: 1.1 }, zones: ['miasma', 'miasma'], hazard: { kind: 'poison', every: 6 }, shake: 13 },
+  ],
+  tonquyen: [
+    { at: 0.5, buff: { armor: 6, dmg: 1.15 }, skills: ['fireAttack'], summon: { id: 'crossbow', n: 3 }, shake: 8 },
+    { at: 0.2, buff: { dmg: 1.25, rate: 1.2, heal: 0.08 }, summon: { id: 'knight', n: 3 }, zones: ['hill'], hazard: { kind: 'fire', every: 7 }, shake: 12 },
+  ],
+  thanhcat: [
+    { at: 0.5, buff: { dmg: 1.25, speed: 1.3 }, skills: ['dash'], summon: { id: 'knight', n: 3 }, shake: 9 },
+    { at: 0.2, buff: { rate: 1.25, armor: 8, scale: 1.1 }, summon: { id: 'knight', n: 4 }, zones: ['hill'], hazard: { kind: 'fire', every: 6 }, shake: 13 },
+  ],
+  chunghoi: [
+    { at: 0.5, buff: { armor: 8, rate: 1.15 }, skills: ['warlord'], summon: { id: 'crossbow', n: 4 }, shake: 9 },
+    { at: 0.2, buff: { dmg: 1.3, heal: 0.08 }, summon: { id: 'spear', n: 4 }, zones: ['miasma', 'miasma'], hazard: { kind: 'poison', every: 6 }, shake: 13 },
+  ],
+  ngochoang: [
+    { at: 0.5, buff: { dmg: 1.2 }, skills: ['freeze'], summon: { id: 'taoist', n: 3 }, shake: 10 },
+    { at: 0.2, buff: { dmg: 1.2, armor: 8, heal: 0.1, scale: 1.15 }, summon: { id: 'hanbang', n: 4 }, zones: ['scorch', 'scorch'], hazard: { kind: 'fire', every: 5 }, shake: 14 },
+  ],
 };
 
 /** boss chết thì phân thân: mỗi lần tách làm 2 bản nhỏ hơn, tối đa `gens` đời (1 → 2 → 4 ...) */

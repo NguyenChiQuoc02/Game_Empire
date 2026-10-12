@@ -1,6 +1,6 @@
 import { h } from './dom';
 import { getLang, LANGS, onLang, setLang, t, type Lang } from '../i18n';
-import { activeCdOf, levelMul, skillCdAt, type UnitDef } from '../data/units';
+import { POST_LEVELS, activeCdOf, postEveryAt, postMaxBonus, isPost, levelMul, skillCdAt, type UnitDef } from '../data/units';
 import { iconUrl } from '../render/icons';
 
 export function toast(msg: string, kind: 'info' | 'error' | 'good' = 'info') {
@@ -80,6 +80,13 @@ export function statLine(def: UnitDef, lv: number): HTMLElement {
     h('span', { class: 'stat', attrs: { title: tip } }, h('i', { text: icon }), val);
   const cd = activeCdOf(def);
   const cdItem = cd !== null ? item('⏳', `${Number(skillCdAt(cd, lv).toFixed(2))}s`, t('stat.skillCd')) : null;
+  if (isPost(def)) {
+    return h('div', { class: 'stats' },
+      item('❤', fmt(def.hp * m), t('stat.hp')),
+      item('⏱', `${Number(postEveryAt(1, lv).toFixed(1))}s`, t('stat.postEvery')),
+      item('👥', String(POST_LEVELS[0].max + postMaxBonus(lv)), t('stat.postMax')),
+      item('⬆', String(POST_LEVELS.length), t('stat.postLv')));
+  }
   if (def.kind === 'defense') {
     return h(
       'div',

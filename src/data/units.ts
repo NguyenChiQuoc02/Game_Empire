@@ -54,9 +54,86 @@ export type SkillId =
   | 'howl'
   | 'crossShot'
   | 'skyRoam'
-  | 'tide';
+  | 'tide'
+  // ── đợt kỹ năng mới
+  | 'cleave'
+  | 'volley'
+  | 'leap'
+  | 'ward'
+  | 'vanish'
+  | 'charm'
+  | 'freeze'
+  | 'launch'
+  | 'rebirth'
+  | 'undying'
+  | 'resurrect'
+  | 'rescue'
+  | 'springAura'
+  | 'skyMount'
+  // ── thiết bị công thành tầm xa (xem ENGINES)
+  | 'cannon'
+  | 'rocket'
+  | 'spawner'
+  | 'boltcart'
+  | 'mangonel'
+  // ── quái hoang dã
+  | 'brood';
 
 export type UnitKind = 'troop' | 'general' | 'boss' | 'summon' | 'defense' | 'beast' | 'pet';
+
+/** thú cưỡi của kỹ năng skyMount (xem render/mountArt.ts) */
+export type MountKind = 'cloud' | 'crane' | 'phoenix' | 'dragon' | 'eagle' | 'ox';
+
+/**
+ * Kỹ năng KẾT HỢP: khi đi cùng đồng đội phù hợp (trong bán kính COMBO_RANGE, cùng lane) cả hai nhận hiệu ứng.
+ * `with`: id đơn vị, hoặc 'kind:general' / 'kind:troop' / 'tag:cav'...
+ */
+export type ComboKind = 'power' | 'guard' | 'haste' | 'heal' | 'strike';
+export interface Combo {
+  with: string[];
+  kind: ComboKind;
+}
+export const COMBO_RANGE = 170;
+
+/** các con số của đợt kỹ năng mới (sim và mô tả cùng dùng) */
+export const SK = {
+  cleave: { r: 55, mul: 0.55 },
+  volley: { r: 60, mul: 0.55 },
+  leap: { reach: 380, dmg: 70, r: 55, stun: 0.6 },
+  ward: { sec: 3 },
+  vanish: { sec: 4, speed: 1.2, reach: 350 },
+  charm: { n: 2, sec: 4, reach: 300 },
+  freeze: { n: 3, sec: 2.5, reach: 260, bonus: 1.25, slow: 0.7, slowSec: 2 },
+  launch: { sec: 1.6, dmg: 55, r: 100 },
+  rebirth: { hp: 0.7, burst: 90, r: 110 },
+  undying: { hp: 0.45, n: 2 },
+  resurrect: { hp: 0.55 },
+  rescue: { pct: 0.3, flat: 40, reach: 320 },
+  spring: { r: 150, pct: 0.03, every: 2 },
+  mount: { speed: 1.3, reach: 400 },
+  combo: { power: { dmg: 1.2, rate: 1.15 }, guard: { armor: 1.5 }, haste: { speed: 1.25, rate: 1.2 }, heal: { pct: 0.06, every: 5 }, strike: { every: 8, mul: 1.1, r: 110 } },
+} as const;
+
+/**
+ * Thiết bị công thành tầm xa: mỗi đòn đánh bắn `shots` quả (cách nhau `spread`), nổ lan bán kính `r` (0 = đơn mục tiêu, dùng `pierce`);
+ * đập cờ nhân `flag` (đã tính tổng số quả).
+ */
+export interface Engine {
+  r: number;
+  flag: number;
+  shots?: number;
+  spread?: number;
+  pierce?: number;
+  proj: 'rock' | 'fire' | 'arrow';
+  shake?: number;
+  color: number;
+}
+export const ENGINES: Partial<Record<SkillId, Engine>> = {
+  cannon: { r: 52, flag: 3, proj: 'fire', shake: 3, color: 0xff9a4d },
+  rocket: { r: 36, flag: 2.4, shots: 3, spread: 34, proj: 'fire', color: 0xff6a4d },
+  boltcart: { r: 0, flag: 1.8, pierce: 0.6, proj: 'arrow', color: 0xe8d8a0 },
+  mangonel: { r: 75, flag: 3.5, proj: 'rock', shake: 4, color: 0xc9a070 },
+};
 
 export interface UnitDef {
   id: string;
@@ -75,6 +152,11 @@ export interface UnitDef {
   skill: SkillId;
   /** kỹ năng thứ hai (luôn có, kể cả khi đang hóa thân) */
   skill2?: SkillId;
+  /** kỹ năng kết hợp khi đi chung với đồng đội phù hợp */
+  combo?: Combo;
+  /** skyMount: loại thú cưỡi và thời gian bay (giây) */
+  mount?: MountKind;
+  mountSec?: number;
   skillName: string;
   desc: string;
   tags?: string[];
@@ -89,14 +171,25 @@ export interface UnitDef {
 export const MAX_LEVEL = 5;
 /** nhân chỉ số theo cấp: +12%/cấp đến cấp 5, từ cấp 6 +5%/cấp (tướng dừng ở cấp 20 gấp ~2,2 lần; lính/phòng thủ/thú cưng không giới hạn) */
 export const levelMul = (lv: number) => 1 + 0.12 * (Math.min(lv, MAX_LEVEL) - 1) + 0.05 * Math.max(0, lv - MAX_LEVEL);
+/** cấp tương đương của hệ số `pow` (nghịch đảo levelMul): quái/địch không có cấp riêng nên suy ra từ độ khó */
+export const levelOfPow = (pow: number) => {
+  const lv = 1 + (pow - 1) / 0.12;
+  return Math.max(1, Math.round(lv > MAX_LEVEL ? MAX_LEVEL + (pow - levelMul(MAX_LEVEL)) / 0.05 : lv));
+};
+/** phân thân của tướng: càng lên cấp càng nhiều khỉ con (2 → 6) và mạnh hơn (30% → 50% chỉ số chủ) */
+export const cubCount = (lv: number) => Math.min(6, 2 + Math.floor((lv - 1) / 2));
+export const cubRatio = (lv: number) => Math.min(0.5, 0.3 + 0.02 * (lv - 1));
+/** Hao Thiên Khuyển: 50% chỉ số chủ ở cấp 1, +3%/cấp, tối đa 80% */
+export const houndRatio = (lv: number) => Math.min(0.8, 0.5 + 0.03 * (lv - 1));
 export const upgradeCost = (def: UnitDef, lv: number) =>
   Math.round((def.kind === 'general' ? 140 : def.kind === 'defense' ? 70 : def.kind === 'pet' ? 80 : 60) * lv);
 
 /** hồi chiêu gốc (giây) của các kỹ năng chủ động; nâng cấp thẻ làm hồi chiêu nhanh hơn (xem skillHaste) */
 export const SKILL_CD: Partial<Record<SkillId, number>> = {
-  monk: 8, palm: 10, pairHeal: 5, heal: 2, fireAttack: 8, tyrant: 9, wukong: 5, monkeys: 20, erlang: 14, warlord: 11,
+  monk: 8, palm: 10, pairHeal: 5, heal: 2, fireAttack: 8, tyrant: 9, wukong: 8, monkeys: 10, erlang: 14, warlord: 11,
   melody: 9, dash: 8, phantom: 7, stun: 11, shieldAura: 12, dragonPalm: 9, poisonCloud: 9, inferno: 10,
   blink: 9, burrow: 11, thunder: 15, blessing: 10, howl: 12, skyRoam: 10, tide: 12,
+  leap: 9, ward: 14, vanish: 12, charm: 14, freeze: 13, launch: 10, resurrect: 18, rescue: 8, skyMount: 16,
 };
 /** tốc độ hồi chiêu theo cấp: +7%/cấp (cấp 3 → 8s còn 7s), tối đa x4; không giới hạn cấp nên có trần */
 export const skillHaste = (lv: number) => Math.min(4, 1 + 0.07 * Math.max(0, lv - 1));
@@ -180,7 +273,35 @@ export const UNIT_LIST: UnitDef[] = [
     hp: 100, dmg: 38, cd: 3.0, speed: 16, range: 300, armor: 4,
     skill: 'siege', skillName: 'Công Thành',
     desc: 'Ném đá cực xa, gây sát thương lan. Đập cờ x2.5. Rất chậm.',
-    unlockCost: 220, scale: 1.25,
+    tags: ['engine'], unlockCost: 220, scale: 1.25,
+  }),
+  U({
+    id: 'noxe', name: 'Nỏ Xe Liên Hoàn', kind: 'troop', cost: 26,
+    hp: 110, dmg: 20, cd: 1.0, speed: 24, range: 270, armor: 5,
+    skill: 'boltcart', skillName: 'Nỏ Xuyên Giáp',
+    desc: 'Xe nỏ khổng lồ bắn tên liên tục từ xa, xuyên 60% giáp. Đập cờ x1.8. Chậm và mỏng máu, cần quân che chắn.',
+    tags: ['engine'], unlockCost: 260, scale: 1.2,
+  }),
+  U({
+    id: 'hoapao', name: 'Hỏa Pháo', kind: 'troop', cost: 34,
+    hp: 130, dmg: 70, cd: 4.5, speed: 15, range: 340, armor: 6,
+    skill: 'cannon', skillName: 'Đạn Pháo Nổ',
+    desc: 'Pháo thần công bắn đạn nổ gây sát thương lan (bán kính 52) từ rất xa. Đập cờ x3. Cực chậm, nạp đạn lâu.',
+    tags: ['engine'], unlockCost: 300, scale: 1.2,
+  }),
+  U({
+    id: 'xetenlua', name: 'Xe Hỏa Tiễn', kind: 'troop', cost: 32,
+    hp: 90, dmg: 22, cd: 3.2, speed: 22, range: 310, armor: 3,
+    skill: 'rocket', skillName: 'Hỏa Tiễn Tề Phát',
+    desc: 'Mỗi lượt phóng 3 hỏa tiễn rải một vùng, mỗi quả nổ lan (bán kính 36). Đập cờ x2.4. Rất hiệu quả với quân tụ đông.',
+    tags: ['engine'], unlockCost: 280, scale: 1.15,
+  }),
+  U({
+    id: 'phaothach', name: 'Pháo Thạch Cự Hình', kind: 'troop', cost: 40,
+    hp: 160, dmg: 100, cd: 5.5, speed: 11, range: 400, armor: 8,
+    skill: 'mangonel', skillName: 'Cự Thạch Công Thành',
+    desc: 'Máy bắn đá hạng nặng, tầm xa nhất (400): tảng đá nổ lan rộng (bán kính 75), đập cờ x3.5. Chậm kinh khủng, giá đắt.',
+    tags: ['engine'], unlockCost: 380, scale: 1.3,
   }),
 
   U({
@@ -217,6 +338,154 @@ export const UNIT_LIST: UnitDef[] = [
     skill: 'poisoner', skillName: 'Kịch Độc',
     desc: 'Ném độc từ xa: mục tiêu trúng đòn bị trúng độc, mất 9 máu mỗi giây trong 5 giây (xuyên giáp).',
     unlockCost: 190, scale: 1,
+  }),
+
+  // ───────────── LÍNH ĐỢT MỚI (đánh lan · nhảy ra sau lưng · kết hợp · trạng thái) ─────────────
+  U({
+    id: 'daodaobinh', name: 'Đại Đao Binh', kind: 'troop', cost: 15,
+    hp: 200, dmg: 15, cd: 1.0, speed: 34, range: 32, armor: 6,
+    skill: 'cleave', skillName: 'Đại Đao Quét Ngang',
+    desc: 'ĐÁNH LAN: mỗi nhát đao chém lan 55% sát thương lên địch quanh mục tiêu (bán kính 55). Trâu bò, giữ tuyến rất tốt.',
+    unlockCost: 180, scale: 1.08,
+  }),
+  U({
+    id: 'toanphong', name: 'Toàn Phong Kiếm Sĩ', kind: 'troop', cost: 14,
+    hp: 130, dmg: 9, cd: 0.6, speed: 52, range: 28, armor: 2,
+    skill: 'cleave', skillName: 'Toàn Phong Kiếm',
+    desc: 'ĐÁNH LAN: xoay kiếm liên hồi, mỗi nhát chém lan 55% sát thương lên địch quanh mục tiêu. KẾT HỢP: đi cùng Samurai (trong 170) cả hai +20% sát thương và +15% tốc độ đánh.',
+    combo: { with: ['samurai'], kind: 'power' },
+    unlockCost: 200, scale: 1,
+  }),
+  U({
+    id: 'hoathuong', name: 'Hỏa Thương Binh', kind: 'troop', cost: 18,
+    hp: 95, dmg: 20, cd: 1.5, speed: 30, range: 150, armor: 1,
+    skill: 'volley', skillName: 'Hỏa Thương Nổ Đạn',
+    desc: 'BẮN LAN: súng hỏa thương tầm 150, đạn nổ gây 55% sát thương lên địch quanh mục tiêu (bán kính 60).',
+    unlockCost: 240, scale: 1,
+  }),
+  U({
+    id: 'liethoa', name: 'Liệt Hỏa Cung Thủ', kind: 'troop', cost: 16,
+    hp: 65, dmg: 12, cd: 1.0, speed: 34, range: 210, armor: 0,
+    skill: 'volley', skillName: 'Hỏa Tiễn Nổ',
+    desc: 'BẮN LAN: mũi tên lửa tầm 210, nổ lan 55% sát thương lên địch quanh mục tiêu (bán kính 60). Mỏng máu.',
+    unlockCost: 220, scale: 1,
+  }),
+  U({
+    id: 'phikiem', name: 'Phi Kiếm Khách', kind: 'troop', cost: 17,
+    hp: 120, dmg: 13, cd: 0.7, speed: 58, range: 28, armor: 2,
+    skill: 'leap', skillName: 'Phi Thân Tập Hậu',
+    desc: 'NHẢY RA SAU LƯNG: cứ 9 giây vọt qua đầu đối thủ, đáp xuống phía sau (ưu tiên xạ thủ), gây 70 sát thương lan và làm choáng 0,6 giây. KẾT HỢP: đi cùng Samurai hoặc Ninja, mỗi 8 giây cả hai tung đòn hợp kích lan bán kính 110.',
+    combo: { with: ['samurai', 'ninja', 'anhsat'], kind: 'strike' },
+    unlockCost: 260, scale: 1,
+  }),
+  U({
+    id: 'phiky', name: 'Phi Kỵ Tập Hậu', kind: 'troop', cost: 24,
+    hp: 190, dmg: 17, cd: 1.0, speed: 88, range: 30, armor: 6,
+    skill: 'leap', skill2: 'charge', skillName: 'Phi Mã Vượt Trận',
+    desc: 'Kỵ binh nhảy ngựa: cứ 9 giây phi vọt qua đầu địch đáp xuống sau lưng (70 sát thương lan, choáng 0,6s); đòn đầu tiên xung phong càng chạy xa càng mạnh.',
+    tags: ['cav'], unlockCost: 400, scale: 1.05,
+  }),
+  U({
+    id: 'kimcang', name: 'Kim Cang Lực Sĩ', kind: 'troop', cost: 22,
+    hp: 300, dmg: 14, cd: 1.0, speed: 30, range: 30, armor: 12,
+    skill: 'ward', skillName: 'Kim Cang Bất Hoại',
+    desc: 'MIỄN THƯƠNG: cứ 14 giây thân thể hóa kim cương, miễn nhiễm mọi sát thương trong 3 giây.',
+    unlockCost: 380, scale: 1.1,
+  }),
+  U({
+    id: 'anhsat', name: 'Ảnh Sát Thủ', kind: 'troop', cost: 18,
+    hp: 85, dmg: 14, cd: 0.55, speed: 78, range: 26, armor: 0,
+    skill: 'vanish', skill2: 'ninja', skillName: 'Ẩn Thân Ảnh Độn',
+    desc: 'KHÔNG THỂ CHỌN LÀM MỤC TIÊU: cứ 12 giây ẩn thân 4 giây (chỉ chịu sát thương lan, chạy nhanh hơn 20%). Né 30% đòn đơn mục tiêu, phá cờ x2.',
+    unlockCost: 350, scale: 0.95,
+  }),
+  U({
+    id: 'mehon', name: 'Mê Hồn Sư', kind: 'troop', cost: 20,
+    hp: 75, dmg: 8, cd: 1.3, speed: 32, range: 140, armor: 0,
+    skill: 'charm', skillName: 'Mê Hồn Thuật',
+    desc: 'THÔI MIÊN: cứ 14 giây mê hoặc 2 địch gần nhất trong 300; chúng quay sang đánh chính đồng đội mình trong 4 giây (Boss miễn nhiễm).',
+    unlockCost: 420, scale: 1,
+  }),
+  U({
+    id: 'hanbang', name: 'Hàn Băng Đạo Sĩ', kind: 'troop', cost: 20,
+    hp: 80, dmg: 12, cd: 1.4, speed: 30, range: 160, armor: 1,
+    skill: 'freeze', skillName: 'Huyền Băng Phù',
+    desc: 'ĐÓNG BĂNG: cứ 13 giây đóng băng 3 địch gần nhất trong 260 suốt 2,5 giây (không hành động được, chịu thêm 25% sát thương); tan băng bị chậm 30% trong 2 giây.',
+    unlockCost: 420, scale: 1,
+  }),
+  U({
+    id: 'thanluc', name: 'Thần Lực Sĩ', kind: 'troop', cost: 22,
+    hp: 280, dmg: 20, cd: 1.2, speed: 34, range: 30, armor: 8,
+    skill: 'launch', skillName: 'Bạt Sơn Hất Tung',
+    desc: 'HẤT TUNG: cứ 10 giây hất tung mọi địch trước mặt (bán kính 100) lên không 1,6 giây, gây 55 sát thương; kẻ bị hất không thể hành động.',
+    unlockCost: 400, scale: 1.15,
+  }),
+  U({
+    id: 'phuonghoangtu', name: 'Phượng Hoàng Tử Sĩ', kind: 'troop', cost: 19,
+    hp: 130, dmg: 16, cd: 0.9, speed: 44, range: 28, armor: 2,
+    skill: 'rebirth', skillName: 'Niết Bàn Trùng Sinh',
+    desc: 'HỒI SINH: khi bị hạ lần đầu sẽ hóa lửa sống lại với 70% máu, bất tử 1,5 giây và nổ lửa 90 sát thương lan (bán kính 110).',
+    unlockCost: 380, scale: 1,
+  }),
+  U({
+    id: 'chieuhon', name: 'Chiêu Hồn Sư', kind: 'troop', cost: 24,
+    hp: 90, dmg: 10, cd: 1.4, speed: 30, range: 150, armor: 1,
+    skill: 'resurrect', skillName: 'Chiêu Hồn Phiên',
+    desc: 'HỒI SINH ĐỒNG ĐỘI: cứ 18 giây gọi hồn lính/thú vừa ngã xuống của phe mình sống lại ngay cạnh với 55% máu (mỗi quân chỉ được gọi một lần).',
+    unlockCost: 500, scale: 1,
+  }),
+  U({
+    id: 'langy', name: 'Lang Y Giang Hồ', kind: 'troop', cost: 20,
+    hp: 100, dmg: 7, cd: 1.2, speed: 34, range: 100, armor: 1,
+    skill: 'rescue', skillName: 'Diệu Thủ Hồi Xuân',
+    desc: 'HỒI MÁU: cứ 8 giây cứu chữa đồng đội thấp máu nhất trong 320 (kể cả lane liền kề): hồi 30% máu tối đa (+40). Đi sau lưng đồng đội, tự vệ bằng ngân châm.',
+    unlockCost: 360, scale: 0.98,
+  }),
+  U({
+    id: 'duocdong', name: 'Dược Đồng', kind: 'troop', cost: 16,
+    hp: 90, dmg: 6, cd: 1.2, speed: 34, range: 60, armor: 0,
+    skill: 'springAura', skillName: 'Dược Hương Phục Linh',
+    desc: 'HỒI MÁU DIỆN RỘNG: hào quang dược hương, mỗi 2 giây hồi 3% máu tối đa cho mọi đồng đội trong bán kính 150 (kể cả bản thân).',
+    unlockCost: 320, scale: 0.9,
+  }),
+  U({
+    id: 'thanhac', name: 'Thần Hạc Kỵ', kind: 'troop', cost: 26,
+    hp: 170, dmg: 18, cd: 0.9, speed: 46, range: 32, armor: 4,
+    skill: 'skyMount', skillName: 'Triệu Hạc Thăng Thiên',
+    desc: 'GỌI THÚ CƯỠI BAY: cứ 16 giây triệu Tiên Hạc, bay lên trời 6 giây: chỉ tướng và quân tầm xa mới đánh trúng, chạy nhanh hơn 30%.',
+    mount: 'crane', mountSec: 6, unlockCost: 520, scale: 1.05,
+  }),
+  U({
+    id: 'hogia', name: 'Hộ Giá Thân Binh', kind: 'troop', cost: 16,
+    hp: 240, dmg: 10, cd: 0.9, speed: 32, range: 28, armor: 12,
+    skill: 'cleave', skillName: 'Thân Vệ Quét Ngang',
+    desc: 'ĐÁNH LAN: mỗi đòn lan 55% sát thương quanh mục tiêu. KẾT HỢP: đi cùng bất kỳ TƯỚNG nào (trong 170), cả hai được +50% giáp.',
+    combo: { with: ['kind:general'], kind: 'guard' },
+    unlockCost: 300, scale: 1.05,
+  }),
+  U({
+    id: 'lahan', name: 'La Hán Quyền Sư', kind: 'troop', cost: 17,
+    hp: 180, dmg: 12, cd: 0.8, speed: 36, range: 28, armor: 6,
+    skill: 'cleave', skillName: 'La Hán Quyền',
+    desc: 'ĐÁNH LAN: quyền phong lan 55% sát thương quanh mục tiêu. KẾT HỢP: đi cùng Võ Tăng, cả hai +20% sát thương và +15% tốc độ đánh.',
+    combo: { with: ['monk'], kind: 'power' },
+    unlockCost: 280, scale: 1.05,
+  }),
+  U({
+    id: 'lienchau', name: 'Liên Châu Xạ Thủ', kind: 'troop', cost: 17,
+    hp: 70, dmg: 11, cd: 0.8, speed: 32, range: 220, armor: 0,
+    skill: 'volley', skillName: 'Liên Châu Tiễn',
+    desc: 'BẮN LAN: tên nổ lan 55% sát thương quanh mục tiêu. KẾT HỢP: đi cùng Cung Thủ, Nỏ Thủ hay Xạ thủ lửa, cả hai chạy nhanh hơn 25% và bắn nhanh hơn 20%.',
+    combo: { with: ['archer', 'crossbow', 'hoathuong', 'liethoa'], kind: 'haste' },
+    unlockCost: 300, scale: 1,
+  }),
+  U({
+    id: 'daodong', name: 'Đạo Đồng', kind: 'troop', cost: 15,
+    hp: 85, dmg: 14, cd: 1.5, speed: 30, range: 160, armor: 0,
+    skill: 'taoist', skillName: 'Tiểu Lôi Phù',
+    desc: 'Phóng sấm sét lan nhỏ (bán kính 45) từ xa. KẾT HỢP: đi cùng Đạo Sĩ, Tư Mã Ý, Gia Cát Lượng hay Chu Du, mỗi 5 giây hồi 6% máu cho cả hai.',
+    combo: { with: ['taoist', 'tumayi', 'giacatluong', 'chudu'], kind: 'heal' },
+    unlockCost: 240, scale: 0.92,
   }),
 
   // ───────────── THỦY BINH (chỉ đi trên lane sông) ─────────────
@@ -304,14 +573,14 @@ export const UNIT_LIST: UnitDef[] = [
     id: 'tonngokhong', name: 'Tôn Ngộ Không', kind: 'general', cost: 70,
     hp: 640, dmg: 34, cd: 0.7, speed: 70, range: 36, armor: 8,
     skill: 'wukong', skill2: 'monkeys', skillName: 'Bảy Mươi Hai Phép Biến Hóa',
-    desc: 'Cứ 5 giây (hồi chiêu tính khi đã hết hình dạng) biến thành một vị tướng bất kỳ và lập tức thi triển kỹ năng của vị tướng đó, giữ hình dạng 8 giây. Ngoài ra có kỹ năng đặc biệt Phân Thân (xem bên dưới). CÂN ĐẨU VÂN: đạp mây đi được cả lane sông lẫn lane đất.',
+    desc: 'Cứ 8 giây (hồi chiêu tính khi đã hết hình dạng) biến thành một vị tướng bất kỳ và lập tức thi triển kỹ năng của vị tướng đó, giữ hình dạng 5 giây. Ngoài ra có kỹ năng đặc biệt Phân Thân: cứ 10 giây thổi lông hóa khỉ con, lên cấp thì nhiều khỉ hơn và mạnh hơn. CÂN ĐẨU VÂN: đạp mây đi được cả lane sông lẫn lane đất.',
     tags: ['cloud'], unlockCost: 950, scale: 1.3,
   }),
   U({
     id: 'duongtien', name: 'Dương Tiễn', kind: 'general', cost: 70,
     hp: 700, dmg: 38, cd: 0.9, speed: 52, range: 40, armor: 12,
     skill: 'erlang', skillName: 'Hao Thiên Khuyển',
-    desc: 'Cứ 14 giây triệu hồi Hao Thiên Khuyển (50% máu, sát thương, giáp của Dương Tiễn) và tăng 50% chỉ số của bản thân trong 5 giây.',
+    desc: 'Cứ 14 giây triệu hồi Hao Thiên Khuyển (50% máu, sát thương, giáp của Dương Tiễn, lên cấp thì mạnh hơn) và tăng 50% chỉ số của bản thân trong 5 giây.',
     unlockCost: 950, scale: 1.35,
   }),
   U({
@@ -417,7 +686,7 @@ export const UNIT_LIST: UnitDef[] = [
     id: 'thaisutu', name: 'Thái Sử Từ', kind: 'general', cost: 60,
     hp: 410, dmg: 28, cd: 1.0, speed: 36, range: 260, armor: 5,
     skill: 'crossShot', skill2: 'sniper', skillName: 'Thần Tiễn Xuyên Lane',
-    desc: 'Tầm xa 260 và BẮN SANG LANE KHÁC: đứng ở lane giữa vẫn bắn được lane trên và lane dưới. Mỗi mũi tên thứ 3 gây x3 sát thương, xuyên 60% giáp.',
+    desc: 'Tầm xa 260 và BẮN SANG LANE KHÁC: đứng ở lane giữa vẫn bắn được lane trên và lane dưới, BẮN 360 ĐỘ: địch phía sau lưng cũng không thoát. Mỗi mũi tên thứ 3 gây x3 sát thương, xuyên 60% giáp.',
     unlockCost: 900, scale: 1.3,
   }),
   U({
@@ -448,6 +717,155 @@ export const UNIT_LIST: UnitDef[] = [
     skill: 'tide', skillName: 'Triều Cường Sóng Thần',
     desc: 'THỦY TƯỚNG Đông Hải: chỉ ra trận ở lane sông. Cứ 12 giây dâng sóng thần quét về phía trước: 75 sát thương lên mọi địch trong 380 và đẩy lùi họ 110 đơn vị.',
     tags: ['naval'], unlockCost: 1100, scale: 1.4,
+  }),
+
+  // ───────────── TƯỚNG ĐỢT MỚI (Tam Quốc · Kim Dung · Tây Du Ký) ─────────────
+  U({
+    id: 'liubei', name: 'Lưu Bị', kind: 'general', cost: 60,
+    hp: 600, dmg: 26, cd: 1.0, speed: 40, range: 34, armor: 9,
+    skill: 'rescue', skillName: 'Nhân Đức Thiên Hạ',
+    desc: 'HỒI MÁU: cứ 8 giây cứu chữa đồng đội thấp máu nhất trong 320 (kể cả lane liền kề): hồi 30% máu tối đa (+40). KẾT HỢP: Đào Viên Kết Nghĩa, đi cùng Quan Vũ, Trương Phi hoặc Triệu Vân cả hai +20% sát thương và +15% tốc độ đánh.',
+    combo: { with: ['quanvu', 'truongphi', 'trieuvan'], kind: 'power' },
+    unlockCost: 900, scale: 1.3,
+  }),
+  U({
+    id: 'dienvi', name: 'Điển Vi', kind: 'general', cost: 62,
+    hp: 880, dmg: 30, cd: 1.0, speed: 38, range: 34, armor: 12,
+    skill: 'ward', skill2: 'cleave', skillName: 'Ác Lai Tử Thủ',
+    desc: 'MIỄN THƯƠNG: cứ 14 giây miễn nhiễm mọi sát thương 3 giây. ĐÁNH LAN: song kích lan 55% sát thương quanh mục tiêu. KẾT HỢP: đi cùng Tào Tháo, cả hai +50% giáp.',
+    combo: { with: ['taothao'], kind: 'guard' },
+    unlockCost: 1000, scale: 1.4,
+  }),
+  U({
+    id: 'hauchu', name: 'Hứa Chử', kind: 'general', cost: 66,
+    hp: 960, dmg: 36, cd: 1.3, speed: 36, range: 36, armor: 14,
+    skill: 'launch', skill2: 'cleave', skillName: 'Hổ Si Hất Ngựa',
+    desc: 'HẤT TUNG: cứ 10 giây hất tung mọi địch trước mặt (bán kính 100) lên không 1,6 giây, gây 55 sát thương. ĐÁNH LAN: mỗi đòn lan 55% sát thương quanh mục tiêu.',
+    unlockCost: 1050, scale: 1.45,
+  }),
+  U({
+    id: 'truonglieu', name: 'Trương Liêu', kind: 'general', cost: 58,
+    hp: 520, dmg: 30, cd: 0.8, speed: 64, range: 34, armor: 8,
+    skill: 'leap', skill2: 'cleave', skillName: 'Tiêu Dao Tân Phi Kích',
+    desc: 'NHẢY RA SAU LƯNG: cứ 9 giây phi vọt qua đầu đối thủ, đáp xuống sau lưng (ưu tiên xạ thủ), gây 70 sát thương lan, choáng 0,6s. ĐÁNH LAN: mỗi đòn lan 55% sát thương.',
+    unlockCost: 950, scale: 1.3,
+  }),
+  U({
+    id: 'hahaudon', name: 'Hạ Hầu Đôn', kind: 'general', cost: 60,
+    hp: 700, dmg: 28, cd: 0.8, speed: 46, range: 34, armor: 8,
+    skill: 'cleave', skill2: 'berserk', skillName: 'Nuốt Nhãn Cuồng Chiến',
+    desc: 'ĐÁNH LAN: mỗi đòn lan 55% sát thương quanh mục tiêu. Càng mất máu càng đánh đau: tối đa +120% sát thương khi sắp chết.',
+    unlockCost: 900, scale: 1.3,
+  }),
+  U({
+    id: 'hoangcai', name: 'Hoàng Cái', kind: 'general', cost: 58,
+    hp: 520, dmg: 24, cd: 1.2, speed: 36, range: 150, armor: 6,
+    skill: 'fireAttack', skill2: 'rebirth', skillName: 'Khổ Nhục Kế Hỏa Công',
+    desc: 'Mỗi 8s phóng lửa vào chỗ địch đông nhất (130 sát thương, xuyên giáp). HỒI SINH: bị hạ lần đầu sống lại với 70% máu, bất tử 1,5s và nổ lửa 90 sát thương lan.',
+    unlockCost: 1000, scale: 1.3,
+  }),
+  U({
+    id: 'bangthong', name: 'Bàng Thống', kind: 'general', cost: 58,
+    hp: 360, dmg: 22, cd: 1.2, speed: 34, range: 200, armor: 3,
+    skill: 'stun', skill2: 'volley', skillName: 'Liên Hoàn Kế',
+    desc: 'Cứ 11 giây khiến 3 địch gần nhất hoang mang đứng yên 2 giây. BẮN LAN: hỏa tiễn nổ lan 55% sát thương. KẾT HỢP: Ngọa Long Phượng Sồ, đi cùng Gia Cát Lượng cả hai +20% sát thương và +15% tốc độ đánh.',
+    combo: { with: ['giacatluong'], kind: 'power' },
+    unlockCost: 950, scale: 1.3,
+  }),
+  U({
+    id: 'dieuthuyen', name: 'Điêu Thuyền', kind: 'general', cost: 56,
+    hp: 340, dmg: 18, cd: 1.1, speed: 40, range: 170, armor: 2,
+    skill: 'charm', skillName: 'Mỹ Nhân Kế',
+    desc: 'THÔI MIÊN: cứ 14 giây mê hoặc 2 địch gần nhất trong 300; chúng quay sang đánh đồng đội mình 4 giây. KẾT HỢP: đi cùng Lữ Bố cả hai +20% sát thương và +15% tốc độ đánh.',
+    combo: { with: ['lubo'], kind: 'power' },
+    unlockCost: 1100, scale: 1.2,
+  }),
+  U({
+    id: 'hoangdung', name: 'Hoàng Dung', kind: 'general', cost: 55,
+    hp: 400, dmg: 22, cd: 0.8, speed: 52, range: 120, armor: 3,
+    skill: 'vanish', skillName: 'Linh Lung Ẩn Thân',
+    desc: 'KHÔNG THỂ CHỌN LÀM MỤC TIÊU: cứ 12 giây ẩn thân 4 giây (chỉ chịu sát thương lan, chạy nhanh hơn 20%). KẾT HỢP: đi cùng Quách Tĩnh, mỗi 8 giây cả hai tung hợp kích lan bán kính 110.',
+    combo: { with: ['quachtinh'], kind: 'strike' },
+    unlockCost: 950, scale: 1.2,
+  }),
+  U({
+    id: 'hongthatcong', name: 'Hồng Thất Công', kind: 'general', cost: 66,
+    hp: 760, dmg: 36, cd: 1.0, speed: 42, range: 36, armor: 10,
+    skill: 'dragonPalm', skill2: 'cleave', skillName: 'Đả Cẩu Bổng Pháp',
+    desc: 'Cứ 9 giây tung chưởng rồng 140 sát thương diện rộng, đẩy lùi địch 90. ĐÁNH LAN: bổng pháp lan 55% sát thương quanh mục tiêu.',
+    unlockCost: 1100, scale: 1.35,
+  }),
+  U({
+    id: 'doanduy', name: 'Đoàn Dự', kind: 'general', cost: 62,
+    hp: 430, dmg: 26, cd: 0.9, speed: 36, range: 240, armor: 4,
+    skill: 'volley', skill2: 'crossShot', skillName: 'Lục Mạch Thần Kiếm',
+    desc: 'BẮN LAN: kiếm khí tầm 240 nổ lan 55% sát thương quanh mục tiêu, và BẮN SANG LANE KHÁC: đứng lane giữa vẫn bắn được lane trên và dưới.',
+    unlockCost: 1000, scale: 1.3,
+  }),
+  U({
+    id: 'nhamdoanhdoanh', name: 'Nhậm Doanh Doanh', kind: 'general', cost: 58,
+    hp: 420, dmg: 14, cd: 1.2, speed: 36, range: 170, armor: 4,
+    skill: 'springAura', skillName: 'Thanh Tâm Phổ Thiện Chú',
+    desc: 'HỒI MÁU DIỆN RỘNG: tiếng đàn hồi 3% máu tối đa mỗi 2 giây cho đồng đội trong bán kính 150. KẾT HỢP: đi cùng Lệnh Hồ Xung, mỗi 5 giây hồi 6% máu cho cả hai.',
+    combo: { with: ['lenhhoxung'], kind: 'heal' },
+    unlockCost: 1000, scale: 1.25,
+  }),
+  U({
+    id: 'hoangduocsu', name: 'Hoàng Dược Sư', kind: 'general', cost: 62,
+    hp: 480, dmg: 28, cd: 1.0, speed: 40, range: 180, armor: 6,
+    skill: 'volley', skill2: 'vanish', skillName: 'Đạn Chỉ Thần Thông',
+    desc: 'BẮN LAN: đạn chỉ nổ lan 55% sát thương quanh mục tiêu. KHÔNG THỂ CHỌN LÀM MỤC TIÊU: cứ 12 giây ẩn thân trong trận ngũ hành 4 giây.',
+    unlockCost: 1100, scale: 1.3,
+  }),
+  U({
+    id: 'modungphuc', name: 'Mộ Dung Phục', kind: 'general', cost: 62,
+    hp: 640, dmg: 32, cd: 0.9, speed: 44, range: 34, armor: 10,
+    skill: 'reflect', skill2: 'cleave', skillName: 'Đẩu Chuyển Tinh Di',
+    desc: 'Phản lại 30% sát thương nhận từ kẻ đánh gần (trong 90). ĐÁNH LAN: mỗi đòn lan 55% sát thương quanh mục tiêu.',
+    unlockCost: 1050, scale: 1.3,
+  }),
+  U({
+    id: 'trubatgioi', name: 'Trư Bát Giới', kind: 'general', cost: 64,
+    hp: 880, dmg: 32, cd: 1.1, speed: 34, range: 36, armor: 12,
+    skill: 'cleave', skillName: 'Cửu Xỉ Đinh Ba',
+    desc: 'ĐÁNH LAN: đinh ba lan 55% sát thương quanh mục tiêu. KẾT HỢP: Thầy Trò Tây Du, đi cùng Tôn Ngộ Không, Sa Tăng hoặc Đường Tăng cả hai +20% sát thương và +15% tốc độ đánh.',
+    combo: { with: ['tonngokhong', 'satang', 'duongtang'], kind: 'power' },
+    unlockCost: 1000, scale: 1.4,
+  }),
+  U({
+    id: 'duongtang', name: 'Đường Tăng', kind: 'general', cost: 56,
+    hp: 520, dmg: 10, cd: 1.4, speed: 30, range: 100, armor: 8,
+    skill: 'ward', skill2: 'rescue', skillName: 'Kim Thiền Bảo Hộ',
+    desc: 'MIỄN THƯƠNG: cứ 14 giây niệm chú, miễn nhiễm mọi sát thương 3 giây. HỒI MÁU: cứ 8 giây hồi 30% máu tối đa (+40) cho đồng đội thấp máu nhất trong 320.',
+    unlockCost: 1100, scale: 1.2,
+  }),
+  U({
+    id: 'thietphien', name: 'Thiết Phiến Công Chúa', kind: 'general', cost: 62,
+    hp: 560, dmg: 26, cd: 1.0, speed: 42, range: 120, armor: 6,
+    skill: 'launch', skill2: 'volley', skillName: 'Ba Tiêu Phiến',
+    desc: 'HẤT TUNG: cứ 10 giây quạt cuồng phong hất tung mọi địch trước mặt (bán kính 100) lên không 1,6 giây, gây 55 sát thương. BẮN LAN: kiếm khí quạt nổ lan 55% sát thương.',
+    unlockCost: 1100, scale: 1.25,
+  }),
+  U({
+    id: 'kimsidieu', name: 'Kim Sí Đại Bàng', kind: 'general', cost: 68,
+    hp: 640, dmg: 34, cd: 0.8, speed: 60, range: 36, armor: 8,
+    skill: 'skyMount', skill2: 'cleave', skillName: 'Đại Bàng Triển Sí',
+    desc: 'GỌI THÚ CƯỠI BAY: cứ 16 giây triệu Kim Sí Điêu, bay lên trời 7 giây: chỉ tướng và quân tầm xa mới đánh trúng, chạy nhanh hơn 30%. ĐÁNH LAN: mỗi đòn lan 55% sát thương.',
+    mount: 'eagle', mountSec: 7, unlockCost: 1250, scale: 1.3,
+  }),
+  U({
+    id: 'diatang', name: 'Địa Tạng Vương', kind: 'general', cost: 70,
+    hp: 600, dmg: 18, cd: 1.2, speed: 32, range: 100, armor: 10,
+    skill: 'resurrect', skill2: 'ward', skillName: 'Địa Ngục Bất Không',
+    desc: 'HỒI SINH ĐỒNG ĐỘI: cứ 18 giây gọi hồn lính/thú vừa ngã xuống sống lại với 55% máu. MIỄN THƯƠNG: cứ 14 giây miễn nhiễm mọi sát thương 3 giây.',
+    unlockCost: 1300, scale: 1.3,
+  }),
+  U({
+    id: 'laoquan', name: 'Thái Thượng Lão Quân', kind: 'general', cost: 72,
+    hp: 560, dmg: 24, cd: 1.2, speed: 34, range: 180, armor: 8,
+    skill: 'freeze', skill2: 'skyMount', skillName: 'Bát Quái Lô Hàn Băng',
+    desc: 'ĐÓNG BĂNG: cứ 13 giây đóng băng 3 địch gần nhất trong 260 suốt 2,5s (chịu thêm 25% sát thương). GỌI THÚ CƯỠI BAY: cứ 16 giây gọi Thanh Ngưu bay lên trời 6 giây (chỉ tướng và quân tầm xa đánh trúng).',
+    mount: 'ox', mountSec: 6, unlockCost: 1300, scale: 1.3,
   }),
 
   // ───────────── BOSS ─────────────
@@ -485,6 +903,49 @@ export const UNIT_LIST: UnitDef[] = [
     skill: 'poisonCloud', skill2: 'stun', skillName: 'Phán Quan Âm Phủ',
     desc: 'Cứ 9 giây thả mây độc lên cụm quân bạn (30 sát thương rồi mất 12 máu/giây trong 6 giây); cứ 11 giây khiến 3 quân gần nhất đứng yên 2 giây. 3 giai đoạn: dưới 50% thêm hỏa tập và Quỷ Binh; dưới 20% sương độc phủ chiến trường và mưa độc rơi xuống quân bạn.',
     unlockCost: 0, scale: 2.05,
+  }),
+  U({
+    id: 'cuumatri', name: 'Cưu Ma Trí', kind: 'boss', cost: 0,
+    hp: 4100, dmg: 56, cd: 1.3, speed: 24, range: 52, armor: 16,
+    skill: 'fireAttack', skill2: 'reflect', skillName: 'Hỏa Diệm Đao · Tiểu Vô Tướng',
+    desc: 'Cứ 8 giây phóng Hỏa Diệm Đao vào chỗ quân bạn đông nhất (130 sát thương, xuyên giáp); phản lại 30% sát thương nhận từ kẻ đánh gần. 3 giai đoạn: dưới 50% thêm Đóng băng và gọi 3 La Hán hộ pháp; dưới 20% mặt đất cháy rực và mưa lửa rơi xuống quân bạn.',
+    unlockCost: 0, scale: 1.9,
+  }),
+  U({
+    id: 'hoangmi', name: 'Hoàng Mi Đại Vương', kind: 'boss', cost: 0,
+    hp: 4300, dmg: 58, cd: 1.2, speed: 24, range: 50, armor: 15,
+    skill: 'launch', skill2: 'stun', skillName: 'Kim Nạo Chấn Thiên',
+    desc: 'Cứ 10 giây đập Kim Nạo hất tung mọi quân bạn trước mặt (bán kính 100) lên không 1,6 giây, gây 55 sát thương; cứ 11 giây khiến 3 quân gần nhất đứng yên 2 giây. 3 giai đoạn: dưới 50% thêm mây độc và gọi 2 Hổ Núi; dưới 20% hóa to, sương độc phủ Tiểu Lôi Âm Tự và mưa độc rơi xuống quân bạn.',
+    unlockCost: 0, scale: 2.0,
+  }),
+  U({
+    id: 'tonquyen', name: 'Tôn Quyền', kind: 'boss', cost: 0,
+    hp: 4500, dmg: 60, cd: 1.2, speed: 26, range: 56, armor: 16,
+    skill: 'melody', skill2: 'blessing', skillName: 'Giang Đông Bá Nghiệp',
+    desc: 'Cứ 9 giây tấu khúc làm quân bạn quanh mục tiêu bị chậm 45% trong 4 giây và chịu 55 sát thương; cứ 10 giây rưới phúc cho quân địch quanh mình (hồi 10% máu, khiên khí 50). 3 giai đoạn: dưới 50% thêm hỏa công và gọi 3 Nỏ Thủ; dưới 20% kỵ binh Giang Đông xuất trận, gò cao nổi lên và hỏa tiễn rơi xuống quân bạn.',
+    unlockCost: 0, scale: 1.9,
+  }),
+
+  U({
+    id: 'thanhcat', name: 'Thành Cát Tư Hãn', kind: 'boss', cost: 0,
+    hp: 6500, dmg: 78, cd: 1.1, speed: 32, range: 60, armor: 20,
+    skill: 'warlord', skill2: 'charge', skillName: 'Vó Ngựa Đại Hãn',
+    desc: 'Cứ 11 giây hạ lệnh: quân địch cùng lane +25% sát thương, +15% tốc độ đánh trong 5 giây; đòn đầu tiên lao tới rất mạnh. 3 giai đoạn: dưới 50% thêm lướt nhanh và triệu 3 kỵ binh; dưới 20% đòn đánh nhanh hơn, giáp dày hơn, gọi thêm 4 kỵ binh, gò cao nổi lên và lửa rơi xuống quân bạn.',
+    unlockCost: 0, scale: 1.9,
+  }),
+  U({
+    id: 'chunghoi', name: 'Chung Hội', kind: 'boss', cost: 0,
+    hp: 7500, dmg: 84, cd: 1.1, speed: 28, range: 60, armor: 22,
+    skill: 'freeze', skill2: 'shieldAura', skillName: 'Phản Kế Diệt Thục',
+    desc: 'Cứ 13 giây đóng băng 3 quân bạn gần nhất trong 2,5 giây (nhận thêm 25% sát thương); cứ 12 giây ban khiên khí cho quân địch quanh mình. 3 giai đoạn: dưới 50% thêm hạ lệnh tăng sức cả đàn và gọi 4 nỏ thủ; dưới 20% sát thương tăng mạnh, tự hồi máu, gọi thêm 4 lính giáo, khí độc bao phủ và độc rơi xuống quân bạn.',
+    unlockCost: 0, scale: 1.9,
+  }),
+  U({
+    id: 'ngochoang', name: 'Ngọc Hoàng Đại Đế', kind: 'boss', cost: 0,
+    hp: 9500, dmg: 90, cd: 1.2, speed: 26, range: 70, armor: 24,
+    skill: 'thunder', skill2: 'blessing', skillName: 'Thiên Lôi Giáng Thế',
+    desc: 'Cứ 15 giây giáng lôi xuống đội hình bạn; cứ 10 giây rưới phúc cho quân địch quanh mình (hồi 10% máu, khiên khí 50). 3 giai đoạn: dưới 50% thêm đóng băng và gọi 3 đạo sĩ; dưới 20% hồi máu, giáp dày hơn, gọi 4 hàn băng đạo sĩ, lửa thiên giới thiêu đốt quân bạn.',
+    unlockCost: 0, scale: 2.0,
   }),
 
   // ───────────── ĐỒ PHÒNG THỦ ─────────────
@@ -564,7 +1025,7 @@ export const UNIT_LIST: UnitDef[] = [
     id: 'khicon', name: 'Khỉ Con', kind: 'summon', cost: 0,
     hp: 200, dmg: 10, cd: 0.5, speed: 84, range: 26, armor: 2,
     skill: 'none', skillName: 'Phân Thân',
-    desc: 'Phân thân lông khỉ của Ngộ Không: 30% máu, sát thương và giáp của chủ, tồn tại 5 giây.',
+    desc: 'Phân thân lông khỉ của Ngộ Không: 30% máu, sát thương và giáp của chủ (tăng theo cấp, tối đa 50%), tồn tại 5 giây.',
     unlockCost: 0, scale: 0.72, life: 5,
   }),
   // ───────────── QUÁI THÚ (địch) ─────────────
@@ -694,6 +1155,149 @@ export const UNIT_LIST: UnitDef[] = [
     desc: 'Thủy quái chỉ ở lane sông: rồng nước phun sóng từ xa; cứ 12 giây dâng sóng quét 75 sát thương và đẩy lùi cả đội hình bạn.',
     tags: ['naval'], unlockCost: 0, scale: 1.4,
   }),
+  // ───────────── QUÁI THÚ ĐỢT MỚI (yêu quái Tây Du · Địa Phủ) ─────────────
+  U({
+    id: 'bachcot', name: 'Bạch Cốt Tinh', kind: 'beast', cost: 34,
+    hp: 360, dmg: 24, cd: 1.0, speed: 40, range: 30, armor: 6,
+    skill: 'undying', skill2: 'vanish', skillName: 'Tam Biến Bạch Cốt',
+    desc: 'HỒI SINH: bị hạ vẫn sống lại tối đa 2 lần, mỗi lần 45% máu. KHÔNG THỂ CHỌN LÀM MỤC TIÊU: cứ 12 giây hóa thành làn khói trắng 4 giây (chỉ chịu sát thương lan).',
+    unlockCost: 0, scale: 1,
+  }),
+  U({
+    id: 'hacphong', name: 'Hắc Phong Hùng Quái', kind: 'beast', cost: 30,
+    hp: 520, dmg: 26, cd: 1.1, speed: 34, range: 34, armor: 8,
+    skill: 'cleave', skill2: 'berserk', skillName: 'Hắc Phong Điên Cuồng',
+    desc: 'ĐÁNH LAN: mỗi đòn vả lan 55% sát thương lên quân quanh mục tiêu; càng mất máu càng đánh đau (tối đa +120%).',
+    unlockCost: 0, scale: 1.2,
+  }),
+  U({
+    id: 'hoangphong', name: 'Hoàng Phong Quái', kind: 'beast', cost: 28,
+    hp: 260, dmg: 18, cd: 1.2, speed: 50, range: 150, armor: 2,
+    skill: 'launch', skillName: 'Tam Muội Cuồng Phong',
+    desc: 'HẤT TUNG: cứ 10 giây thổi cuồng phong hất tung mọi quân bạn phía trước (bán kính 100) lên không 1,6 giây, gây 55 sát thương.',
+    unlockCost: 0, scale: 1,
+  }),
+  U({
+    id: 'tuongtinh', name: 'Bạch Tượng Tinh', kind: 'beast', cost: 36,
+    hp: 700, dmg: 28, cd: 1.5, speed: 26, range: 38, armor: 12,
+    skill: 'cleave', skillName: 'Voi Chúa Quét Ngà',
+    desc: 'ĐÁNH LAN: ngà quét lan 55% sát thương lên quân quanh mục tiêu. Rất trâu, chậm chạp.',
+    unlockCost: 0, scale: 1.6,
+  }),
+  U({
+    id: 'sudavuong', name: 'Sư Đà Vương', kind: 'beast', cost: 36,
+    hp: 560, dmg: 28, cd: 0.9, speed: 42, range: 34, armor: 8,
+    skill: 'cleave', skill2: 'howl', skillName: 'Sư Hống Lan Tỏa',
+    desc: 'ĐÁNH LAN: vuốt sư tử lan 55% sát thương. Tiếng hống vang sang cả lane liền kề: mỗi 12 giây quái trong bán kính 260 +20% sát thương và +15% tốc độ chạy trong 5 giây.',
+    unlockCost: 0, scale: 1.3,
+  }),
+  U({
+    id: 'phiung', name: 'Phi Ưng Quái', kind: 'beast', cost: 26,
+    hp: 190, dmg: 20, cd: 0.8, speed: 70, range: 30, armor: 1,
+    skill: 'leap', skillName: 'Ưng Kích Trường Không',
+    desc: 'BAY: chỉ tướng và quân tầm xa mới đánh trúng. NHẢY RA SAU LƯNG: cứ 9 giây lao vọt qua đầu quân bạn, đáp xuống phía sau (ưu tiên xạ thủ), gây 70 sát thương lan, choáng 0,6s.',
+    tags: ['fly'], unlockCost: 0, scale: 1,
+  }),
+  U({
+    id: 'thanhnguu', name: 'Thanh Ngưu Tinh', kind: 'beast', cost: 34,
+    hp: 620, dmg: 26, cd: 1.4, speed: 32, range: 36, armor: 12,
+    skill: 'launch', skill2: 'cleave', skillName: 'Thanh Ngưu Hất Sừng',
+    desc: 'HẤT TUNG: cứ 10 giây hất tung mọi quân bạn trước mặt (bán kính 100) lên không 1,6s, gây 55 sát thương. ĐÁNH LAN: mỗi cú húc lan 55% sát thương.',
+    unlockCost: 0, scale: 1.3,
+  }),
+  U({
+    id: 'thanhxa', name: 'Thanh Xà Tinh', kind: 'beast', cost: 24,
+    hp: 150, dmg: 10, cd: 1.0, speed: 40, range: 130, armor: 2,
+    skill: 'poisoner', skill2: 'vanish', skillName: 'Xà Độn Ẩn Hình',
+    desc: 'Phun nọc độc từ xa (9 máu/giây trong 5 giây, xuyên giáp). KHÔNG THỂ CHỌN LÀM MỤC TIÊU: cứ 12 giây ẩn mình 4 giây (chỉ chịu sát thương lan).',
+    unlockCost: 0, scale: 1,
+  }),
+  U({
+    id: 'cuuvi', name: 'Cửu Vĩ Hồ Ly', kind: 'beast', cost: 38,
+    hp: 340, dmg: 22, cd: 0.7, speed: 62, range: 30, armor: 3,
+    skill: 'charm', skill2: 'leap', skillName: 'Cửu Vĩ Mê Hồn',
+    desc: 'THÔI MIÊN: cứ 14 giây mê hoặc 2 quân bạn gần nhất, chúng quay sang đánh đồng đội 4 giây. NHẢY RA SAU LƯNG: cứ 9 giây vọt qua đầu và đáp xuống sau lưng đội hình bạn.',
+    unlockCost: 0, scale: 1.15,
+  }),
+  U({
+    id: 'langyeu', name: 'Lang Yêu Hấp Hồn', kind: 'beast', cost: 26,
+    hp: 200, dmg: 14, cd: 1.2, speed: 44, range: 140, armor: 2,
+    skill: 'charm', skillName: 'Hấp Hồn Nhãn',
+    desc: 'THÔI MIÊN: cứ 14 giây nhìn chằm chằm 2 quân bạn gần nhất trong 300; chúng quay sang đánh đồng đội 4 giây.',
+    unlockCost: 0, scale: 1.05,
+  }),
+  U({
+    id: 'bangphuong', name: 'Băng Phượng', kind: 'beast', cost: 38,
+    hp: 300, dmg: 16, cd: 1.2, speed: 44, range: 200, armor: 4,
+    skill: 'freeze', skillName: 'Hàn Băng Vũ',
+    desc: 'BAY: chỉ tướng và quân tầm xa mới đánh trúng. ĐÓNG BĂNG: cứ 13 giây đóng băng 3 quân bạn gần nhất 2,5 giây (chịu thêm 25% sát thương), tan băng bị chậm 30%.',
+    tags: ['fly'], unlockCost: 0, scale: 1.15,
+  }),
+  U({
+    id: 'hoaphuong', name: 'Hỏa Phượng', kind: 'beast', cost: 42,
+    hp: 380, dmg: 18, cd: 1.2, speed: 44, range: 210, armor: 4,
+    skill: 'fireAttack', skill2: 'rebirth', skillName: 'Phượng Hoàng Niết Bàn',
+    desc: 'BAY: chỉ tướng và quân tầm xa mới đánh trúng. Mỗi 8 giây phun lửa xuống chỗ quân bạn đông nhất (130 sát thương, xuyên giáp). HỒI SINH: bị hạ lần đầu sống lại 70% máu và nổ lửa 90 sát thương lan.',
+    tags: ['fly'], unlockCost: 0, scale: 1.2,
+  }),
+  U({
+    id: 'macau', name: 'Địa Ngục Ma Cẩu', kind: 'beast', cost: 28,
+    hp: 260, dmg: 22, cd: 0.7, speed: 66, range: 28, armor: 4,
+    skill: 'leap', skill2: 'berserk', skillName: 'Ma Cẩu Vồ Hậu',
+    desc: 'NHẢY RA SAU LƯNG: cứ 9 giây vọt qua đầu quân bạn, đáp xuống phía sau (ưu tiên xạ thủ), gây 70 sát thương lan, choáng 0,6s. Càng mất máu càng điên cuồng.',
+    unlockCost: 0, scale: 1.05,
+  }),
+  U({
+    id: 'ngocong', name: 'Ngô Công Tinh', kind: 'beast', cost: 26,
+    hp: 240, dmg: 14, cd: 0.9, speed: 46, range: 30, armor: 6,
+    skill: 'poisoner', skill2: 'cleave', skillName: 'Trăm Chân Độc Nanh',
+    desc: 'ĐÁNH LAN: nanh độc lan 55% sát thương quanh mục tiêu, mục tiêu trúng đòn bị nhiễm độc 9 máu/giây trong 5 giây (xuyên giáp).',
+    unlockCost: 0, scale: 1.1,
+  }),
+  U({
+    id: 'khongtuoc', name: 'Khổng Tước Minh Vương', kind: 'beast', cost: 36,
+    hp: 330, dmg: 20, cd: 1.1, speed: 40, range: 200, armor: 4,
+    skill: 'volley', skillName: 'Ngũ Sắc Thần Quang',
+    desc: 'BAY: chỉ tướng và quân tầm xa mới đánh trúng. BẮN LAN: chùm lông vũ ngũ sắc nổ lan 55% sát thương lên quân quanh mục tiêu.',
+    tags: ['fly'], unlockCost: 0, scale: 1.2,
+  }),
+  U({
+    id: 'moctinh', name: 'Mộc Thụ Tinh', kind: 'beast', cost: 32,
+    hp: 600, dmg: 16, cd: 1.4, speed: 20, range: 40, armor: 10,
+    skill: 'springAura', skill2: 'monk', skillName: 'Cổ Thụ Hồi Xuân',
+    desc: 'HỒI MÁU DIỆN RỘNG: mỗi 2 giây hồi 3% máu tối đa cho quái trong bán kính 150; vỏ cây tạo khiên 80 sát thương, dựng lại sau 8 giây khi vỡ.',
+    unlockCost: 0, scale: 1.4,
+  }),
+  U({
+    id: 'hotinh', name: 'Hổ Tinh Phi Thân', kind: 'beast', cost: 32,
+    hp: 380, dmg: 28, cd: 0.8, speed: 56, range: 30, armor: 5,
+    skill: 'leap', skill2: 'sweep', skillName: 'Hổ Phi Sơn Lâm',
+    desc: 'NHẢY RA SAU LƯNG: cứ 9 giây vọt qua đầu quân bạn, đáp xuống phía sau gây 70 sát thương lan, choáng 0,6s; mỗi đòn thứ 3 vồ quét diện rộng x1.8.',
+    unlockCost: 0, scale: 1.15,
+  }),
+  U({
+    id: 'nguudau', name: 'Ngưu Đầu', kind: 'beast', cost: 34,
+    hp: 640, dmg: 28, cd: 1.2, speed: 34, range: 36, armor: 12,
+    skill: 'cleave', skill2: 'berserk', skillName: 'Câu Hồn Phủ',
+    desc: 'ĐÁNH LAN: rìu quét lan 55% sát thương; càng mất máu càng đánh đau. KẾT HỢP: đi cùng Mã Diện, cả hai +20% sát thương và +15% tốc độ đánh.',
+    combo: { with: ['madien'], kind: 'power' },
+    unlockCost: 0, scale: 1.4,
+  }),
+  U({
+    id: 'madien', name: 'Mã Diện', kind: 'beast', cost: 30,
+    hp: 400, dmg: 24, cd: 0.8, speed: 52, range: 30, armor: 6,
+    skill: 'cleave', skill2: 'quick', skillName: 'Câu Hồn Tỏa',
+    desc: 'ĐÁNH LAN: xích sắt quét lan 55% sát thương, ra đòn rất nhanh. KẾT HỢP: đi cùng Ngưu Đầu, cả hai +20% sát thương và +15% tốc độ đánh.',
+    combo: { with: ['nguudau'], kind: 'power' },
+    unlockCost: 0, scale: 1.2,
+  }),
+  U({
+    id: 'cuongthi', name: 'Cương Thi Vương', kind: 'beast', cost: 34,
+    hp: 520, dmg: 22, cd: 1.1, speed: 28, range: 30, armor: 10,
+    skill: 'resurrect', skill2: 'ward', skillName: 'Thi Vương Hộ Thể',
+    desc: 'HỒI SINH ĐỒNG ĐỘI: cứ 18 giây gọi quái vừa ngã xuống sống lại với 55% máu. MIỄN THƯƠNG: cứ 14 giây thây khô cứng, miễn nhiễm mọi sát thương 3 giây.',
+    unlockCost: 0, scale: 1.2,
+  }),
   // ───────────── QUÁI THÚ KHỔNG LỒ (trạm thứ 5 mỗi bản đồ, xuất hiện gần cuối trận) ─────────────
   U({
     id: 'nguoida', name: 'Người Đá Khổng Lồ', kind: 'beast', cost: 120,
@@ -729,6 +1333,98 @@ export const UNIT_LIST: UnitDef[] = [
     skill: 'trample', skill2: 'stun', skillName: 'Câu Hồn Giậm Đất',
     desc: 'Quỷ sai Âm phủ trỗi dậy gần cuối trận: mỗi đòn giậm gây sát thương lan bán kính 55; cứ 11 giây khiến 3 quân gần nhất của bạn đứng yên 2 giây.',
     tags: ['giant'], unlockCost: 0, scale: 2.1,
+  }),
+  U({
+    id: 'cutuong', name: 'Cự Tượng Đại Lý', kind: 'beast', cost: 120,
+    hp: 1400, dmg: 36, cd: 1.6, speed: 16, range: 44, armor: 16,
+    skill: 'trample', skill2: 'launch', skillName: 'Voi Chúa Hất Tung',
+    desc: 'Bạch tượng khổng lồ xông ra gần cuối trận: mỗi đòn giậm gây sát thương lan bán kính 55; cứ 10 giây quật vòi hất tung mọi quân bạn trước mặt lên không 1,6 giây (55 sát thương).',
+    tags: ['giant'], unlockCost: 0, scale: 2.3,
+  }),
+  U({
+    id: 'cuquy', name: 'Cự Quy Thông Thiên', kind: 'beast', cost: 120,
+    hp: 1500, dmg: 30, cd: 1.6, speed: 12, range: 42, armor: 24,
+    skill: 'trample', skill2: 'ward', skillName: 'Mai Rùa Bất Hoại',
+    desc: 'Rùa thần ngàn năm trồi lên gần cuối trận: giáp cực dày, rất chậm; mỗi đòn giậm gây sát thương lan bán kính 55; cứ 14 giây thu mình vào mai, miễn nhiễm mọi sát thương 3 giây.',
+    tags: ['giant'], unlockCost: 0, scale: 2.2,
+  }),
+  U({
+    id: 'cuhung', name: 'Sơn Việt Cự Hùng', kind: 'beast', cost: 120,
+    hp: 1500, dmg: 38, cd: 1.0, speed: 22, range: 38, armor: 10,
+    skill: 'berserk', skill2: 'cleave', skillName: 'Hùng Nộ Quét Ngang',
+    desc: 'Gấu núi khổng lồ lao ra gần cuối trận: mỗi đòn quét lan 55% sát thương quanh mục tiêu; càng mất máu càng điên cuồng, đánh càng đau.',
+    tags: ['giant'], unlockCost: 0, scale: 2.3,
+  }),
+  // ───────────── QUÁI HOANG DÃ (ổ quái giữa lane, đánh cả hai phe; xem data/wild.ts) ─────────────
+  U({
+    id: 'nhenme', name: 'Nhện Mẹ', kind: 'beast', cost: 100,
+    hp: 900, dmg: 20, cd: 1.0, speed: 0, range: 40, armor: 6,
+    skill: 'poisoner', skill2: 'brood', skillName: 'Nhện Mẹ Thả Đàn',
+    desc: 'Chủ ổ nhện giữa lane, bất động. Cắn tẩm độc (9 máu/giây trong 5 giây) mọi quân cả hai phe đi ngang; cứ 3 cú cắn thả 1 nhện con, mỗi 8 giây thả thêm 2 con (tối đa 8). Hạ nhện mẹ là cả đàn tan biến và nhận thêm vàng thưởng.',
+    tags: ['wild'], unlockCost: 0, scale: 1.9,
+  }),
+  U({
+    id: 'nhencon', name: 'Nhện Con', kind: 'beast', cost: 6,
+    hp: 75, dmg: 7, cd: 0.6, speed: 62, range: 26, armor: 0,
+    skill: 'quick', skillName: 'Lúc Nhúc',
+    desc: 'Nhện con do nhện mẹ thả ra: mỏng máu, chạy nhanh, đuổi đánh mọi quân gần ổ rồi quay về. Không có tiền thưởng.',
+    tags: ['wild'], unlockCost: 0, scale: 0.55,
+  }),
+  U({
+    id: 'langchua', name: 'Sói Chúa', kind: 'beast', cost: 100,
+    hp: 820, dmg: 26, cd: 0.8, speed: 0, range: 38, armor: 7,
+    skill: 'howl', skill2: 'brood', skillName: 'Sói Chúa Hú Gọi',
+    desc: 'Chúa hang sói giữa lane, bất động. Cắn mọi quân cả hai phe đi ngang; cứ 3 cú cắn gọi 1 sói con, mỗi 9 giây gọi thêm 2 con (tối đa 6); tiếng hú tăng sức cho sói con. Hạ Sói Chúa là cả đàn tan biến và nhận thêm vàng thưởng.',
+    tags: ['wild'], unlockCost: 0, scale: 1.6,
+  }),
+  U({
+    id: 'soicon', name: 'Sói Con', kind: 'beast', cost: 8,
+    hp: 95, dmg: 9, cd: 0.5, speed: 70, range: 26, armor: 1,
+    skill: 'quick', skillName: 'Vồ Nhanh',
+    desc: 'Sói con trong hang: chạy nhanh, cắn liên tục mọi quân gần hang rồi quay về. Không có tiền thưởng.',
+    tags: ['wild'], unlockCost: 0, scale: 0.7,
+  }),
+  U({
+    id: 'xamau', name: 'Xà Mẫu', kind: 'beast', cost: 100,
+    hp: 760, dmg: 16, cd: 1.1, speed: 0, range: 130, armor: 5,
+    skill: 'poisoner', skill2: 'brood', skillName: 'Xà Mẫu Sinh Đàn',
+    desc: 'Chủ ổ rắn giữa lane, bất động. Phun nọc độc từ xa (9 máu/giây trong 5 giây) vào mọi quân cả hai phe; cứ 3 lần phun thả 1 rắn con, mỗi 8 giây thả thêm 2 con (tối đa 7). Hạ Xà Mẫu là cả đàn tan biến và nhận thêm vàng thưởng.',
+    tags: ['wild'], unlockCost: 0, scale: 1.5,
+  }),
+  U({
+    id: 'xacon', name: 'Rắn Con', kind: 'beast', cost: 6,
+    hp: 70, dmg: 8, cd: 0.7, speed: 52, range: 26, armor: 0,
+    skill: 'quick', skillName: 'Trườn Nhanh',
+    desc: 'Rắn con do Xà Mẫu thả ra: mỏng máu, đuổi cắn mọi quân gần ổ rồi quay về. Không có tiền thưởng.',
+    tags: ['wild'], unlockCost: 0, scale: 0.6,
+  }),
+  U({
+    id: 'lonme', name: 'Lợn Mẹ Hung Dữ', kind: 'beast', cost: 100,
+    hp: 1100, dmg: 24, cd: 1.1, speed: 0, range: 38, armor: 9,
+    skill: 'berserk', skill2: 'brood', skillName: 'Lợn Mẹ Nổi Điên',
+    desc: 'Chủ hang lợn rừng giữa lane, bất động. Húc mọi quân cả hai phe đi ngang, càng mất máu càng điên; cứ 3 cú húc thả 1 lợn con, mỗi 9 giây thả thêm 2 con (tối đa 6). Hạ lợn mẹ là cả đàn tan biến và nhận thêm vàng thưởng.',
+    tags: ['wild'], unlockCost: 0, scale: 1.7,
+  }),
+  U({
+    id: 'loncon', name: 'Lợn Con', kind: 'beast', cost: 8,
+    hp: 110, dmg: 9, cd: 0.9, speed: 56, range: 26, armor: 2,
+    skill: 'charge', skillName: 'Húc Xung Phong',
+    desc: 'Lợn con lao húc mọi quân gần hang rồi quay về (đòn đầu cộng thêm sát thương theo quãng đường chạy). Không có tiền thưởng.',
+    tags: ['wild'], unlockCost: 0, scale: 0.62,
+  }),
+  U({
+    id: 'ngocongme', name: 'Ngô Công Mẫu', kind: 'beast', cost: 100,
+    hp: 840, dmg: 18, cd: 1.0, speed: 0, range: 120, armor: 6,
+    skill: 'poisoner', skill2: 'brood', skillName: 'Ngô Công Sinh Đàn',
+    desc: 'Chủ ổ rết giữa lane, bất động. Phun nọc độc từ xa (9 máu/giây trong 5 giây) vào mọi quân cả hai phe; cứ 3 lần phun thả 1 rết con, mỗi 8 giây thả thêm 2 con (tối đa 7). Hạ Ngô Công Mẫu là cả đàn tan biến và nhận thêm vàng thưởng.',
+    tags: ['wild'], unlockCost: 0, scale: 1.5,
+  }),
+  U({
+    id: 'ngoconcon', name: 'Rết Con', kind: 'beast', cost: 6,
+    hp: 72, dmg: 8, cd: 0.7, speed: 58, range: 26, armor: 0,
+    skill: 'quick', skillName: 'Bò Nhanh',
+    desc: 'Rết con do Ngô Công Mẫu thả ra: mỏng máu, đuổi cắn mọi quân gần ổ rồi quay về. Không có tiền thưởng.',
+    tags: ['wild'], unlockCost: 0, scale: 0.6,
   }),
   // ───────────── SỰ KIỆN NGẪU NHIÊN ─────────────
   U({
@@ -803,23 +1499,227 @@ export const UNIT_LIST: UnitDef[] = [
     desc: 'Thú cưng THỦY: chỉ ra trận ở lane sông. Rùa ngọc có mai tạo khiên khí 80 sát thương, dựng lại sau 8 giây khi vỡ.',
     tags: ['naval'], unlockCost: 450, scale: 1.1,
   }),
+  // ───────────── THÚ CƯNG ĐỢT MỚI ─────────────
+  U({
+    id: 'bachhac', name: 'Bạch Hạc Tiên', kind: 'pet', cost: 24,
+    hp: 200, dmg: 8, cd: 1.2, speed: 40, range: 90, armor: 2,
+    skill: 'springAura', skillName: 'Tiên Hạc Phục Linh',
+    desc: 'HỒI MÁU DIỆN RỘNG: mỗi 2 giây hồi 3% máu tối đa cho đồng đội trong bán kính 150 (kể cả bản thân). Đi sau lưng đồng đội, mổ địch khi tới gần.',
+    unlockCost: 500, scale: 1.05,
+  }),
+  U({
+    id: 'thandieu', name: 'Thần Điêu', kind: 'pet', cost: 30,
+    hp: 330, dmg: 26, cd: 0.8, speed: 60, range: 32, armor: 5,
+    skill: 'leap', skillName: 'Thần Điêu Đại Hiệp',
+    desc: 'NHẢY RA SAU LƯNG: cứ 9 giây vọt qua đầu địch, đáp xuống phía sau (ưu tiên xạ thủ) gây 70 sát thương lan, choáng 0,6s. KẾT HỢP: đi cùng Dương Quá hoặc Tiểu Long Nữ, cả hai +20% sát thương và +15% tốc độ đánh.',
+    combo: { with: ['duongqua', 'tieulongnu'], kind: 'power' },
+    unlockCost: 800, scale: 1.1,
+  }),
+  U({
+    id: 'bachlongma', name: 'Bạch Long Mã', kind: 'pet', cost: 28,
+    hp: 300, dmg: 18, cd: 1.0, speed: 70, range: 30, armor: 4,
+    skill: 'skyMount', skillName: 'Long Mã Đằng Vân',
+    desc: 'GỌI THÚ CƯỠI BAY: cứ 16 giây hóa rồng bay lên trời 6 giây: chỉ tướng và quân tầm xa mới đánh trúng, chạy nhanh hơn 30%. KẾT HỢP: đi cùng Đường Tăng hoặc Tôn Ngộ Không, cả hai chạy nhanh hơn 25% và đánh nhanh hơn 20%.',
+    mount: 'dragon', mountSec: 6, combo: { with: ['duongtang', 'tonngokhong'], kind: 'haste' },
+    unlockCost: 800, scale: 1.1,
+  }),
+  U({
+    id: 'khivang', name: 'Khỉ Vàng', kind: 'pet', cost: 18,
+    hp: 140, dmg: 12, cd: 0.5, speed: 76, range: 26, armor: 1,
+    skill: 'leap', skillName: 'Khỉ Vàng Phóng Hậu',
+    desc: 'NHẢY RA SAU LƯNG: cứ 9 giây phóng qua đầu địch, đáp xuống phía sau gây 70 sát thương lan, choáng 0,6s. KẾT HỢP: đi cùng Tôn Ngộ Không, cả hai +20% sát thương và +15% tốc độ đánh.',
+    combo: { with: ['tonngokhong'], kind: 'power' },
+    unlockCost: 450, scale: 0.95,
+  }),
+  U({
+    id: 'tieuho', name: 'Tiểu Hồ Ly', kind: 'pet', cost: 22,
+    hp: 150, dmg: 10, cd: 1.1, speed: 56, range: 120, armor: 1,
+    skill: 'charm', skillName: 'Mị Nhãn',
+    desc: 'THÔI MIÊN: cứ 14 giây mê hoặc 2 địch gần nhất trong 300; chúng quay sang đánh đồng đội mình trong 4 giây (Boss miễn nhiễm).',
+    unlockCost: 600, scale: 1,
+  }),
+  U({
+    id: 'phuonghoangnon', name: 'Phượng Hoàng Non', kind: 'pet', cost: 28,
+    hp: 220, dmg: 14, cd: 1.1, speed: 46, range: 180, armor: 3,
+    skill: 'rebirth', skillName: 'Niết Bàn Non',
+    desc: 'HỒI SINH: khi bị hạ lần đầu hóa lửa sống lại với 70% máu, bất tử 1,5 giây và nổ lửa 90 sát thương lan (bán kính 110). Phun lửa từ xa.',
+    unlockCost: 750, scale: 1.05,
+  }),
+  U({
+    id: 'tuyetlinh', name: 'Tuyết Linh Báo', kind: 'pet', cost: 24,
+    hp: 190, dmg: 16, cd: 0.8, speed: 58, range: 30, armor: 3,
+    skill: 'freeze', skillName: 'Hàn Sương Vồ',
+    desc: 'ĐÓNG BĂNG: cứ 13 giây đóng băng 3 địch gần nhất trong 260 suốt 2,5s (chịu thêm 25% sát thương), tan băng bị chậm 30% trong 2s.',
+    unlockCost: 600, scale: 1.05,
+  }),
+  U({
+    id: 'linhquy', name: 'Linh Quy Hộ Mệnh', kind: 'pet', cost: 22,
+    hp: 380, dmg: 10, cd: 1.3, speed: 22, range: 28, armor: 16,
+    skill: 'ward', skill2: 'monk', skillName: 'Mai Rùa Bất Hoại',
+    desc: 'MIỄN THƯƠNG: cứ 14 giây miễn nhiễm mọi sát thương 3 giây; mai rùa còn tạo khiên khí 80 sát thương, dựng lại sau 8 giây khi vỡ.',
+    unlockCost: 700, scale: 1.1,
+  }),
+  U({
+    id: 'trauvang', name: 'Trâu Vàng', kind: 'pet', cost: 26,
+    hp: 420, dmg: 18, cd: 1.4, speed: 30, range: 34, armor: 10,
+    skill: 'launch', skillName: 'Trâu Vàng Hất Sừng',
+    desc: 'HẤT TUNG: cứ 10 giây hất tung mọi địch trước mặt (bán kính 100) lên không 1,6 giây, gây 55 sát thương.',
+    unlockCost: 650, scale: 1.15,
+  }),
+  U({
+    id: 'rongvan', name: 'Rồng Mây', kind: 'pet', cost: 34,
+    hp: 280, dmg: 16, cd: 1.2, speed: 46, range: 190, armor: 4,
+    skill: 'volley', skillName: 'Vân Long Phun Hỏa',
+    desc: 'BAY: chỉ tướng và quân tầm xa mới đánh trúng. BẮN LAN: cầu lửa nổ lan 55% sát thương lên địch quanh mục tiêu (bán kính 60).',
+    tags: ['fly'], unlockCost: 900, scale: 1.1,
+  }),
+  U({
+    id: 'bachtho', name: 'Bạch Thố Ngọc', kind: 'pet', cost: 20,
+    hp: 130, dmg: 6, cd: 1.2, speed: 56, range: 70, armor: 1,
+    skill: 'rescue', skillName: 'Ngọc Thố Giã Dược',
+    desc: 'HỒI MÁU: cứ 8 giây hồi 30% máu tối đa (+40) cho đồng đội thấp máu nhất trong 320, kể cả lane liền kề. Đi sau lưng đồng đội.',
+    unlockCost: 500, scale: 0.95,
+  }),
+  U({
+    id: 'thienkhuyen', name: 'Tiểu Thiên Khuyển', kind: 'pet', cost: 22,
+    hp: 200, dmg: 15, cd: 0.6, speed: 72, range: 28, armor: 3,
+    skill: 'leap', skillName: 'Khuyển Phi Hậu Tập',
+    desc: 'NHẢY RA SAU LƯNG: cứ 9 giây vọt qua đầu địch, đáp xuống sau lưng gây 70 sát thương lan, choáng 0,6s. KẾT HỢP: đi cùng Dương Tiễn, mỗi 8 giây cả hai tung hợp kích lan bán kính 110.',
+    combo: { with: ['duongtien'], kind: 'strike' },
+    unlockCost: 700, scale: 1,
+  }),
+  U({
+    id: 'langnho', name: 'Lang Vương Nhỏ', kind: 'pet', cost: 22,
+    hp: 190, dmg: 14, cd: 0.6, speed: 68, range: 28, armor: 2,
+    skill: 'leap', skill2: 'howl', skillName: 'Sói Con Hú Gọi',
+    desc: 'NHẢY RA SAU LƯNG: cứ 9 giây vọt qua đầu địch đáp xuống sau lưng (70 sát thương lan, choáng 0,6s). Tiếng hú: cứ 12 giây đồng đội trong 260 (cả lane liền kề) +20% sát thương và +15% tốc độ chạy trong 5s.',
+    unlockCost: 600, scale: 1,
+  }),
+  U({
+    id: 'gaumat', name: 'Gấu Mật Võ Sĩ', kind: 'pet', cost: 26,
+    hp: 360, dmg: 16, cd: 1.1, speed: 34, range: 30, armor: 6,
+    skill: 'cleave', skill2: 'berserk', skillName: 'Gấu Mật Quyền',
+    desc: 'ĐÁNH LAN: mỗi cú vả lan 55% sát thương lên địch quanh mục tiêu; càng mất máu càng đánh đau (tối đa +120%).',
+    unlockCost: 550, scale: 1.1,
+  }),
+  U({
+    id: 'thanloc', name: 'Thần Lộc', kind: 'pet', cost: 26,
+    hp: 300, dmg: 6, cd: 1.5, speed: 44, range: 60, armor: 4,
+    skill: 'springAura', skill2: 'rescue', skillName: 'Lộc Thần Phúc Ấm',
+    desc: 'HỒI MÁU: mỗi 2 giây hồi 3% máu tối đa cho đồng đội trong 150; cứ 8 giây cứu chữa đồng đội thấp máu nhất (30% máu tối đa +40), kể cả lane liền kề.',
+    unlockCost: 850, scale: 1.1,
+  }),
+  U({
+    id: 'kylanlua', name: 'Kỳ Lân Lửa', kind: 'pet', cost: 30,
+    hp: 260, dmg: 18, cd: 1.3, speed: 44, range: 170, armor: 4,
+    skill: 'volley', skill2: 'fireAttack', skillName: 'Hỏa Kỳ Lân',
+    desc: 'BẮN LAN: cầu lửa nổ lan 55% sát thương quanh mục tiêu; mỗi 8 giây phun lửa xuống chỗ địch đông nhất (130 sát thương, xuyên giáp).',
+    unlockCost: 850, scale: 1.1,
+  }),
+  U({
+    id: 'linhdieu', name: 'Linh Điểu', kind: 'pet', cost: 20,
+    hp: 110, dmg: 12, cd: 0.8, speed: 60, range: 110, armor: 0,
+    skill: 'vanish', skillName: 'Linh Điểu Ẩn Vân',
+    desc: 'KHÔNG THỂ CHỌN LÀM MỤC TIÊU: cứ 12 giây ẩn trong mây 4 giây (chỉ chịu sát thương lan, chạy nhanh hơn 20%). Mổ địch từ xa.',
+    unlockCost: 500, scale: 0.95,
+  }),
+  U({
+    id: 'huyenvu', name: 'Huyền Vũ Non', kind: 'pet', cost: 28,
+    hp: 360, dmg: 12, cd: 1.2, speed: 22, range: 28, armor: 14,
+    skill: 'freeze', skill2: 'monk', skillName: 'Huyền Vũ Hàn Giáp',
+    desc: 'ĐÓNG BĂNG: cứ 13 giây đóng băng 3 địch gần nhất 2,5s (chịu thêm 25% sát thương); mai rùa tạo khiên khí 80 sát thương, dựng lại sau 8 giây khi vỡ.',
+    unlockCost: 800, scale: 1.1,
+  }),
+  U({
+    id: 'thanhlongnon', name: 'Thanh Long Non', kind: 'pet', cost: 32,
+    hp: 320, dmg: 20, cd: 1.1, speed: 40, range: 160, armor: 5,
+    skill: 'launch', skill2: 'volley', skillName: 'Thanh Long Cuồng Phong',
+    desc: 'HẤT TUNG: cứ 10 giây quẫy đuôi hất tung mọi địch trước mặt (bán kính 100) lên không 1,6s, gây 55 sát thương. BẮN LAN: cầu gió nổ lan 55% sát thương.',
+    unlockCost: 900, scale: 1.1,
+  }),
+  U({
+    id: 'kimo', name: 'Tam Túc Kim Ô', kind: 'pet', cost: 30,
+    hp: 240, dmg: 14, cd: 1.0, speed: 52, range: 150, armor: 3,
+    skill: 'resurrect', skill2: 'volley', skillName: 'Kim Ô Triệu Hồn',
+    desc: 'HỒI SINH ĐỒNG ĐỘI: cứ 18 giây gọi hồn lính/thú vừa ngã xuống sống lại với 55% máu (mỗi quân một lần). BẮN LAN: cầu lửa nổ lan 55% sát thương.',
+    unlockCost: 900, scale: 1.05,
+  }),
   U({
     id: 'haothienkhuyen', name: 'Hao Thiên Khuyển', kind: 'summon', cost: 0,
     hp: 300, dmg: 20, cd: 0.7, speed: 78, range: 28, armor: 6,
     skill: 'none', skillName: 'Thiên Khuyển',
-    desc: 'Chó thần của Dương Tiễn: 50% máu, sát thương và giáp của chủ, tồn tại 15 giây.',
+    desc: 'Chó thần của Dương Tiễn: 50% máu, sát thương và giáp của chủ (tăng theo cấp, tối đa 80%), tồn tại 15 giây.',
     unlockCost: 0, scale: 1,
   }),
 ];
+
+// ───────────── TRỤ SẢN SINH ─────────────
+// Đặt ở nửa sân nhà (không quá nửa lane): cứ vài giây tự sinh ngẫu nhiên một đơn vị cùng loại, tới số lượng tối đa.
+// Mua bằng vàng trong trận (đắt) và nâng cấp ngay trong trận để sinh nhanh hơn, sinh được nhiều quân hơn.
+export interface PostLevel {
+  /** giây giữa hai lần sinh quân */
+  every: number;
+  /** tổng số quân trụ này sinh được tới cấp đó */
+  max: number;
+  /** vàng để nâng lên cấp này */
+  cost: number;
+}
+export const POST_LEVELS: PostLevel[] = [
+  { every: 8, max: 5, cost: 0 },
+  { every: 6.5, max: 8, cost: 50 },
+  { every: 5, max: 11, cost: 75 },
+  { every: 4, max: 15, cost: 100 },
+];
+/** mỗi lane tối đa số doanh trại (không tính vào giới hạn công trình phòng thủ) */
+export const MAX_POSTS_PER_LANE = 2;
+export const POST_HP_PER_LEVEL = 1.3;
+/** cấp thẻ doanh trại (mua bằng xu): +1 quân tối đa mỗi 2 cấp; chu kỳ sinh quân nhanh hơn theo skillHaste (+7%/cấp) */
+export const postMaxBonus = (cardLv: number) => Math.floor((Math.max(1, cardLv) - 1) / 2);
+/** chu kỳ chiêu quân thực tế (giây) của doanh trại cấp trận `battleLv` (1..4) và cấp thẻ `cardLv` */
+export const postEveryAt = (battleLv: number, cardLv: number) => POST_LEVELS[battleLv - 1].every / skillHaste(cardLv);
+export interface PostInfo {
+  icon: string;
+  color: number;
+  /** đơn vị trụ có thể sinh ra */
+  pool: string[];
+}
+export const POSTS: Record<string, PostInfo> = {
+  post_infantry: { icon: '⚔', color: 0x7ac0ff, pool: ['samurai', 'spear', 'shield', 'berserker', 'daodaobinh', 'toanphong', 'lahan', 'kimcang'] },
+  post_cavalry: { icon: '🐎', color: 0xffb36b, pool: ['knight', 'phiky', 'elephant'] },
+  post_archer: { icon: '🏹', color: 0x7dffb0, pool: ['archer', 'crossbow', 'liethoa', 'lienchau', 'taoist'] },
+  post_air: { icon: '🪽', color: 0xd9c8ff, pool: ['phiung', 'bangphuong', 'hoaphuong', 'philong', 'khongtuoc'] },
+  post_naval: { icon: '⚓', color: 0x5ad0ff, pool: ['thuybinh', 'cungthuyen', 'chienthuyen', 'phaothuyen'] },
+  post_siege: { icon: '💣', color: 0xff8a6a, pool: ['trebuchet', 'noxe', 'hoapao', 'xetenlua', 'phaothach'] },
+};
+const POST_UNLOCK: Record<string, number> = { post_infantry: 0, post_cavalry: 400, post_archer: 400, post_naval: 450, post_air: 800, post_siege: 900 };
+const POST_COSTS: Record<string, number> = { post_infantry: 45, post_cavalry: 60, post_archer: 55, post_air: 85, post_naval: 55, post_siege: 90 };
+const POST_NAMES: Record<string, string> = {
+  post_infantry: 'Trại Bộ Binh', post_cavalry: 'Trại Kỵ Binh', post_archer: 'Trại Cung Thủ',
+  post_air: 'Trại Không Binh', post_naval: 'Trại Thủy Binh', post_siege: 'Trại Công Thành',
+};
+export const POST_LIST: UnitDef[] = Object.keys(POSTS).map((id) => U({
+  id, name: POST_NAMES[id], kind: 'defense', cost: POST_COSTS[id],
+  hp: 280, dmg: 0, cd: POST_LEVELS[0].every, speed: 0, range: 0, armor: 6,
+  skill: 'spawner', skillName: 'Chiêu Mộ Quân',
+  desc: 'Cứ vài giây tự chiêu mộ ngẫu nhiên một đơn vị cùng loại. Chỉ đặt được ở nửa sân nhà. Nâng cấp trong trận để chiêu quân nhanh hơn và nhiều quân hơn.',
+  tags: id === 'post_naval' ? ['spawner', 'naval'] : ['spawner'], unlockCost: POST_UNLOCK[id], scale: 1.1,
+}));
+export const isPost = (d: Pick<UnitDef, 'tags'>) => !!d.tags?.includes('spawner');
+/** bộ doanh trại mang vào một trận: tối đa 3 loại */
+export const POST_DECK_SIZE = 3;
+/** doanh trại có sẵn từ đầu (các trại khác mở khóa bằng xu ở tab Binh đoàn → Doanh trại) */
+export const STARTER_POSTS = POST_LIST.filter((u) => u.unlockCost === 0).map((u) => u.id);
 
 /** thủy quân chỉ ra trận ở lane sông; quân bay đi được mọi lane; bộ binh / kỵ binh chỉ đi lane đất */
 export const isNaval = (d: Pick<UnitDef, 'tags'>) => !!d.tags?.includes('naval');
 export const isFlyer = (d: Pick<UnitDef, 'tags'>) => !!d.tags?.includes('fly');
 
-export const UNITS: Record<string, UnitDef> = Object.fromEntries(UNIT_LIST.map((u) => [u.id, u]));
+export const UNITS: Record<string, UnitDef> = Object.fromEntries([...UNIT_LIST, ...POST_LIST].map((u) => [u.id, u]));
 export const PLAYABLE = UNIT_LIST.filter((u) => u.kind === 'troop' || u.kind === 'general');
 /** đồ phòng thủ (xếp riêng, bộ phòng thủ tối đa 3 món) */
 export const DEFENSES = UNIT_LIST.filter((u) => u.kind === 'defense');
+/** thiết bị công thành tầm xa (lính, mang theo trong bộ bài thường): hiện chung tab Công thủ thành với công trình phòng thủ */
+export const ENGINE_UNITS = UNIT_LIST.filter((u) => u.kind === 'troop' && u.tags?.includes('engine'));
 export const DEFENSE_DECK_SIZE = 3;
 /** nâng cấp ô bộ bài ra trận: 6 → 9 ô (giá xu để mở thêm từng ô) */
 export const DECK_EXTRA_COSTS = [400, 800, 1400];

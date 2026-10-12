@@ -1,5 +1,5 @@
 import { Container, Graphics, Text, type Application } from 'pixi.js';
-import { buildUnitArt, FLY_LIFT, type UnitArt } from './unitArt';
+import { addLevelTag, buildUnitArt, FLY_LIFT, type UnitArt } from './unitArt';
 import { INK, darker, g, lighter, mix, poly, rrect } from './draw';
 import { Vfx, textStyle } from './vfx';
 import { getLang, t, unitName } from '../i18n';
@@ -409,6 +409,7 @@ export class HuntView {
   private makeUnitView(u: HUnit): UV {
     const art = buildUnitArt(u.def, 0, false, this.teamColor(u));
     const v: UV = { art, seed: u.uid * 0.77, born: this.clock, lastPct: -1, prevAtk: 0, dustT: Math.random() * 0.2, swooshAt: 0 };
+    addLevelTag(art, u.pow);
     if (u.def.kind === 'general' || u.guardian) {
       const text = u.guardian ? t('hunt.guardian', { name: unitName(u.def) }) : unitName(u.def);
       const tx = new Text({ text, style: textStyle(u.guardian ? 13 : 11, u.guardian ? 0xff8a7a : 0xffe08a) });

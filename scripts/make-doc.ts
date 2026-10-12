@@ -319,7 +319,7 @@ function build() {
     'Tổng quan trò chơi',
     'Bắt đầu nhanh',
     'Cách chơi chi tiết (vàng, nâng cấp giới hạn vàng, vàng thưởng, màn Boss)',
-    'Chiến dịch: 5 bản đồ, 50 trạm (và các chế độ Thủ Thành 3.16, Truy Tìm Kho Báu 3.17, lane sông 3.18)',
+    `Chiến dịch: ${CHAPTERS.length} bản đồ, ${STATIONS.length} trạm (và các chế độ Thủ Thành 3.16, Truy Tìm Kho Báu 3.17, lane sông 3.18)`,
     'Binh đoàn: bộ bài, mở khóa, nâng cấp',
     `Danh sách lính (${troops.length} loại)`,
     `Danh sách tướng (${generals.length} vị)`,
@@ -340,10 +340,10 @@ function build() {
   p(`Tam Lộ Công Thành là game chiến thuật công thành 2D chạy ngay trên trình duyệt web. Chiến dịch gồm ${CHAPTERS.length} bản đồ, mỗi bản đồ ${STATIONS_PER_MAP} trạm (trạm thứ ${STATIONS_PER_MAP} là Boss), tổng cộng ${STATIONS.length} trạm. Các trạm thường diễn ra song song trên ba làn đường (lane) độc lập: người chơi kéo thả lính, tướng và đồ phòng thủ vào lane, phá cờ của đối phương và ai ăn được 2/3 lane sẽ thắng. Trạm Boss chỉ có MỘT lane và Boss xuất hiện gần cuối trận.`);
   h3('Điểm nổi bật');
   ul(
-    `${STATIONS.length} trạm trên ${CHAPTERS.length} bản đồ (Tam Quốc · Kim Dung · Tây Du/Phong Thần · Thủy Hử · Địa Phủ) với 11 loại địa hình khác nhau; phải hoàn thành đủ ${STATIONS_PER_MAP} trạm của bản đồ trước mới mở bản đồ kế tiếp, nhưng được XEM TRƯỚC mọi trạm (trạm đang khóa chưa chơi được).`,
+    `${STATIONS.length} trạm trên ${CHAPTERS.length} bản đồ (Tam Quốc · Kim Dung · Tây Du/Phong Thần · Thủy Hử · Địa Phủ · Thiên Long Bát Bộ · Tây Thiên Thỉnh Kinh · Giang Đông Thủy Chiến) với 11 loại địa hình khác nhau; phải hoàn thành đủ ${STATIONS_PER_MAP} trạm của bản đồ trước mới mở bản đồ kế tiếp, nhưng được XEM TRƯỚC mọi trạm (trạm đang khóa chưa chơi được).`,
     `${troops.length} loại lính, ${generals.length} vị tướng (Tam Quốc, Kim Dung, Tây Du) và ${DEFENSES.length} loại đồ phòng thủ (tường, tường gai, tháp cung, nỏ thần, pháo đá, bẫy, hố lửa, trống trận, tế đàn, trụ băng).`,
     `${pets.length} thú cưng (tab riêng trong Binh đoàn, xuất trận như lính) và ${beasts.length} loài quái thú xuất hiện ở phía địch (sói, lợn rừng, gấu, hổ, mãng xà, báo đen, tê giác, hỏa long).`,
-    `${bosses.length} Boss: Đổng Trác, Đông Phương Bất Bại, Ngưu Ma Vương; mỗi trạm Boss chỉ có 1 lane, Boss xuất hiện gần cuối trận và rất trâu.`,
+    `${bosses.length} Boss: ${bosses.map((x) => x.name).join(', ')}; mỗi trạm Boss chỉ có 1 lane, Boss xuất hiện gần cuối trận và rất trâu.`,
     'Số quân địch của mỗi trạm là cố định và tăng dần theo độ sâu của trạm; hạ quân địch được thưởng vàng; có thể nâng cấp giới hạn vàng để thả được nhiều quân hơn.',
     'Hệ thống binh đoàn: mở khóa thẻ mới, nâng cấp (lính không giới hạn cấp, tướng tối đa cấp 20 và mở thêm kỹ năng), chọn bộ bài 6 thẻ (tối đa 2 tướng) và bộ đồ phòng thủ 3 món.',
     'Chấm 1–3 sao cho từng trạm, khuyến khích đánh lại để hoàn hảo.',
@@ -521,7 +521,7 @@ function build() {
   p('Ghi chú: "quân tầm xa" là quân có tầm bắn trên 70; sương mù/rừng/ban đêm chỉ thu hẹp tầm, không biến quân tầm xa thành cận chiến. Mất máu ở Núi lửa không gây chết (còn tối thiểu 10% máu tối đa). Sét và vùng cháy không cho vàng thưởng khi hạ quân.', { italic: true });
   h2('3.11. Quái thú khổng lồ (trạm thứ 5 mỗi bản đồ)');
   ul(
-    'Trạm thứ 5 của mỗi bản đồ (các trạm 1-5, 2-5, 3-5) có một quái thú khổng lồ của địch: Người Đá Khổng Lồ, Cự Mãng Ngàn Năm, Cổ Long Thiên Hỏa.',
+    `Trạm thứ 5 của mỗi bản đồ (các trạm ${STATIONS.filter((x) => x.giantId).map((x) => stationLabel(x.id)).join(', ')}) có một quái thú khổng lồ của địch: ${STATIONS.filter((x) => x.giantId).map((x) => UNITS[x.giantId!].name).join(', ')}.`,
     `Nó xuất hiện gần cuối trận, ở lane địch đang bị ép nhất: khi cờ địch ở lane đó còn ≤ ${Math.round(GIANT_AT_HP * 100)}% máu, hoặc sau ${GIANT_AT_TIME} giây (không sớm hơn ${GIANT_MIN_TIME} giây). Có thông báo "XUẤT HIỆN!" trên màn hình. Nếu bạn thắng nhanh hơn, nó không kịp xuất hiện.`,
     'Khác Boss: hạ nó không kết thúc trận và cờ địch không được bảo vệ, nhưng nó rất trâu nên cần dồn sát thương mạnh/xuyên giáp.',
   );
@@ -622,6 +622,26 @@ function build() {
   img('shot-river.png', 560, 'Trạm Xích Bích: lane giữa là sông, thủy tướng Long Vương, Cam Ninh cùng thuyền chiến đối đầu Giao Long và Rùa Thần; hai lane đất chỉ cho bộ binh');
   B.push({ k: 'break' });
 
+  h2('3.19. Căn cứ phụ nhiều tầng, lane thứ 4, hầm và ổ quái hoang dã');
+  ul(
+    'NHIỀU CĂN CỨ PHỤ: mỗi bản đồ có 3–4 trạm có căn cứ phụ; trạm càng sâu càng nhiều căn cứ trên mỗi lane (1 → 2 → 3, tối đa 3). Căn cứ do địch giữ sẵn và có QUÂN CANH đứng quanh căn cứ (không tiến lên): phải diệt hết quân canh rồi đứng trong vùng căn cứ để chiếm. Càng vào sâu (gần thành địch) đồn càng mạnh: căn cứ 1 là lính (giáo binh, kiếm sĩ), căn cứ 2 là THÚ canh giữ (sói hoang, lợn rừng / hổ núi), căn cứ 3 là CUNG THỦ + nỏ thủ cùng một tháp cung.',
+    'Nhiều căn cứ thì lane dài ra (1 căn cứ: 2.000, 2 căn cứ: 2.600, 3 căn cứ: 3.200 so với 1.000 chuẩn) nên quân được vẽ nhỏ lại để nhìn bao quát cả chiến trường (×0,5 / ×0,4 / ×0,33) và chạy nhanh hơn một chút để mỗi chuyến đi không quá lâu; địch bớt quân tự do (−10% / −20% / −30%) và thời gian 3 sao dài hơn (×1,3 / ×1,5 / ×1,7).',
+    'LANE THỨ 4 CỦA ĐỊCH: mỗi bản đồ có 4 trạm trong 10 trạm địch có thêm lane thứ 4 (nằm ngay trên hoặc dưới ba lane của bạn, ô "⑂ Lane thứ 4"). Bạn vẫn chỉ có 3 lane/3 thành, nhưng địch có 4 đường: lane thứ 4 nhập vào một lane của bạn ở khoảng giữa lane, nên lane đó phải đỡ HAI dòng quân địch (1 lane của ta đấu với 2 lane của địch). Địch thả quân vào bất kỳ lane nào trong 4 lane, bạn không thả quân vào lane thứ 4 (phía bạn bị đá chắn) và không phải phá thành ở đó: vẫn chỉ cần thắng 2 trong 3 lane của mình. Lane chủ kết thúc thì quân còn trên lane thứ 4 tan biến.',
+    'HẦM: khoảng 30% trạm thường có một HẦM ngầm nối hai lane (kể cả hai lane cách nhau một lane, vẽ là hai cửa vòm đá nối bằng nét đứt). Quân ta đi qua cửa gần thành ta có thể chui xuống hầm 1,6 giây (không bị đánh trúng) và trồi lên cửa kia gần thành địch; quân địch đi ngược lại. Ưu tiên lane đang cần chi viện. Quái khổng lồ, Boss và quân bay không dùng hầm. Ngoài ra nhiều trạm có thêm cầu nối lane (xem 3.14).',
+    'QUÁI HOANG DÃ: khoảng 45% trạm thường (từ trạm thứ 3) có một Ổ QUÁI giữa lane — Ổ Nhện, Hang Sói, Ổ Rắn, Hang Lợn Rừng hoặc Ổ Rết. Quái hoang dã là phe thứ ba (viền tím): đánh CẢ HAI phe. Thủ lĩnh (Nhện Mẹ, Sói Chúa, Xà Mẫu, Lợn Mẹ Hung Dữ, Ngô Công Mẫu) bất động, cắn tẩm độc / húc mọi quân lại gần và thả đàn con (cứ 3 cú đánh thả 1 con, mỗi 8–9 giây thả thêm 2 con, tối đa 6–8 con); đàn con đuổi đánh quanh ổ rồi quay về. Hạ thủ lĩnh thì cả đàn tan biến và phe hạ được thưởng thêm 25 vàng.',
+  );
+  table(
+    ['Trạm', 'Tên', 'Căn cứ/lane', 'Lane thứ 4', 'Hầm', 'Ổ quái'],
+    STATIONS.filter((x) => x.posts || x.extraLane || x.tunnels.length || x.lairs.length).map((x) => [
+      stationLabel(x.id), x.name, x.posts ? String(x.posts) : '—',
+      x.extraLane ? `Có (nhập lane ${x.extraLane.host + 1}, ${Math.round(x.extraLane.mergeX / 10)}%)` : '—',
+      x.tunnels.length ? x.tunnels.map((t) => `Lane ${t.a + 1} ⇅ ${t.b + 1}`).join(', ') : '—',
+      x.lairs.length ? x.lairs.map((l) => `${vi(`lair.${l.kind}.name`)} (lane ${l.lane + 1})`).join(', ') : '—',
+    ]),
+    [700, 2500, 900, 2300, 1500, 2000],
+  );
+  B.push({ k: 'break' });
+
   // 4
   h1(`4. Chiến dịch: ${CHAPTERS.length} bản đồ, ${STATIONS.length} trạm`);
   p(`Chiến dịch gồm ${CHAPTERS.length} bản đồ, mỗi bản đồ ${STATIONS_PER_MAP} trạm đi từ Thành Xuất Phát (góc dưới) tới Thành Địch (góc trên). Mỗi trạm có cờ, nhãn "bản đồ-trạm" (ví dụ 2-5), số sao đạt được; trạm Boss có huy hiệu riêng. Quy tắc mở khóa:`);
@@ -648,6 +668,10 @@ function build() {
       const bd = s.bossId ? [UNITS[s.bossId].name] : [];
       if (s.giantId) p(`Quái khổng lồ gần cuối trận: ${UNITS[s.giantId].name}`, { italic: true });
       if (s.bridges.length) p(`Đường nối lane: ${s.bridges.map((b) => `Lane ${b.a + 1} ↔ ${b.b + 1}`).join(', ')}`, { italic: true });
+      if (s.tunnels.length) p(`Hầm: ${s.tunnels.map((t) => `Lane ${t.a + 1} ⇅ ${t.b + 1}`).join(', ')}`, { italic: true });
+      if (s.extraLane) p(`Địch có lane thứ 4, nhập vào lane ${s.extraLane.host + 1}`, { italic: true });
+      if (s.posts) p(`Căn cứ phụ: ${s.posts} căn cứ mỗi lane (đồn trú: lính → thú → cung thủ)`, { italic: true });
+      if (s.lairs.length) p(`Ổ quái hoang dã: ${s.lairs.map((l) => `${vi(`lair.${l.kind}.name`)} ở lane ${l.lane + 1}`).join(', ')}`, { italic: true });
       p(`Quân địch: ${[...bd, ...s.deck.map((id) => UNITS[id].name)].join(', ')}${s.defenses?.length ? ` · Công trình: ${s.defenses.map((id) => UNITS[id].name).join(', ')}` : ''}`, { italic: true });
     }
     B.push({ k: 'break' });

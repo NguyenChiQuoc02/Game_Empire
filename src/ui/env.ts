@@ -1,19 +1,20 @@
 import { h } from './dom';
 import { t, unitDesc, unitName } from '../i18n';
 import { UNITS } from '../data/units';
-import type { Station } from '../data/campaign';
+import { CASTLE, type Station } from '../data/campaign';
 import {
   EVENT_CHANCE, EVENT_TIME, FIRE_ZONE, GIANT_AT_HP, GIANT_AT_TIME, GIANT_MIN_TIME, GLOBAL_STATS, LIGHTNING, RANDOM_EVENTS,
   TERRAINS, WEATHERS, eventParams, type Effect, type RandomEventId,
 } from '../data/terrain';
-import { OUTPOST, OUTPOST_ICON, ZONES, type OutpostKind } from '../data/lane';
+import { OUTPOST, OUTPOST_ICON, TUNNEL, ZONES } from '../data/lane';
+import { LAIRS, LAIR_REWARD } from '../data/wild';
 import type { Battle } from '../game/sim';
 import { portrait } from './common';
 import { attachUnitTip } from './tip';
 
 // ───────────── ô địa hình / thời tiết / quái khổng lồ / sự kiện: bấm để xem ảnh hưởng ─────────────
 
-export type EnvKey = 'terrain' | 'weather' | 'bridge' | 'outpost' | 'zones' | 'giant' | 'event' | 'river';
+export type EnvKey = 'terrain' | 'weather' | 'bridge' | 'tunnel' | 'extra' | 'lair' | 'outpost' | 'zones' | 'giant' | 'event' | 'river' | 'castle';
 
 const GIANT_ICON: Record<string, string> = { nguoida: '🗿', cumang: '🐍', culong: '🐲' };
 
@@ -87,11 +88,56 @@ const outpostParams = (): Record<string, number> => ({
 
 const iconRow = (icon: string, title: string, text: string) => h('div', { class: 'env-ev' }, h('i', { text: icon }), h('div', {}, h('b', { text: title }), h('p', { text })));
 
+const GARRISON_ICON = ['🗡', '🐺', '🏹'];
+
 function outpostDetail(st: Station): HTMLElement[] {
+  const kinds = [...new Set(st.outposts.flat())];
   return [
     head('🏯', t('env.outpost')),
     h('p', { text: t('env.outpostIntro') }),
-    ...st.outposts.map((k: OutpostKind, i) => iconRow(OUTPOST_ICON[k], `${t('env.laneN', { n: i + 1 })} · ${t(`outpost.${k}.name`)}`, t(`outpost.${k}.desc`, outpostParams()))),
+    // mỗi lane: chuỗi căn cứ từ gần thành ta → gần thành địch
+    ...st.outposts.map((ks, i) => iconRow('🏯', t('env.laneN', { n: i + 1 }), ks.map((k) => OUTPOST_ICON[k]).join(' → '))),
+    ...kinds.map((k) => iconRow(OUTPOST_ICON[k], t(`outpost.${k}.name`), t(`outpost.${k}.desc`, outpostParams()))),
+    ...Array.from({ length: st.posts }, (_, d) => iconRow(GARRISON_ICON[d], t('env.postN', { n: d + 1 }), t(`env.garrison.${d}`))),
+  ];
+}
+
+function tunnelDetail(st: Station): HTMLElement[] {
+  return [
+    head('🕳', t('env.tunnel')),
+    ...st.tunnels.map((x) => h('div', { class: 'env-eff good' }, h('i', { text: '⇅' }), h('span', { text: t('env.tunnelName', { a: x.a + 1, b: x.b + 1 }) }))),
+    ...st.tunnels.map((x) => h('p', { text: t('env.tunnelDesc', { a: x.a + 1, b: x.b + 1, xa: Math.round(x.xa / 10), xb: Math.round(x.xb / 10), sec: TUNNEL.sec }) })),
+  ];
+}
+
+function extraDetail(st: Station): HTMLElement[] {
+  const ex = st.extraLane!;
+  return [
+    head('⑂', t('env.extra')),
+    h('p', { text: t('env.extraDesc', { pos: t(ex.host === 0 ? 'env.extraTop' : 'env.extraBottom'), host: ex.host + 1, at: Math.round(ex.mergeX / 10) }) }),
+  ];
+}
+
+function castleDetail(st: Station): HTMLElement[] {
+  const lanes = st.extraLane && !st.boss ? 4 : 3;
+  return [
+    head('🏯', t('env.castle.name')),
+    h('p', { text: t('env.castle.desc', { n: CASTLE.archers }) }),
+    h('p', { text: t('env.castle.stats', { lanes, hp: Math.round(st.flagHp * 3 * CASTLE.hpMul), range: CASTLE.range }) }),
+  ];
+}
+
+function lairDetail(st: Station): HTMLElement[] {
+  return [
+    head('🕷', t('env.lair')),
+    h('p', { text: t('env.lairIntro', { gold: LAIR_REWARD }) }),
+    ...st.lairs.map((l) => iconRow(LAIRS[l.kind].icon, t(`lair.${l.kind}.name`), t('env.lairAt', { n: l.lane + 1, pos: Math.round(l.at * 100) }))),
+    ...st.lairs.map((l) => {
+      const d = UNITS[LAIRS[l.kind].mother];
+      const face = portrait(d.id, 1);
+      attachUnitTip(face, d, 2, st.power);
+      return h('div', { class: 'env-head' }, face, h('b', { text: unitName(d) }), h('p', { text: unitDesc(d) }));
+    }),
   ];
 }
 
@@ -131,6 +177,10 @@ function detailFor(st: Station, key: EnvKey, battle?: Battle): HTMLElement[] {
     case 'terrain': return terrainDetail(st);
     case 'weather': return weatherDetail(st);
     case 'bridge': return bridgeDetail(st);
+    case 'tunnel': return tunnelDetail(st);
+    case 'extra': return extraDetail(st);
+    case 'castle': return castleDetail(st);
+    case 'lair': return lairDetail(st);
     case 'outpost': return outpostDetail(st);
     case 'zones': return battle ? zonesDetail(battle) : [];
     case 'giant': return giantDetail(st);
@@ -152,7 +202,11 @@ function tilesOf(st: Station, battle?: Battle): Tile[] {
   ];
   if (st.river !== undefined) tiles.push({ key: 'river', icon: '🌊', label: t('env.river'), name: `${t('env.riverLane')} ${st.river + 1}` });
   if (st.bridges.length) tiles.push({ key: 'bridge', icon: '🌉', label: t('env.bridge'), name: st.bridges.map((b) => `${b.a + 1}↔${b.b + 1}`).join(', ') });
-  if (st.outposts.length) tiles.push({ key: 'outpost', icon: '🏯', label: t('env.outpost'), name: st.outposts.map((k) => OUTPOST_ICON[k]).join(' ') });
+  if (st.tunnels.length) tiles.push({ key: 'tunnel', icon: '🕳', label: t('env.tunnel'), name: st.tunnels.map((x) => `${x.a + 1}⇅${x.b + 1}`).join(', ') });
+  if (st.castle) tiles.push({ key: 'castle', icon: '🏯', label: t('env.castle.short'), name: t('env.castle.name') });
+  if (st.extraLane && !st.boss) tiles.push({ key: 'extra', icon: '⑂', label: t('env.extra'), name: t('env.extraName') });
+  if (st.lairs.length) tiles.push({ key: 'lair', icon: LAIRS[st.lairs[0].kind].icon, label: t('env.lair'), name: st.lairs.map((l) => t(`lair.${l.kind}.name`)).join(', ') });
+  if (st.posts) tiles.push({ key: 'outpost', icon: '🏯', label: t('env.outpost'), name: `${st.posts} × ${OUTPOST_ICON[st.outposts[0][0]]}` });
   if (battle) {
     const n = battle.lanes.reduce((a, l) => a + l.zones.length, 0);
     tiles.push({ key: 'zones', icon: '🗺', label: t('env.zones'), name: n ? String(n) : t('env.zonesNoneShort') });

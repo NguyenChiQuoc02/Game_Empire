@@ -1,4 +1,4 @@
-import { SKILL_CD, UNITS, levelMul, skillHaste, type SkillId, type UnitDef } from '../data/units';
+import { SK, SKILL_CD, UNITS, cubCount, cubRatio, houndRatio, levelMul, levelOfPow, skillHaste, type SkillId, type UnitDef } from '../data/units';
 import { GS, GENERAL_SKILLS, extraSkillsAt, type GSkillId } from '../data/gskills';
 import {
   HUNT_CAMP_BOUNTY, HUNT_CAMP_MOBS, HUNT_CAMP_RESPAWN, HUNT_CARRY_SLOW, HUNT_CARRY_TROOPS, HUNT_CASTLE_HP, HUNT_CELL, HUNT_CENTER,
@@ -990,6 +990,8 @@ export class Hunt {
       return void this.aoeAt(u, u.x + Math.cos(ang) * 40, u.y + Math.sin(ang) * 40, 75, dmg * 1.8, { ranged: false });
     }
     if (this.has(u, 'splash')) this.aoeAt(u, t.x, t.y, 60, dmg * 0.6, { ranged: false, skip: t, quiet: true });
+    if (this.has(u, 'cleave')) this.aoeAt(u, t.x, t.y, SK.cleave.r, dmg * SK.cleave.mul, { ranged: false, skip: t, quiet: true });
+    if (this.has(u, 'volley')) this.aoeAt(u, t.x, t.y, SK.volley.r, dmg * SK.volley.mul, { ranged: true, skip: t, quiet: true });
     if (this.has(u, 'siege') || this.has(u, 'trample')) {
       this.emit({ t: 'fx', kind: 'rock', x: t.x, y: t.y, r: 55 });
       if (this.has(u, 'siege')) this.emit({ t: 'proj', x0: u.x, y0: u.y, x1: t.x, y1: t.y, kind: 'rock' });
@@ -1091,6 +1093,18 @@ export class Hunt {
       v.hp = v.maxHp * 0.5;
       v.invuln = 1.5;
       this.emit({ t: 'text', x: v.x, y: v.y, key: 'fx.revive', color: 0xffe066, big: true });
+      return;
+    }
+    const rb = this.has(v, 'rebirth') && !v.timers.rebirthUsed;
+    const und = this.has(v, 'undying') && (v.timers.undyingUsed ?? 0) < SK.undying.n;
+    if (rb || und) {
+      if (rb) v.timers.rebirthUsed = 1;
+      else v.timers.undyingUsed = (v.timers.undyingUsed ?? 0) + 1;
+      v.hp = v.maxHp * (rb ? SK.rebirth.hp : SK.undying.hp);
+      v.invuln = 1.5;
+      v.poison = null;
+      this.emit({ t: 'text', x: v.x, y: v.y, key: rb ? 'fx.rebirth' : 'fx.undying', color: rb ? 0xff8a3d : 0xffe066, big: true });
+      if (rb) this.aoeAt(v, v.x, v.y, SK.rebirth.r, SK.rebirth.burst * v.pow, { ranged: false, quiet: true, pierce: 1 });
       return;
     }
     v.alive = false;
@@ -1286,6 +1300,13 @@ export class Hunt {
     if (u.def.dmg === 0 && !this.has(u, 'heal') && !this.has(u, 'blessing')) return;
     this.cast(u, u.def.skill, dt);
     if (u.alive && u.def.skill2) this.cast(u, u.def.skill2, dt);
+    if (u.alive && this.has(u, 'springAura')) {
+      u.timers.springAura = (u.timers.springAura ?? SK.spring.every) - dt;
+      if (u.timers.springAura <= 0) {
+        u.timers.springAura = SK.spring.every;
+        for (const a of this.alliesIn(u, SK.spring.r)) if (a.hp < a.maxHp) this.healUnit(a, a.maxHp * SK.spring.pct);
+      }
+    }
   }
 
   private cast(u: HUnit, skill: SkillId, dt: number) {
@@ -1392,7 +1413,10 @@ export class Hunt {
         reset();
         u.attackAnim = 0.4;
         say('fx.monkeys', 0xffd34d);
-        for (let i = 0; i < 2; i++) this.spawn(UNITS.khicon, u.team, u.x + u.face * (16 + i * 18), u.y + (i ? 12 : -12), { pow: 1, hp: u.maxHp * 0.3, dmg: u.dmg * dmgMul * 0.3, life: 5, owner: u.uid, noBounty: true });
+        const lv = levelOfPow(u.pow);
+        const n = cubCount(lv);
+        const ratio = cubRatio(lv);
+        for (let i = 0; i < n; i++) this.spawn(UNITS.khicon, u.team, u.x + u.face * (16 + (i >> 1) * 18), u.y + (i % 2 ? 12 : -12) * (1 + (i >> 2)), { pow: 1, hp: u.maxHp * ratio, dmg: u.dmg * dmgMul * ratio, life: 5, owner: u.uid, noBounty: true });
         return;
       }
       case 'erlang': {
@@ -1401,7 +1425,7 @@ export class Hunt {
         u.attackAnim = 0.4;
         say('fx.erlang', 0x9ad0ff);
         for (const a of this.units) if (a.alive && a.owner === u.uid && a.def.id === 'haothienkhuyen') a.life = 0.01;
-        this.spawn(UNITS.haothienkhuyen, u.team, u.x - u.face * 26, u.y, { pow: 1, hp: u.maxHp * 0.5, dmg: u.dmg * dmgMul * 0.5, life: 15, owner: u.uid, noBounty: true });
+        this.spawn(UNITS.haothienkhuyen, u.team, u.x - u.face * 26, u.y, { pow: 1, hp: u.maxHp * houndRatio(levelOfPow(u.pow)), dmg: u.dmg * dmgMul * houndRatio(levelOfPow(u.pow)), life: 15, owner: u.uid, noBounty: true });
         for (const s of ['dmg', 'speed', 'armor', 'rate'] as const) this.addBuff(u, s, 1.5, 5);
         return;
       }
@@ -1556,6 +1580,93 @@ export class Hunt {
           this.healUnit(a, a.maxHp * 0.1);
           a.shield = Math.max(a.shield, 50 * u.pow);
         }
+        return;
+      }
+      // ── đợt kỹ năng mới (bản rút gọn cho chế độ Săn Kho Báu)
+      case 'ward': {
+        if (!this.nearestEnemy(u, 240)) return fail();
+        reset();
+        u.invuln = Math.max(u.invuln, SK.ward.sec);
+        say('fx.ward', 0xffe066);
+        return;
+      }
+      case 'vanish': {
+        if (!this.nearestEnemy(u, SK.vanish.reach)) return fail();
+        reset();
+        this.addBuff(u, 'speed', SK.vanish.speed, SK.vanish.sec);
+        u.invuln = Math.max(u.invuln, 1);
+        say('fx.vanish', 0xcfd8ff);
+        return;
+      }
+      case 'skyMount': {
+        if (!this.nearestEnemy(u, SK.mount.reach)) return fail();
+        reset();
+        this.addBuff(u, 'speed', SK.mount.speed, u.def.mountSec ?? 6);
+        say('fx.mount', 0xbfe6ff);
+        return;
+      }
+      case 'rescue': {
+        let best: HUnit | null = null;
+        let low = 0.8;
+        for (const a of this.alliesIn(u, SK.rescue.reach)) {
+          const r = a.hp / a.maxHp;
+          if (r < low) {
+            low = r;
+            best = a;
+          }
+        }
+        if (!best) return fail();
+        reset();
+        u.attackAnim = 0.3;
+        this.healUnit(best, best.maxHp * SK.rescue.pct + SK.rescue.flat * u.pow);
+        say('fx.rescue', 0x7dffb0);
+        return;
+      }
+      case 'freeze':
+      case 'charm': {
+        const foes = this.enemiesIn(u, u.x, u.y, skill === 'freeze' ? SK.freeze.reach : SK.charm.reach).sort((a, b) => this.dist(a, u) - this.dist(b, u)).slice(0, skill === 'freeze' ? SK.freeze.n : SK.charm.n);
+        if (!foes.length) return fail();
+        reset();
+        u.attackAnim = 0.4;
+        say(skill === 'freeze' ? 'fx.freeze' : 'fx.charm', skill === 'freeze' ? 0x9ad8ff : 0xff9ecb);
+        for (const e of foes) {
+          if (e.guardian || e.isCastle) continue;
+          e.stunT = Math.max(e.stunT, skill === 'freeze' ? SK.freeze.sec : SK.charm.sec * 0.6);
+          this.emit({ t: 'fx', kind: 'stun', x: e.x, y: e.y });
+        }
+        return;
+      }
+      case 'launch': {
+        const foes = this.enemiesIn(u, u.x, u.y, SK.launch.r + 40);
+        if (!foes.length) return fail();
+        reset();
+        u.attackAnim = 0.45;
+        say('fx.launch', 0xffb36b);
+        this.emit({ t: 'shake', power: 3 });
+        for (const e of foes) {
+          this.hurt(e, SK.launch.dmg * u.pow * dmgMul, u, { aoe: true });
+          if (e.alive && !e.guardian && !e.isCastle) e.stunT = Math.max(e.stunT, SK.launch.sec);
+        }
+        return;
+      }
+      case 'leap': {
+        const t = this.nearestEnemy(u, SK.leap.reach);
+        if (!t || this.dist(u, t) < 40) return fail();
+        reset();
+        const ang = Math.atan2(t.y - u.y, t.x - u.x);
+        const lx = t.x + Math.cos(ang) * 40;
+        const ly = t.y + Math.sin(ang) * 40;
+        say('fx.leap', 0xffe08a);
+        this.emit({ t: 'fx', kind: 'dash', x: u.x, y: u.y, x2: lx, y2: ly });
+        if (u.fly || !this.blockedAt(lx, ly)) {
+          u.x = lx;
+          u.y = ly;
+        }
+        u.atkT = 0;
+        u.attackAnim = 0.4;
+        u.invuln = Math.max(u.invuln, 0.35);
+        this.aoeAt(u, u.x, u.y, SK.leap.r, SK.leap.dmg * u.pow * dmgMul, { ranged: false, quiet: true });
+        for (const e of this.enemiesIn(u, u.x, u.y, SK.leap.r)) if (!e.guardian && !e.isCastle) e.stunT = Math.max(e.stunT, SK.leap.stun);
         return;
       }
       case 'howl': {

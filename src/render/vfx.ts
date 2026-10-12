@@ -398,6 +398,12 @@ export class Vfx {
       case 'blink': return this.fxBlink(x, gyy);
       case 'burrow': return this.fxBurrow(x, gyy, px(e.r ?? 60));
       case 'tide': return this.fxTide(x, gyy, dir, px(e.r ?? 380));
+      case 'leap': return this.fxLeap(x, h.sx(e.x2 ?? e.x), gyy);
+      case 'ice': return this.fxIce(x, gyy);
+      case 'launch': return this.fxLaunch(x, gyy, px(e.r ?? 100));
+      case 'charm': return this.fxCharm(x, gyy);
+      case 'mount': return this.fxMount(x, gyy);
+      case 'combo': return this.fxCombo(x, h.sx(e.x2 ?? e.x), gyy, e.r === undefined ? undefined : px(e.r));
     }
     void us;
   }
@@ -1068,6 +1074,140 @@ export class Vfx {
       const f = g().circle(0, 0, 1.8).fill(0xffffff);
       f.position.set(x + (Math.random() - 0.5) * r * 1.6, gy - (20 + Math.random() * 30) * us);
       this.part(f, (Math.random() - 0.5) * 14, 24, 0.9);
+    }
+  }
+
+  /** Phi Thân: vệt cung bay qua đầu địch, bụi bốc lên khi đáp */
+  private fxLeap(x0: number, x1: number, gy: number) {
+    const us = this.h.us;
+    const o = g();
+    const hgt = (60 + Math.min(50, Math.abs(x1 - x0) * 0.18)) * us;
+    const at = (k: number): [number, number] => [x0 + (x1 - x0) * k, gy - 26 * us - hgt * 4 * k * (1 - k)];
+    this.anim(o, 0.5, (k) => {
+      o.clear();
+      const run = Math.min(1, k * 1.8);
+      const from = Math.max(0, run - 0.55);
+      const pts: number[] = [];
+      for (let i = 0; i <= 12; i++) pts.push(...at(from + ((run - from) * i) / 12));
+      o.poly(pts, false).stroke({ width: 7 * us * (1 - k * 0.6), color: 0xfff0b0, alpha: (1 - k) * 0.75, cap: 'round', join: 'round' });
+      o.poly(pts, false).stroke({ width: 2.4 * us, color: 0xffffff, alpha: 1 - k, cap: 'round', join: 'round' });
+    });
+    this.dust(x0, gy, 4, 1);
+    this.dust(x1, gy, 7, 1.4);
+    this.ring(x1, gy, 46 * us, 0xffd34d, 0.45, 3);
+    this.spark(x1, gy - 20 * us, 0xffe08a, 8, 120);
+  }
+
+  /** Đóng băng: tinh thể băng vỡ tung quanh mục tiêu */
+  private fxIce(x: number, gy: number) {
+    const us = this.h.us;
+    this.ring(x, gy, 34 * us, 0x9ad8ff, 0.6, 3);
+    for (let i = 0; i < 8; i++) {
+      const c = g();
+      c.poly([-4, 0, 0, -18, 4, 0]).fill(0xcfeeff).stroke({ width: 1.2, color: 0x3a7aaa });
+      const a = (i / 8) * Math.PI * 2;
+      c.scale.set(us * (0.7 + Math.random() * 0.7));
+      c.position.set(x + Math.cos(a) * 16 * us, gy - 20 * us + Math.sin(a) * 8 * us);
+      c.rotation = a + Math.PI / 2;
+      this.part(c, Math.cos(a) * 40, Math.sin(a) * 30 - 20, 0.8, { hold: 0.3 });
+    }
+    this.spark(x, gy - 30 * us, 0xe6f6ff, 12, 110);
+  }
+
+  /** Hất tung: đất nứt, đá văng thẳng lên cùng vệt khí */
+  private fxLaunch(x: number, gy: number, r: number) {
+    const us = this.h.us;
+    this.ring(x, gy, r, 0xffb36b, 0.55, 4);
+    this.ring(x, gy, r * 0.55, 0xffffff, 0.4, 2.5);
+    this.dust(x, gy, 10, 1.5, 0x8a6a42);
+    for (let i = 0; i < 7; i++) {
+      const c = g().poly([-3, 2, -2, -4, 3, -4, 4, 2]).fill(i % 2 ? 0x6a4a2e : 0x8a6a42);
+      c.position.set(x + (Math.random() - 0.5) * r * 1.4, gy - 4);
+      this.part(c, (Math.random() - 0.5) * 70, -170 - Math.random() * 90, 0.9, { g: 420, spin: (Math.random() - 0.5) * 12 });
+    }
+    const o = g();
+    this.anim(o, 0.4, (k) => {
+      o.clear();
+      for (let i = -1; i <= 1; i++) {
+        const hh = (60 + 30 * (1 - Math.abs(i))) * us * easeOut(k * 1.5);
+        o.moveTo(x + i * r * 0.4, gy).lineTo(x + i * r * 0.4, gy - hh).stroke({ width: 5 * us * (1 - k), color: 0xfff0d0, alpha: (1 - k) * 0.8, cap: 'round' });
+      }
+    });
+  }
+
+  /** Thôi miên: tim hồng bay lên, vòng xoáy trên đầu mục tiêu */
+  private fxCharm(x: number, gy: number) {
+    const us = this.h.us;
+    this.ring(x, gy, 30 * us, 0xff9ecb, 0.6, 3);
+    for (let i = 0; i < 5; i++) {
+      const hh = g();
+      heart(hh, (4 + Math.random() * 3) * us, i % 2 ? 0xff7aa8 : 0xff9ecb);
+      const o = new Container();
+      o.addChild(hh);
+      const bx = x + (Math.random() - 0.5) * 22 * us;
+      const by = gy - 34 * us;
+      const ph = Math.random() * 6;
+      o.position.set(bx, by);
+      this.anim(o, 1.4, (k) => {
+        o.y = by - 40 * us * easeOut(k);
+        o.x = bx + Math.sin(k * 9 + ph) * 7 * us;
+        o.alpha = k < 0.7 ? 1 : 1 - (k - 0.7) / 0.3;
+        o.scale.set(0.6 + 0.5 * easeOutBack(k * 3));
+      });
+    }
+    const sw = g();
+    sw.position.set(x, gy - 62 * us);
+    this.anim(sw, 1.2, (k) => {
+      sw.clear();
+      for (let i = 0; i < 3; i++) {
+        const a = k * 10 + i * 2.1;
+        sw.circle(Math.cos(a) * 10 * us, Math.sin(a) * 3 * us, 3.2 * us).fill({ color: 0xff9ecb, alpha: 1 - k });
+      }
+    });
+  }
+
+  /** Gọi thú cưỡi: cột sáng, mây trắng và lông vũ bay tán loạn */
+  private fxMount(x: number, gy: number) {
+    const us = this.h.us;
+    const pil = g();
+    pil.position.set(x, gy);
+    pillar(pil, 0xbfe6ff, 50 * us, 150 * us);
+    this.anim(pil, 0.8, (k) => (pil.alpha = k < 0.3 ? k / 0.3 : 1 - (k - 0.3) / 0.7));
+    this.ring(x, gy, 50 * us, 0xbfe6ff, 0.6, 3.5);
+    for (let i = 0; i < 10; i++) {
+      const p = g().circle(0, 0, (6 + Math.random() * 6) * us).fill({ color: 0xffffff, alpha: 0.85 });
+      p.position.set(x, gy - 14 * us);
+      const a = (i / 10) * Math.PI * 2;
+      this.part(p, Math.cos(a) * 60, Math.sin(a) * 22 - 10, 0.7, { grow: 0.8, hold: 0.2 });
+    }
+    for (let i = 0; i < 8; i++) {
+      const f = g().ellipse(0, 0, 5, 1.8).fill(0xfff6c8);
+      f.position.set(x + (Math.random() - 0.5) * 30 * us, gy - 20 * us);
+      this.part(f, (Math.random() - 0.5) * 90, -50 - Math.random() * 60, 1, { spin: (Math.random() - 0.5) * 8 });
+    }
+  }
+
+  /** Kết hợp: dải sáng vàng nối hai đồng đội; có `r` thì là đòn hợp kích nổ tại mục tiêu */
+  private fxCombo(x: number, x2: number, gy: number, r?: number) {
+    const us = this.h.us;
+    const y = gy - 38 * us;
+    const lnk = g();
+    const mid = (x + x2) / 2;
+    this.anim(lnk, r ? 0.5 : 0.8, (k) => {
+      lnk.clear();
+      lnk.moveTo(x, y).quadraticCurveTo(mid, y - 26 * us - Math.sin(k * 8) * 3, x2, y).stroke({ width: 3.4 * us, color: GOLD, alpha: (1 - k) * 0.9, cap: 'round' });
+      lnk.moveTo(x, y).quadraticCurveTo(mid, y - 26 * us - Math.sin(k * 8) * 3, x2, y).stroke({ width: 1.2 * us, color: 0xffffff, alpha: 1 - k, cap: 'round' });
+    });
+    this.ring(x, gy, 32 * us, GOLD, 0.5, 3);
+    if (r) {
+      this.ring(x2, gy, r, GOLD, 0.5, 4);
+      this.ring(x2, gy, r * 0.5, 0xffffff, 0.4, 2.5);
+      this.spark(x2, y, 0xfff0b0, 14, 170);
+      this.dust(x2, gy, 5, 1.2);
+    } else {
+      this.ring(x2, gy, 32 * us, GOLD, 0.5, 3);
+      this.spark(x, y, 0xfff0b0, 6, 90);
+      this.spark(x2, y, 0xfff0b0, 6, 90);
     }
   }
 

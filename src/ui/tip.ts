@@ -6,7 +6,7 @@ import { GSKILLS, type GSkillId } from '../data/gskills';
 // ───────────────────────── nội dung tooltip (quân trên chiến trường và thẻ bài) ─────────────────────────
 export interface TipData {
   def: UnitDef;
-  side: 0 | 1;
+  side: 0 | 1 | 2;
   hp: number;
   maxHp: number;
   dmg: number;
@@ -25,7 +25,7 @@ export function tipBody(d: TipData): HTMLElement[] {
   const ally = d.side === 0;
   const pct = Math.max(0, Math.min(1, d.hp / d.maxHp));
   const stat = (ico: string, val: string, title: string) => h('span', { class: 'ts', attrs: { title } }, h('i', { text: ico }), val);
-  const tags = [t(`kind.${def.kind}`), def.tags?.includes('fly') ? t('tag.fly') : '', def.tags?.includes('naval') ? t('tag.naval') : '', t(ally ? 'hud.ally' : 'hud.foe'), d.level ? `Lv ${d.level}` : ''].filter(Boolean).join(' · ');
+  const tags = [t(`kind.${def.kind}`), def.tags?.includes('fly') ? t('tag.fly') : '', def.tags?.includes('naval') ? t('tag.naval') : '', t(ally ? 'hud.ally' : d.side === 2 ? 'hud.wild' : 'hud.foe'), d.level ? `Lv ${d.level}` : ''].filter(Boolean).join(' · ');
   const stats: HTMLElement[] = [];
   if (def.kind === 'defense') {
     if (def.skill === 'altar') stats.push(stat('✚', String(Math.round(d.dmg)), t('stat.heal')));
@@ -77,13 +77,13 @@ export function hideMapTip() {
   if (mapTip) mapTip.style.display = 'none';
 }
 
-function showMapTip(el: HTMLElement, def: UnitDef, side: 0 | 1, pow: number) {
+function showMapTip(el: HTMLElement, def: UnitDef, side: 0 | 1 | 2, pow: number) {
   if (!mapTip) {
     mapTip = h('div', { class: 'unit-tip map-tip' });
     document.body.append(mapTip);
   }
   const tip = mapTip;
-  tip.className = `unit-tip map-tip ${side === 1 ? 'foe' : 'ally'} ${def.kind}`;
+  tip.className = `unit-tip map-tip ${side === 1 ? 'foe' : side === 2 ? 'wild' : 'ally'} ${def.kind}`;
   const hp = def.hp * pow;
   tip.replaceChildren(...tipBody({ def, side, hp, maxHp: hp, dmg: def.dmg * pow, armor: def.armor, speed: def.speed, range: def.range, cd: def.cd, pow }));
   tip.style.display = 'block';
@@ -91,7 +91,7 @@ function showMapTip(el: HTMLElement, def: UnitDef, side: 0 | 1, pow: number) {
 }
 
 /** Gắn tooltip thông số quân vào phần tử: rê chuột để xem; chạm để xem vài giây trên điện thoại */
-export function attachUnitTip(el: HTMLElement, def: UnitDef, side: 0 | 1, pow = 1, withClick = true) {
+export function attachUnitTip(el: HTMLElement, def: UnitDef, side: 0 | 1 | 2, pow = 1, withClick = true) {
   el.addEventListener('pointerenter', (e) => e.pointerType === 'mouse' && showMapTip(el, def, side, pow));
   el.addEventListener('pointerleave', hideMapTip);
   if (withClick) el.addEventListener('click', (e) => {

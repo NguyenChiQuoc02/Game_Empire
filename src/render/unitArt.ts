@@ -1,22 +1,30 @@
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Text } from 'pixi.js';
+import { textStyle } from './vfx';
+import { levelOfPow } from '../data/units';
 import { INK, ball, darker, dome, g, lighter, limb, lineOf, outline, poly, rrect } from './draw';
 import { buildDefenseArt, buildElephant, buildHound } from './extraArt';
 import { buildBeast, hasBeastArt } from './beastArt';
+import { buildEngine, hasEngineArt } from './engineArt';
 import type { UnitDef } from '../data/units';
-import type { Side } from '../game/sim';
+import type { UnitSide } from '../game/sim';
 
-export const SIDE_COLOR: [number, number] = [0x3d8bff, 0xe24b4b];
+/** màu phe: ta (xanh), địch (đỏ), quái hoang dã (tím) */
+export const SIDE_COLOR: [number, number, number] = [0x3d8bff, 0xe24b4b, 0xb06adf];
 const GOLD = 0xffd34d;
 
 // ───────────────────────── kiểu dáng từng đơn vị ─────────────────────────
 type Hat =
   | 'kabuto' | 'hood' | 'helm' | 'greathelm' | 'cap' | 'straw' | 'horns' | 'topknot' | 'scholar'
   | 'plumes' | 'bun' | 'turban' | 'tyrant' | 'band' | 'blackhelm' | 'guanyu'
-  | 'bald' | 'wukong' | 'erlang' | 'mien' | 'bullhorns' | 'lionhelm' | 'lotus';
+  | 'bald' | 'wukong' | 'erlang' | 'mien' | 'bullhorns' | 'lionhelm' | 'lotus'
+  | 'hancap' | 'wildhair' | 'ponytail' | 'phoenixcap' | 'fengguan' | 'guan' | 'wushamao' | 'pig' | 'pilu' | 'eagle'
+  | 'dizang' | 'taoistcrown' | 'wrap' | 'warcap' | 'flame' | 'longhair';
 type Weapon =
   | 'katana' | 'bow' | 'spear' | 'sword' | 'lance' | 'dagger' | 'axe' | 'staff' | 'bomb'
   | 'needle' | 'serpent' | 'glaive' | 'fan' | 'halberd' | 'cleaver'
-  | 'pole' | 'talisman' | 'crossbow' | 'vial' | 'ruyi' | 'trident' | 'fist' | 'snakestaff';
+  | 'pole' | 'talisman' | 'crossbow' | 'vial' | 'ruyi' | 'trident' | 'fist' | 'snakestaff'
+  | 'twinblade' | 'dualaxe' | 'hammer' | 'whip' | 'crescent' | 'brush' | 'ribbon' | 'jadestaff' | 'qi' | 'guqin'
+  | 'flute' | 'rake' | 'khakkhara' | 'bananafan' | 'pearl' | 'whisk';
 
 interface Style {
   skin: number;
@@ -37,6 +45,22 @@ interface Style {
   boss?: boolean;
   /** màu riêng cho vũ khí (lưỡi kiếm, quạt, quyền khí...) */
   wc?: number;
+  /** áo dài che chân (nho sĩ, đạo sĩ, nữ tướng, nhà sư) */
+  robe?: number;
+  /** giáp vai lớn: tấm giáp, gai nhọn, hoặc lông thú */
+  shoulders?: 'pads' | 'spikes' | 'fur';
+  /** bịt mắt (Hạ Hầu Đôn) */
+  patch?: boolean;
+  /** vằn hổ trên áo */
+  stripes?: number;
+  /** cánh sau lưng */
+  wings?: number;
+  /** vòng hào quang sau đầu */
+  halo?: number;
+  /** bầu rượu bên hông */
+  gourd?: boolean;
+  /** dải đai chéo ngực */
+  sash?: number;
 }
 
 const SK = 0xffd2a8;
@@ -92,15 +116,84 @@ const STYLES: Record<string, Style> = {
   dongphuongbatbai: { skin: 0xf6dcc8, cloth: 0xc02a3a, pants: 0x4a1020, armor: 0xe84a5a, hat: 'bun', hatColor: 0x1a1a22, weapon: 'needle', wc: 0xffb0c8, cape: true, boss: true, bulk: 1.1 },
   caocau: { skin: 0xf0c8a0, cloth: 0x2a3a6a, pants: 0x1a2038, armor: 0x4a5a9a, hat: 'plumes', hatColor: GOLD, weapon: 'halberd', beard: { color: 0x2a1a1a, len: 10 }, cape: true, boss: true, bulk: 1.3 },
   diemla: { skin: 0x9a5a5a, cloth: 0x2a1030, pants: 0x140818, armor: 0x6a2a5a, hat: 'mien', hatColor: GOLD, weapon: 'glaive', beard: { color: 0x120a14, len: 12 }, cape: true, boss: true, bulk: 1.5 },
+  cuumatri: { skin: 0xe0b890, cloth: 0xa8341a, pants: 0x4a1a10, armor: 0xe89a2a, hat: 'bald', hatColor: 0xe0b890, weapon: 'khakkhara', wc: 0xff8a3a, robe: 0xa8341a, cape: true, boss: true, bulk: 1.3 },
+  hoangmi: { skin: 0xe8c8a0, cloth: 0xe8b830, pants: 0x6a4a10, armor: 0xffd34d, hat: 'wrap', hatColor: 0xe8b830, weapon: 'hammer', wc: 0xffe27a, beard: { color: 0x2a1a10, len: 12 }, cape: true, boss: true, bulk: 1.45 },
+  thanhcat: { skin: 0xd9a070, cloth: 0x8a2a1a, pants: 0x3a2010, armor: 0xc9a040, hat: 'warcap', hatColor: 0x6a3a1a, weapon: 'crescent', beard: { color: 0x2a1a10, len: 11 }, shoulders: 'fur', cape: true, boss: true, bulk: 1.4 },
+  chunghoi: { skin: 0xf0c8a0, cloth: 0x3a4a8a, pants: 0x1a2038, armor: 0x7a8ac0, hat: 'blackhelm', hatColor: 0x2a3050, weapon: 'sword', wc: 0xbfe0ff, beard: { color: 0x2a1a1a, len: 7 }, cape: true, boss: true, bulk: 1.3 },
+  ngochoang: { skin: 0xf0d0a8, cloth: 0xe8b830, pants: 0x8a5a10, armor: 0xffe27a, hat: 'mien', hatColor: 0xffd34d, weapon: 'jadestaff', wc: 0xb6ffe0, beard: { color: 0xffffff, len: 12 }, cape: true, boss: true, bulk: 1.4, halo: 0xffe27a },
+  tonquyen: { skin: 0xf0c8a0, cloth: 0x1f6aa0, pants: 0x14304a, armor: 0x3fa0d0, hat: 'guan', hatColor: 0x1f3a5a, weapon: 'sword', wc: 0x9ae0ff, beard: { color: 0x6a2a6a, len: 9 }, cape: true, boss: true, bulk: 1.25 },
   quysai: { skin: 0x7a5aa0, cloth: 0x3a2a55, pants: 0x241a38, armor: 0x5a4a80, hat: 'horns', hatColor: 0xcfc0ff, weapon: 'cleaver', bulk: 1.65 },
   nguoida: { skin: 0x9aa0a8, cloth: 0x7a808a, pants: 0x5e646e, armor: 0x8a909a, hat: 'bald', hatColor: 0x9aa0a8, weapon: 'fist', wc: 0xc8ccd4, bulk: 1.65 },
   quybinh: { skin: 0xcfd8e8, cloth: 0x3a2a55, pants: 0x241a38, armor: 0x5a4a80, hat: 'horns', hatColor: 0x9a8ac0, weapon: 'cleaver' },
   nguumavuong: { skin: 0x8a5a3a, cloth: 0x7a2018, pants: 0x3a1010, armor: 0xc03a28, hat: 'bullhorns', hatColor: 0xf0e0b8, weapon: 'axe', beard: { color: 0x2a1410, len: 6 }, cape: true, boss: true, bulk: 1.5 },
+
+  // lính đợt mới
+  daodaobinh: { skin: SK, cloth: 0x5a6a7a, pants: 0x2a3340, armor: 0x9aa7b8, hat: 'warcap', hatColor: 0x7a8696, weapon: 'cleaver', shoulders: 'pads', bulk: 1.12 },
+  toanphong: { skin: SK, cloth: 0x2aa8a0, pants: 0x14504e, armor: 0xe8f4f0, hat: 'ponytail', hatColor: 0x1a1a22, weapon: 'twinblade' },
+  hoathuong: { skin: SK, cloth: 0xb04a2a, pants: 0x4a2a1a, armor: 0xd8702a, hat: 'warcap', hatColor: 0x8a2a1a, weapon: 'crossbow', sash: 0xffd34d },
+  liethoa: { skin: SK, cloth: 0xd84a1a, pants: 0x4a1a0a, armor: 0x3a2a2a, hat: 'flame', hatColor: 0x6a2a1a, weapon: 'bow' },
+  phikiem: { skin: SK, cloth: 0x4a7a4a, pants: 0x1f3a28, armor: 0xe8f0e0, hat: 'wrap', hatColor: 0x2f7a4a, weapon: 'sword', wc: 0xe8fff0, robe: 0x4a7a4a },
+  phiky: { skin: SK, cloth: 0x4a5a8a, pants: 0x2a3250, armor: 0xb8c0d4, hat: 'helm', hatColor: 0x8a96aa, weapon: 'lance', mount: { body: 0x3a3a46, mane: 0xe8e8f0 } },
+  kimcang: { skin: 0xe8c860, cloth: 0xe0b020, pants: 0x8a5a10, armor: 0xffd34d, hat: 'bald', hatColor: 0xe8c860, weapon: 'fist', wc: 0xffe066, halo: 0xffd34d, shoulders: 'pads', bulk: 1.3 },
+  anhsat: { skin: SK, cloth: 0x2a1a22, pants: 0x1a1018, armor: 0x5a1a2a, hat: 'wrap', hatColor: 0x1a1a22, weapon: 'dagger', sash: 0xc02a3a },
+  mehon: { skin: 0xffe3cf, cloth: 0xc05aa0, pants: 0x5a2a6a, armor: 0x8a4ab0, hat: 'scholar', hatColor: 0x6a2a7a, weapon: 'fan', wc: 0xffb0e0 },
+  hanbang: { skin: 0xe8f4ff, cloth: 0xcfe8ff, pants: 0x4a7aa8, armor: 0x7ad0f0, hat: 'topknot', hatColor: 0xdff4ff, weapon: 'talisman', wc: 0x7ad0ff },
+  thanluc: { skin: 0xd89060, cloth: 0xa86a3a, pants: 0x4a3a2a, armor: 0x8a5a2a, hat: 'wildhair', hatColor: 0x2a1a10, weapon: 'fist', wc: 0xffb23d, shoulders: 'fur', bulk: 1.5 },
+  phuonghoangtu: { skin: SK, cloth: 0xe84a2a, pants: 0x6a1a10, armor: 0xffb02a, hat: 'flame', hatColor: 0xc8381a, weapon: 'sword', wc: 0xffa040, wings: 0xff8a2a },
+  chieuhon: { skin: 0xd8d8e8, cloth: 0x5a3a8a, pants: 0x2a1a4a, armor: 0x7a6ad0, hat: 'mien', hatColor: 0x1a1a24, weapon: 'staff', robe: 0x5a3a8a },
+  langy: { skin: SK, cloth: 0xf0f8f0, pants: 0xc8d8c8, armor: 0x57c488, hat: 'hancap', hatColor: 0x3a8a5a, weapon: 'needle', robe: 0xf0f8f0 },
+  duocdong: { skin: SK, cloth: 0xc8a050, pants: 0x6a5a2a, armor: 0x9ac05a, hat: 'wrap', hatColor: 0xe8d8a0, weapon: 'jadestaff', gourd: true },
+  thanhac: { skin: SK, cloth: 0xdfe8ff, pants: 0x9aaad0, armor: 0x6a8ad8, hat: 'phoenixcap', hatColor: 0xf4f8ff, weapon: 'sword', wc: 0xe8f4ff, robe: 0xdfe8ff },
+  hogia: { skin: SK, cloth: 0x5a2a2a, pants: 0x2a1414, armor: 0xb0b8c8, hat: 'greathelm', hatColor: 0xc8d0dc, weapon: 'sword', shield: true, shoulders: 'spikes', bulk: 1.2 },
+  lahan: { skin: 0xe0b890, cloth: 0xd06a2a, pants: 0x8a4a1a, armor: 0xf0a040, hat: 'bald', hatColor: 0xe0b890, weapon: 'fist', wc: 0xffb23d, robe: 0xd06a2a, bulk: 1.1 },
+  lienchau: { skin: SK, cloth: 0x3a5a3a, pants: 0x22331f, armor: 0x8a9a5a, hat: 'hancap', hatColor: 0x2a4a2a, weapon: 'crossbow', shoulders: 'pads' },
+  daodong: { skin: SK, cloth: 0xf4f4f8, pants: 0xd0d4e8, armor: 0x8ab0f0, hat: 'bun', hatColor: 0x1a1a22, weapon: 'whisk', robe: 0xf4f4f8 },
+
+  // tướng đợt mới: Tam Quốc
+  // tướng đợt mới: Kim Dung
+  // tướng đợt mới: Tây Du Ký
+
+  // quái thú đợt mới (dáng người)
+  // ── tướng đợt mới: mỗi người một dáng riêng (áo dài, giáp vai, cánh, hào quang, vũ khí độc nhất)
+  liubei: { skin: SK, cloth: 0xe8c030, pants: 0x8a6a1a, armor: 0x2f8a4a, hat: 'hancap', hatColor: 0x2a2a34, weapon: 'twinblade', robe: 0xe8c030, beard: { color: 0x2a1a1a, len: 5 }, bulk: 1.05 },
+  dienvi: { skin: 0xd09060, cloth: 0x8a6a4a, pants: 0x3a2a1a, armor: 0x6a4a2a, hat: 'wildhair', hatColor: 0x1a1a1a, weapon: 'dualaxe', shoulders: 'fur', bulk: 1.5 },
+  hauchu: { skin: 0xd89060, cloth: 0xe08a2a, pants: 0x5a3a1a, armor: 0xd89060, hat: 'bald', hatColor: 0xd89060, weapon: 'hammer', stripes: 0x3a1a0a, bulk: 1.6 },
+  truonglieu: { skin: SK, cloth: 0x4a2a6a, pants: 0x2a1a3e, armor: 0x8a8aa8, hat: 'ponytail', hatColor: 0x14141c, weapon: 'halberd', mount: { body: 0x3a3a4a, mane: 0x14141c }, shoulders: 'spikes', cape: true },
+  hahaudon: { skin: 0xc89070, cloth: 0x1f3a6a, pants: 0x14243e, armor: 0xd9a24a, hat: 'warcap', hatColor: 0x3a4a6a, weapon: 'crescent', patch: true, shoulders: 'pads', cape: true, bulk: 1.25 },
+  hoangcai: { skin: 0xd09a70, cloth: 0xd84a1a, pants: 0x4a1a0a, armor: 0x2a2a2a, hat: 'flame', hatColor: 0x3a2a2a, weapon: 'whip', sash: 0xffd34d, shoulders: 'pads', cape: true, bulk: 1.15 },
+  bangthong: { skin: 0xd8b890, cloth: 0x6a7a4a, pants: 0x3a4a2a, armor: 0x8a9a5a, hat: 'phoenixcap', hatColor: 0x4a5a3a, weapon: 'brush', wc: 0x7ae8c0, robe: 0x6a7a4a, beard: { color: 0x2a2a1a, len: 9 } },
+  dieuthuyen: { skin: 0xffe3cf, cloth: 0xf08ab0, pants: 0xffd0e0, armor: 0xffb6cf, hat: 'fengguan', hatColor: 0xff9ecb, weapon: 'ribbon', wc: 0xff6a9a, robe: 0xf08ab0 },
+  hoangdung: { skin: 0xffe3cf, cloth: 0xe8e060, pants: 0xb0c850, armor: 0x7ac85a, hat: 'ponytail', hatColor: 0x2a1a22, weapon: 'jadestaff', sash: 0x3a9a3a },
+  hongthatcong: { skin: 0xe0b890, cloth: 0x9a8a5a, pants: 0x5a4a30, armor: 0x7a6a3a, hat: 'wrap', hatColor: 0xb8a878, weapon: 'pole', gourd: true, beard: { color: 0xd8d8d8, len: 16 }, sash: 0xc89a3a, bulk: 1.12 },
+  doanduy: { skin: SK, cloth: 0xf6f8ff, pants: 0xc8d4ec, armor: 0xbfe8ff, hat: 'guan', hatColor: 0x6ac8ff, weapon: 'qi', wc: 0x7ae8ff, robe: 0xf6f8ff },
+  nhamdoanhdoanh: { skin: 0xffe3cf, cloth: 0x2a8a6a, pants: 0x145a44, armor: 0x7ad8b0, hat: 'longhair', hatColor: 0x3ad89a, weapon: 'guqin', wc: 0x7affc0, robe: 0x2a8a6a },
+  hoangduocsu: { skin: 0xe8d0b0, cloth: 0x2a3a7a, pants: 0x141e48, armor: 0x5ad8a0, hat: 'straw', hatColor: 0x3a8a8a, weapon: 'flute', robe: 0x2a3a7a, beard: { color: 0x2a2a2a, len: 10 } },
+  modungphuc: { skin: SK, cloth: 0x7a3aa8, pants: 0x3a1a5a, armor: 0xd9a24a, hat: 'wushamao', hatColor: 0x2a1a4a, weapon: 'sword', wc: 0xe8d0ff, robe: 0x7a3aa8 },
+  trubatgioi: { skin: 0xf0a0a8, cloth: 0x9a8a6a, pants: 0x4a3a2a, armor: 0x7a6a8a, hat: 'pig', hatColor: 0xf0a0a8, weapon: 'rake', bulk: 1.5 },
+  duongtang: { skin: SK, cloth: 0xd23a2a, pants: 0xf0c060, armor: 0xf0b030, hat: 'pilu', hatColor: 0xffd34d, weapon: 'khakkhara', robe: 0xd23a2a, sash: 0xf0b030 },
+  thietphien: { skin: 0xffe3cf, cloth: 0xe03030, pants: 0x8a1a22, armor: 0xffa05a, hat: 'bun', hatColor: 0x2a1a22, weapon: 'bananafan', robe: 0xe03030 },
+  kimsidieu: { skin: 0xd8a860, cloth: 0xe0a020, pants: 0x6a3a10, armor: 0xffd34d, hat: 'eagle', hatColor: 0xc88a2a, weapon: 'halberd', wings: 0xffc030, shoulders: 'pads', bulk: 1.25 },
+  diatang: { skin: 0xf0d8b0, cloth: 0x2a8a5a, pants: 0x1a5a3a, armor: 0xe8d060, hat: 'dizang', hatColor: 0xffd34d, weapon: 'pearl', halo: 0xffe28a, robe: 0x2a8a5a, sash: 0xe8d060 },
+  laoquan: { skin: 0xf0d8b8, cloth: 0xf6f2e0, pants: 0xd0c8a8, armor: 0xe8c860, hat: 'taoistcrown', hatColor: 0xe8c030, weapon: 'whisk', robe: 0xf6f2e0, beard: { color: 0xf4f4f4, len: 22 }, halo: 0xbfe8ff },
+  bachcot: { skin: 0xf0ecd8, cloth: 0xe8e2cc, pants: 0xcfc8b0, armor: 0xbfb89c, hat: 'horns', hatColor: 0xf0ecd8, weapon: 'dagger', hair: 0xd8d0b8 },
+  nguudau: { skin: 0x7a5a3a, cloth: 0x2a2a38, pants: 0x1a1a24, armor: 0x4a4a5a, hat: 'bullhorns', hatColor: 0xf0e0b8, weapon: 'axe', beard: { color: 0x2a1410, len: 5 }, bulk: 1.3 },
+  madien: { skin: 0xb89a78, cloth: 0x1f2030, pants: 0x12121c, armor: 0x3a3a52, hat: 'blackhelm', hatColor: 0x2c2c3a, weapon: 'serpent', beard: { color: 0x3a2a1a, len: 14 } },
+  cuongthi: { skin: 0x9ab89a, cloth: 0x2a4a5a, pants: 0x1a2a34, armor: 0x1f3a4a, hat: 'scholar', hatColor: 0x1a1a24, weapon: 'talisman', bulk: 1.1 },
+  moctinh: { skin: 0x7a5a3a, cloth: 0x4a7a3a, pants: 0x3a2a1a, armor: 0x6a4a2a, hat: 'bald', hatColor: 0x7a5a3a, weapon: 'staff', beard: { color: 0x4a8a3a, len: 10 }, bulk: 1.5 },
 };
 
 // ───────────────────────── vũ khí ─────────────────────────
 // 'swing': vẽ hướng lên (-y), 'thrust': vẽ hướng +x
 type Mode = 'swing' | 'thrust' | 'bow' | 'cast' | 'hold';
+
+/** xoay một dãy điểm (x,y,x,y...) quanh gốc: dựng vũ khí nghiêng nhiều thanh */
+const rotPts = (ang: number) => (pts: number[]) => {
+  const c = Math.cos(ang);
+  const s = Math.sin(ang);
+  const out: number[] = [];
+  for (let i = 0; i < pts.length; i += 2) out.push(pts[i] * c - pts[i + 1] * s, pts[i] * s + pts[i + 1] * c);
+  return out;
+};
 
 function drawWeapon(kind: Weapon, accent: number, wc?: number): { g: Graphics; mode: Mode; rest: number } {
   const w = g();
@@ -248,6 +341,124 @@ function drawWeapon(kind: Weapon, accent: number, wc?: number): { g: Graphics; m
       w.circle(26, 0, 5).fill({ color: 0xcfe8ff, alpha: 0.4 });
       w.circle(26, 0, 2.2).fill(0xffffff);
       return { g: w, mode: 'thrust', rest: -0.2 };
+    case 'twinblade':
+      // Lưu Bị: song kiếm
+      for (const [ang, col] of [[-0.38, 0xe8f0ff], [0.42, 0xffe9a0]] as const) {
+        const f = rotPts(ang);
+        poly(w, f([-1.7, -3, 1.7, -3, 1.7, 6, -1.7, 6]), 0x2a2430);
+        poly(w, f([-5.2, -5.8, 5.2, -5.8, 5.2, -3, -5.2, -3]), GOLD);
+        poly(w, f([-2.8, -5.8, 2.8, -5.8, 0, -36]), col);
+      }
+      return { g: w, mode: 'swing', rest: 0.35 };
+    case 'dualaxe':
+      // Điển Vi: song thủ kích
+      for (const ang of [-0.5, 0.5]) {
+        const f = rotPts(ang);
+        poly(w, f([-1.4, -26, 1.4, -26, 1.4, 10, -1.4, 10]), 0x6a4a2a);
+        poly(w, f([0.7, -28, 12, -35, 13, -16, 0.7, -21]), 0xcfd6e2);
+        poly(w, f([-0.7, -28, -11, -33, -11, -17, -0.7, -21]), 0xa9b2c2);
+      }
+      return { g: w, mode: 'swing', rest: 0.3 };
+    case 'hammer':
+      rrect(w, -1.9, -30, 3.8, 46, 1.4, 0x6a4a2a);
+      rrect(w, -10, -46, 20, 17, 4, 0x8a8a9a);
+      rrect(w, -10, -42, 20, 3, 1, 0x4a4a58);
+      rrect(w, -10, -34, 20, 3, 1, 0x4a4a58);
+      for (const dx of [-6, 0, 6]) poly(w, [dx - 2, -46, dx, -52, dx + 2, -46], 0xcfd6e2, 1);
+      return { g: w, mode: 'swing', rest: 0.25 };
+    case 'whip':
+      // Hoàng Cái: thiết tiên nhiều đốt
+      rrect(w, -1.6, -3, 3.2, 16, 1.2, 0x5a2a2a);
+      for (let i = 0; i < 6; i++) rrect(w, -2.4, -6 - i * 5.5, 4.8, 4.4, 1.4, i % 2 ? 0x8a8a98 : 0xc0c0cc);
+      poly(w, [-3, -40, 3, -40, 5, -48, 0, -52, -5, -48], 0xd23a3a, 1);
+      return { g: w, mode: 'swing', rest: 0.3 };
+    case 'crescent':
+      // Hạ Hầu Đôn: phương thiên họa kích lưỡi trăng khuyết
+      rrect(w, -9, -1.8, 46, 3.6, 1.3, 0x3a3a46);
+      poly(w, [34, -2.4, 36, -16, 46, -22, 58, -16, 50, -10, 44, -4, 40, -2.4], 0xe0e6f0);
+      poly(w, [34, 2.4, 36, 16, 46, 22, 58, 16, 50, 10, 44, 4, 40, 2.4], 0xe0e6f0);
+      poly(w, [37, -2.4, 64, 0, 37, 2.4], 0xd0d8e8, 1.2);
+      w.circle(33, 0, 3).fill(0xd23a3a);
+      return { g: w, mode: 'thrust', rest: -0.12 };
+    case 'brush':
+      // Bàng Thống: bút lông bày mưu
+      rrect(w, -1.5, -32, 3, 42, 1.2, 0x7a4a2a);
+      poly(w, [-3.4, -32, 3.4, -32, 1.6, -52, -1.6, -52], 0x1a1a22);
+      w.circle(0, -46, 9).fill({ color: wc ?? 0xffd34d, alpha: 0.2 });
+      return { g: w, mode: 'cast', rest: 0.1 };
+    case 'ribbon': {
+      // Điêu Thuyền: dải lụa múa
+      const c = wc ?? 0xff9ecb;
+      for (const [k, col] of [[0, c], [1, lighter(c, 0.4)]] as const) {
+        w.moveTo(0, 0).bezierCurveTo(10 + k * 3, -10, -10, -24, 8 + k * 2, -38).stroke({ width: 4.2 - k * 2, color: col, cap: 'round' });
+      }
+      w.circle(8, -38, 3).fill(c);
+      return { g: w, mode: 'cast', rest: 0.1 };
+    }
+    case 'jadestaff':
+      // Hoàng Dung: Đả Cẩu Bổng ngọc bích
+      rrect(w, -1.6, -36, 3.2, 50, 1.4, 0x2fb078);
+      for (const y of [-30, -18, -6]) rrect(w, -2.4, y, 4.8, 2.6, 1, 0x1a7a4e);
+      w.circle(0, -40, 8).fill({ color: 0x7affc0, alpha: 0.28 });
+      poly(w, [-3, -36, 0, -48, 3, -36], 0x7affc0, 1);
+      return { g: w, mode: 'swing', rest: 0.3 };
+    case 'qi': {
+      // Đoàn Dự: Lục Mạch Thần Kiếm, chỉ lực bắn ra các luồng kiếm khí
+      const c = wc ?? 0x7ae8ff;
+      w.circle(2, -2, 10).fill({ color: c, alpha: 0.18 });
+      for (let i = -2; i <= 3; i++) {
+        const a = -0.5 + i * 0.22;
+        w.moveTo(3, -2).lineTo(3 + Math.cos(a) * 28, -2 + Math.sin(a) * 28).stroke({ width: 2.4, color: c, alpha: 0.85, cap: 'round' });
+        w.moveTo(3, -2).lineTo(3 + Math.cos(a) * 28, -2 + Math.sin(a) * 28).stroke({ width: 1, color: 0xffffff, cap: 'round' });
+      }
+      ball(w, 2, -2, 3.4, c);
+      return { g: w, mode: 'cast', rest: 0 };
+    }
+    case 'guqin':
+      rrect(w, -6, -12, 30, 8, 3, 0x5a3a22);
+      rrect(w, -6, -12, 30, 2.4, 1.2, 0x8a5a32);
+      for (let i = 0; i < 4; i++) w.moveTo(-4, -10.4 + i * 1.5).lineTo(22, -10.4 + i * 1.5).stroke({ width: 0.7, color: 0xf0e8c0 });
+      for (const [x, y] of [[4, -18], [12, -26], [20, -20]] as const) w.circle(x, y, 2).fill({ color: wc ?? 0x7affc0, alpha: 0.7 });
+      return { g: w, mode: 'cast', rest: 0.1 };
+    case 'flute':
+      rrect(w, -3, -2, 36, 3.6, 1.6, 0x3ad89a);
+      for (const x of [8, 14, 20, 26]) w.circle(x, -0.2, 1).fill(0x145a3a);
+      rrect(w, -3, -2.6, 3, 4.8, 1, GOLD);
+      w.circle(36, -0.2, 6).fill({ color: 0x7affc0, alpha: 0.25 });
+      return { g: w, mode: 'cast', rest: -0.3 };
+    case 'rake':
+      // Trư Bát Giới: cửu xỉ đinh ba
+      rrect(w, -9, -1.7, 42, 3.4, 1.4, 0x8a6a42);
+      rrect(w, 30, -10, 5, 20, 1.6, 0xb0b8c8);
+      for (const y of [-8, -4, 0, 4, 8]) poly(w, [35, y - 1.3, 46, y, 35, y + 1.3], 0xe0e8f4, 0.8);
+      return { g: w, mode: 'thrust', rest: -0.12 };
+    case 'khakkhara':
+      // tích trượng của nhà sư
+      rrect(w, -1.6, -40, 3.2, 54, 1.4, 0x9a7440);
+      w.circle(0, -48, 8).stroke({ width: 2.4, color: GOLD });
+      w.circle(0, -48, 3).fill(0xff5a3a);
+      for (const dx of [-8, 8]) w.circle(dx, -44, 2.6).stroke({ width: 1.6, color: GOLD });
+      rrect(w, -3, -40, 6, 3, 1, GOLD);
+      return { g: w, mode: 'swing', rest: 0.2 };
+    case 'bananafan':
+      rrect(w, -1.4, -2, 2.8, 12, 1, 0x6a4a2a);
+      w.moveTo(0, -4).bezierCurveTo(-20, -14, -18, -40, 0, -52).bezierCurveTo(18, -40, 20, -14, 0, -4).fill(0x3ac060).stroke({ width: 1.6, color: 0x1a7a38 });
+      for (const a of [-0.5, -0.25, 0, 0.25, 0.5]) w.moveTo(0, -4).lineTo(Math.sin(a) * 18, -4 - Math.cos(a) * 44).stroke({ width: 0.9, color: 0x1a7a38 });
+      return { g: w, mode: 'cast', rest: 0.25 };
+    case 'pearl':
+      w.circle(0, -12, 14).fill({ color: 0xfff0a0, alpha: 0.25 });
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4;
+        w.moveTo(Math.cos(a) * 8, -12 + Math.sin(a) * 8).lineTo(Math.cos(a) * 14, -12 + Math.sin(a) * 14).stroke({ width: 1.4, color: 0xffe066 });
+      }
+      ball(w, 0, -12, 6.5, 0xfff6c0);
+      return { g: w, mode: 'cast', rest: 0.1 };
+    case 'whisk':
+      // phất trần của Lão Quân
+      rrect(w, -1.3, -4, 2.6, 20, 1, 0x9a7440);
+      for (let i = -4; i <= 4; i++) w.moveTo(0, -4).bezierCurveTo(i * 2.4, -14, i * 4.4, -26, i * 3.6, -36).stroke({ width: 1.1, color: 0xffffff, alpha: 0.95, cap: 'round' });
+      ball(w, 0, -4, 2.6, 0xe8c860);
+      return { g: w, mode: 'cast', rest: 0.2 };
   }
 }
 
@@ -512,10 +723,212 @@ const HATS: Record<Hat, { back?: HatFn; front: HatFn }> = {
       ball(h, 0, -R - 1, 2.4, GOLD);
     },
   },
+  hancap: {
+    // Lưu Bị: mũ cao của vua Hán, tua đỏ rủ bên tai
+    back: (h) => poly(h, [-R + 2, -4, -R - 6, 8, -R - 2, 14, -R + 3, 6], 0x1a1a22),
+    front: (h, st) => {
+      dome(h, 0, 0, R + 0.8, 0x1a1a22);
+      rrect(h, -9, -R - 12, 18, 14, 3, st.hatColor);
+      rrect(h, -9.5, -R - 1.5, 19, 3.2, 1.2, GOLD);
+      poly(h, [-5, -R - 12, 0, -R - 16, 5, -R - 12], GOLD, 1);
+      for (const x of [-R + 1, R - 1]) {
+        const ex = x + (x < 0 ? -2 : 2);
+        h.moveTo(x, -2).lineTo(ex, 12).stroke({ width: 1.4, color: 0xd23a3a });
+        ball(h, ex, 13, 1.8, 0xd23a3a);
+      }
+    },
+  },
+  wildhair: {
+    // Điển Vi: tóc dựng ngược, khăn đỏ quấn trán
+    back: (h, st) => poly(h, [-R + 1, -4, -R - 11, 3, -R - 6, 10, -R - 14, 16, -R + 2, 12], st.hatColor),
+    front: (h, st) => {
+      dome(h, 0, 0, R + 1.2, st.hatColor);
+      for (let i = 0; i < 6; i++) {
+        const bx = -9 + i * 3.6;
+        poly(h, [bx - 2.6, -R + 1, bx + (i - 2.5) * 1.2, -R - 8 - (i % 2) * 4, bx + 2.6, -R + 1], st.hatColor, 1);
+      }
+      rrect(h, -R - 0.5, -4.6, 2 * R + 1, 3.8, 1.4, 0xd23a3a);
+    },
+  },
+  ponytail: {
+    // tóc buộc cao, đuôi ngựa dài tung bay
+    back: (h, st) => {
+      h.moveTo(-R + 2, -8).bezierCurveTo(-R - 14, -18, -R - 20, 2, -R - 12, 22).stroke({ width: 6.6, color: lineOf(st.hatColor), cap: 'round' });
+      h.moveTo(-R + 2, -8).bezierCurveTo(-R - 14, -18, -R - 20, 2, -R - 12, 22).stroke({ width: 4.4, color: st.hatColor, cap: 'round' });
+    },
+    front: (h, st, a) => {
+      dome(h, 0, 0, R + 1, st.hatColor);
+      poly(h, [-R, 0, -R + 1, 8, -R + 5, 2], st.hatColor);
+      rrect(h, -R - 0.5, -4.4, 2 * R + 1, 3, 1.2, a);
+      ball(h, -R + 2, -9, 3, a);
+    },
+  },
+  phoenixcap: {
+    // Bàng Thống: mũ Phượng Sồ có lông phượng cong ra sau
+    front: (h, st) => {
+      dome(h, 0, 0, R, 0x2d2f3e);
+      poly(h, [-8, -R + 1, -6, -R - 14, 4, -R - 12, 8, -R + 1], st.hatColor, 1.4);
+      rrect(h, -9, -R - 2, 18, 2.6, 1, GOLD);
+      h.moveTo(2, -R - 12).quadraticCurveTo(-4, -R - 30, -R - 14, -R - 22).stroke({ width: 4.6, color: lineOf(0x2fb8a0), cap: 'round' });
+      h.moveTo(2, -R - 12).quadraticCurveTo(-4, -R - 30, -R - 14, -R - 22).stroke({ width: 2.8, color: 0x2fb8a0, cap: 'round' });
+      h.moveTo(2, -R - 12).quadraticCurveTo(-4, -R - 30, -R - 14, -R - 22).stroke({ width: 0.9, color: GOLD, cap: 'round' });
+    },
+  },
+  fengguan: {
+    // phượng quan của mỹ nhân: hai cánh phượng, tua rủ
+    back: (h) => poly(h, [-R + 2, -6, -R - 8, 6, -R - 11, 28, -R - 1, 22, -R + 3, 8], 0x1c1620),
+    front: (h, st) => {
+      dome(h, 0, 0, R + 1.2, 0x1c1620);
+      rrect(h, -R - 0.5, -5, 2 * R + 1, 3.4, 1.3, GOLD);
+      poly(h, [-9, -R + 1, -6, -R - 8, -2, -R + 1], st.hatColor, 1);
+      poly(h, [2, -R + 1, 6, -R - 8, 9, -R + 1], st.hatColor, 1);
+      ball(h, 0, -R - 3, 3, 0xff5a8a);
+      for (const dx of [-8, 8]) {
+        h.moveTo(dx, -5).lineTo(dx * 1.1, 8).stroke({ width: 1, color: GOLD });
+        ball(h, dx * 1.1, 9, 1.8, 0xff9ecb);
+      }
+    },
+  },
+  guan: {
+    // thư sinh quý tộc: búi tóc đội kim quan, dải lụa buông sau
+    back: (h, st) => {
+      for (const k of [0, 1]) h.moveTo(-R + 2, -8).bezierCurveTo(-R - 10, -6 + k * 6, -R - 14, 10 + k * 6, -R - 8, 26 + k * 4).stroke({ width: 3, color: st.hatColor, cap: 'round' });
+    },
+    front: (h, st) => {
+      dome(h, 0, 0, R + 0.8, 0x1a1a26);
+      ball(h, -1, -R - 2, 4, 0x1a1a26);
+      rrect(h, -5, -R - 5, 8, 5, 2, GOLD);
+      rrect(h, -R - 0.5, -4.2, 2 * R + 1, 3.2, 1.2, st.hatColor);
+      h.moveTo(-6, -R - 3).lineTo(6, -R - 1).stroke({ width: 1.6, color: 0xe8fff4 });
+    },
+  },
+  wushamao: {
+    // Mộ Dung Phục: mũ quan có hai cánh dài ngang vai
+    front: (h, st) => {
+      dome(h, 0, 0, R, 0x1a1a26);
+      rrect(h, -R - 1, -R - 9, 2 * R + 2, 11, 2.5, st.hatColor);
+      rrect(h, -R - 1, -R - 1, 2 * R + 2, 3, 1, GOLD);
+      poly(h, [-R - 22, -R - 6, -R, -R - 8, -R, -R - 4, -R - 22, -R - 2], st.hatColor, 1.2);
+      poly(h, [R, -R - 8, R + 22, -R - 6, R + 22, -R - 2, R, -R - 4], st.hatColor, 1.2);
+      ball(h, 0, -R - 8, 2, GOLD);
+    },
+  },
+  pig: {
+    // Trư Bát Giới: tai heo cụp, mõm hồng
+    back: (h, st) => poly(h, [-R + 2, -6, -R - 8, -2, -R - 6, 10, -R + 2, 4], darker(st.hatColor, 0.15)),
+    front: (h, st) => {
+      poly(h, [-R + 2, -6, -R - 7, -4, -R - 4, 9, -R + 4, 3], darker(st.hatColor, 0.1), 1.2);
+      poly(h, [-2, -R + 1, 2, -R - 9, 8, -R + 2], st.hatColor, 1.2);
+      h.ellipse(R + 1.5, 6.5, 5.2, 3.8).fill(lighter(st.hatColor, 0.15)).stroke({ width: 1.2, color: lineOf(st.hatColor) });
+      h.circle(R, 6.5, 0.9).fill(0x6a2a2a);
+      h.circle(R + 3, 6.5, 0.9).fill(0x6a2a2a);
+      poly(h, [R - 1, 9, R + 1, 13, R + 3, 9], 0xfff6e0, 0.8);
+    },
+  },
+  pilu: {
+    // Đường Tăng: mũ Ngũ Phật nhọn
+    front: (h, st) => {
+      rrect(h, -R - 0.5, -6, 2 * R + 1, 4, 1.4, GOLD);
+      for (let i = 0; i < 5; i++) {
+        const bx = -8 + i * 4;
+        const hgt = i === 2 ? 16 : i % 2 ? 10 : 13;
+        poly(h, [bx - 2.6, -6, bx, -6 - hgt, bx + 2.6, -6], i % 2 ? st.hatColor : 0xf0a030, 1);
+        ball(h, bx, -6 - hgt + 3, 1.2, 0xd23a3a);
+      }
+    },
+  },
+  eagle: {
+    // Kim Sí Đại Bàng: mũ ưng, lông cánh vàng sau gáy
+    back: (h) => {
+      for (let i = 0; i < 4; i++) poly(h, [-R + 1, -6 + i * 2, -R - 12 - i * 3, -8 + i * 5, -R - 4, i * 5], i % 2 ? 0xffd34d : 0x8a5a1a, 1);
+    },
+    front: (h, st) => {
+      dome(h, 0, 0, R + 1.5, st.hatColor);
+      poly(h, [-R, -3, R + 2, -3, R + 7, 4, 2, -1], darker(st.hatColor, 0.2), 1);
+      poly(h, [-2, -R, 2, -R - 11, 6, -R + 2], 0xd23a2a, 1);
+      poly(h, [2, -R, 7, -R - 9, 9, -R + 3], 0xffd34d, 1);
+    },
+  },
+  dizang: {
+    // Địa Tạng Vương: mũ Ngũ Phương Phật cổ, đầu trọc
+    front: (h, st) => {
+      rrect(h, -R - 0.5, -5.5, 2 * R + 1, 3.6, 1.3, GOLD);
+      for (const dx of [-7, 0, 7]) {
+        h.ellipse(dx, -R - 3 + Math.abs(dx) * 0.2, 4.2, 7).fill(0xffe28a).stroke({ width: 1.3, color: 0xa8741a });
+        ball(h, dx, -R - 3, 1.3, 0x2ec88a);
+      }
+      ball(h, 0, -R - 12, 2.6, 0xff5a3a);
+      void st;
+    },
+  },
+  taoistcrown: {
+    // Thái Thượng Lão Quân: mão liên hoa vàng cao, tóc bạc xõa sau lưng
+    back: (h) => poly(h, [-R + 2, -6, -R - 8, 4, -R - 12, 26, -R - 1, 20, -R + 3, 6], 0xf4f4f4),
+    front: (h, st) => {
+      dome(h, 0, 0, R, 0xf4f4f4);
+      rrect(h, -7, -R - 14, 14, 16, 3, st.hatColor);
+      for (const dx of [-5, 0, 5]) poly(h, [dx - 3, -R - 14, dx, -R - 20 + Math.abs(dx) * 0.4, dx + 3, -R - 14], GOLD, 1);
+      rrect(h, -7, -R - 4, 14, 2.6, 1, 0xd23a2a);
+      ball(h, 0, -R - 9, 2.4, 0x2a2a30);
+    },
+  },
+  wrap: {
+    // Hồng Thất Công: khăn rách quấn đầu, hai đuôi khăn bay
+    back: (h, st) => {
+      poly(h, [-R + 1, -8, -R - 9, -4, -R - 14, 6, -R - 5, 0, -R + 2, -2], st.hatColor);
+      poly(h, [-R + 1, -6, -R - 8, 4, -R - 9, 14, -R - 2, 6], darker(st.hatColor, 0.2));
+    },
+    front: (h, st) => {
+      dome(h, 0, 0, R + 1.3, st.hatColor);
+      rrect(h, -R - 0.5, -4.2, 2 * R + 1, 3.4, 1.3, darker(st.hatColor, 0.25));
+      ball(h, -2, -R - 1, 3.2, st.hatColor);
+      h.circle(5, -R + 3, 1.4).fill(0xc8a050);
+    },
+  },
+  warcap: {
+    // Hạ Hầu Đôn: mũ chiến có chỏm vàng, tua đỏ dài
+    front: (h, st) => {
+      dome(h, 0, 0, R + 1.6, st.hatColor);
+      rrect(h, -R - 1.5, -4, 2 * R + 3, 4, 1.6, GOLD);
+      poly(h, [-3, -R + 1, 0, -R - 8, 3, -R + 1], GOLD, 1);
+      h.moveTo(0, -R - 8).quadraticCurveTo(-8, -R - 16, -R - 12, -R - 4).stroke({ width: 4.4, color: lineOf(0xc8282a), cap: 'round' });
+      h.moveTo(0, -R - 8).quadraticCurveTo(-8, -R - 16, -R - 12, -R - 4).stroke({ width: 2.8, color: 0xe03a3a, cap: 'round' });
+    },
+  },
+  flame: {
+    // Hoàng Cái: mũ giáp có mào lửa rực
+    front: (h, st) => {
+      dome(h, 0, 0, R + 1.4, st.hatColor);
+      rrect(h, -R - 1, -4.2, 2 * R + 2, 3.6, 1.4, GOLD);
+      for (let i = 0; i < 5; i++) {
+        const bx = -8 + i * 4;
+        const hgt = i === 2 ? 20 : i % 2 ? 12 : 16;
+        poly(h, [bx - 3, -R + 1, bx + (i - 2) * 1.5, -R - hgt, bx + 3, -R + 1], i % 2 ? 0xff7a1a : 0xff4a1a, 1);
+      }
+      poly(h, [-2, -R + 1, 0, -R - 12, 2, -R + 1], 0xffe27a, 0.8);
+    },
+  },
+  longhair: {
+    // Nhậm Doanh Doanh: tóc dài thả, dải lụa và hoa cài đầu
+    back: (h) => poly(h, [-R + 1, -8, -R - 8, 2, -R - 12, 30, -R + 2, 26, -R + 4, 8], 0x14141c),
+    front: (h, st) => {
+      dome(h, 0, 0, R + 1.2, 0x14141c);
+      poly(h, [-R + 1, -1, -R + 2, 10, -R + 6, 2], 0x14141c);
+      poly(h, [R - 2, -3, R, 4, R - 4, 0], 0x14141c);
+      rrect(h, -R - 0.5, -4.6, 2 * R + 1, 3, 1.2, st.hatColor);
+      ball(h, 5, -R - 1, 3, 0xff9ecb);
+      ball(h, 5, -R - 1, 1.2, 0xffffff);
+    },
+  },
 };
 
 function drawHead(parent: Container, st: Style, accent: number, boss: boolean) {
   const hat = HATS[st.hat];
+  if (st.halo) {
+    const halo = g();
+    halo.circle(-1, -3, 18).fill({ color: st.halo, alpha: 0.22 }).stroke({ width: 2.2, color: st.halo, alpha: 0.9 });
+    parent.addChild(halo);
+  }
   const back = g();
   hat.back?.(back, st, accent);
   parent.addChild(back);
@@ -544,9 +957,13 @@ function drawHead(parent: Container, st: Style, accent: number, boss: boolean) {
     if (boss || st.hat === 'horns') f.moveTo(4.8, 9.6).quadraticCurveTo(7.4, 12.2, 10, 9.4).stroke({ width: 1.3, color: 0x3a0a0a, cap: 'round' });
     else f.moveTo(5.6, 10.2).quadraticCurveTo(7.4, 11.4, 9.2, 10.2).stroke({ width: 1.1, color: 0x6a2a2a, cap: 'round' });
     // lông mày
-    const angry = boss || st.hat === 'horns' || st.hat === 'blackhelm' || st.hat === 'guanyu';
+    const angry = boss || st.hat === 'horns' || st.hat === 'blackhelm' || st.hat === 'guanyu' || st.hat === 'warcap' || st.hat === 'wildhair' || st.hat === 'eagle';
     f.moveTo(2, angry ? -0.2 : -0.8).lineTo(5.6, angry ? 0.8 : -1).stroke({ width: 1.2, color: 0x2a1a1a, cap: 'round' });
     f.moveTo(7.4, angry ? 0.8 : -1).lineTo(11, angry ? -0.8 : -0.8).stroke({ width: 1.2, color: 0x2a1a1a, cap: 'round' });
+    if (st.patch) {
+      f.moveTo(-R + 1, -2).lineTo(6.2, 0.4).stroke({ width: 1.3, color: 0x120a14 });
+      f.ellipse(8.8, 3, 3.4, 4.2).fill(0x120a14).stroke({ width: 0.8, color: 0x4a3a3a });
+    }
   }
   parent.addChild(f);
 
@@ -681,7 +1098,7 @@ function buildBoat(kind: 'skiff' | 'junk' | 'cannon', accent: number) {
   return { back, front, oars, wake };
 }
 
-function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container) {
+function buildHumanoid(def: UnitDef, side: UnitSide, accent: number, into: Container) {
   let extra = 0;
   const st = STYLES[def.id];
   const bulk = st.bulk ?? 1;
@@ -702,7 +1119,7 @@ function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container
     into.addChild(horse);
     extra += 12;
   }
-  if (st.hat === 'plumes' || st.hat === 'scholar') extra += 8;
+  if (['plumes', 'scholar', 'phoenixcap', 'taoistcrown', 'hancap', 'flame', 'pilu', 'eagle', 'dizang'].includes(st.hat)) extra += 8;
   into.addChild(rider);
   rider.y = hipY;
   if (mounted) rider.x = -4;
@@ -728,6 +1145,17 @@ function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container
   const bodyC = new Container();
   rider.addChild(bodyC);
 
+  // cánh sau lưng (Kim Sí Đại Bàng)
+  let wingG: Graphics | null = null;
+  if (st.wings) {
+    wingG = g();
+    for (const [k, c] of [[1.0, darker(st.wings, 0.25)], [0.8, st.wings], [0.55, lighter(st.wings, 0.25)]] as const) {
+      poly(wingG, [0, 0, -8 * k, -30 * k, -26 * k, -40 * k, -34 * k, -26 * k, -28 * k, -10 * k, -18 * k, 2 * k], c, 1.2);
+    }
+    wingG.position.set(-5, -30);
+    bodyC.addChild(wingG);
+  }
+
   // tay sau
   const backArm = g();
   limb(backArm, -7 * bulk, -29, -10 * bulk, -22, 5, st.cloth);
@@ -743,6 +1171,16 @@ function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container
     bodyC.addChild(cape);
   }
 
+  // áo dài che chân
+  if (st.robe) {
+    const sk = g();
+    const rw = 9.5 * bulk;
+    poly(sk, [-rw, -17, rw, -17, rw + 6, 0, -rw - 6, 0], st.robe, 1.4);
+    poly(sk, [-rw - 5, -3.5, rw + 5, -3.5, rw + 6, 0, -rw - 6, 0], darker(st.robe, 0.25), 0.8);
+    sk.moveTo(0, -17).lineTo(1, 0).stroke({ width: 1, color: darker(st.robe, 0.3), alpha: 0.6 });
+    bodyC.addChild(sk);
+  }
+
   // thân
   const torso = g();
   const tw = 18 * bulk;
@@ -754,6 +1192,24 @@ function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container
   if (def.skill === 'heal') {
     torso.rect(-1.5, -31, 3, 9).fill(0x57c488);
     torso.rect(-4.5, -28, 9, 3).fill(0x57c488);
+  }
+  if (st.sash) poly(torso, [-tw / 2, -34, -tw / 2 + 5, -34, tw / 2, -13, tw / 2 - 5, -13], st.sash, 1);
+  if (st.stripes) for (let i = 0; i < 4; i++) torso.moveTo(-tw / 2 + 3 + (i * tw) / 4, -33).lineTo(-tw / 2 + 5 + (i * tw) / 4, -22).stroke({ width: 1.8, color: st.stripes });
+  if (st.gourd) {
+    ball(torso, tw / 2 - 2, -12, 3.6, 0xc8382a, 4.6);
+    ball(torso, tw / 2 - 2, -17, 2.2, 0xc8382a);
+  }
+  if (st.shoulders) {
+    for (const sx of [-tw / 2 + 1, tw / 2 - 1]) {
+      if (st.shoulders === 'fur') {
+        ball(torso, sx, -32, 5.6, 0xf2ead8, 4.4);
+        ball(torso, sx, -33.5, 3.4, 0xffffff, 2.6);
+      } else {
+        ball(torso, sx, -32, 6.2, lighter(st.armor, 0.12), 5);
+        if (st.shoulders === 'spikes') poly(torso, [sx - 2.4, -36, sx, -45, sx + 2.4, -36], 0xd0d6e2, 1);
+      }
+    }
+    if (st.shoulders === 'fur') rrect(torso, -tw / 2 - 1, -36, tw + 2, 5, 2.4, 0xf2ead8);
   }
   if (st.boss) {
     ball(torso, 0, -27, 5, 0xe0a47c, 4);
@@ -805,6 +1261,7 @@ function buildHumanoid(def: UnitDef, side: Side, accent: number, into: Container
   const baseX = shoulderX;
   const tick = (clock: number, moving: boolean, atk: number) => {
     const w = moving ? Math.sin(clock * (mounted ? 11 : 9 + def.speed / 14)) : 0;
+    if (wingG) wingG.rotation = Math.sin(clock * 3) * 0.07 - 0.05;
     if (mounted) {
       horseLegs.forEach((l, i) => (l.rotation = moving ? w * 0.7 * (i % 2 ? 1 : -1) : 0));
       rider.y = hipY + (moving ? -Math.abs(w) * 1.8 : 0);
@@ -885,7 +1342,7 @@ function buildFlyBase(wheels: boolean): { node: Container; tick: (clock: number)
   };
 }
 
-export function buildUnitArt(def: UnitDef, side: Side, withSquad = false, accentOverride?: number): UnitArt {
+export function buildUnitArt(def: UnitDef, side: UnitSide, withSquad = false, accentOverride?: number): UnitArt {
   const accent = accentOverride ?? SIDE_COLOR[side];
   if (def.kind === 'defense') {
     const d = buildDefenseArt(def, side, accent);
@@ -938,6 +1395,11 @@ export function buildUnitArt(def: UnitDef, side: Side, withSquad = false, accent
       arm.rotation = rot;
       body.y = moving ? Math.sin(clock * 6) * 0.6 : 0;
     };
+  } else if (hasEngineArt(def.id)) {
+    const e = buildEngine(def.id, accent);
+    art.addChild(e.body);
+    height = e.height * sc;
+    tick = e.tick;
   } else if (def.id === 'elephant' || def.id === 'haothienkhuyen' || hasBeastArt(def.id)) {
     const b = def.id === 'elephant' ? buildElephant(accent) : def.id === 'haothienkhuyen' ? buildHound(accent) : buildBeast(def.id, accent);
     art.addChild(b.body);
@@ -998,9 +1460,18 @@ export function buildUnitArt(def: UnitDef, side: Side, withSquad = false, accent
   hpBar.position.set(0, -height - 8);
   root.addChild(hpBar);
 
-  const mounted = def.id !== 'trebuchet' && !!STYLES[def.id]?.mount;
-  const face = def.id === 'trebuchet' ? { x: 0, y: -30 * sc } : { x: (mounted ? -3 : 1) * sc, y: (mounted ? -58 : -45) * sc - (fly ? FLY_LIFT : 0) };
+  const mounted = def.id !== 'trebuchet' && !hasEngineArt(def.id) && !!STYLES[def.id]?.mount;
+  const face = def.id === 'trebuchet' || hasEngineArt(def.id) ? { x: 0, y: -30 * sc } : { x: (mounted ? -3 : 1) * sc, y: (mounted ? -58 : -45) * sc - (fly ? FLY_LIFT : 0) };
   return { root, art, hpBar, height, barW, mode, baseScale: sc, face, update: tick, setCloud };
+}
+
+/** chữ cấp nhỏ "Lv n" ngay sau thanh máu (con của hpBar nên theo vị trí/scale/ẩn hiện của thanh) */
+export function addLevelTag(art: UnitArt, pow: number): Text {
+  const tx = new Text({ text: `Lv${levelOfPow(pow)}`, style: textStyle(8, 0xdfe6f5) });
+  tx.anchor.set(0, 0.5);
+  tx.position.set(art.barW / 2 + 3, 2.5);
+  art.hpBar.addChild(tx);
+  return tx;
 }
 
 function lerp(a: number, b: number, t: number) {

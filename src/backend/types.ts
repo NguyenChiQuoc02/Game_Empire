@@ -9,6 +9,8 @@ export interface SaveData {
   defDeck: string[];
   /** bộ thú cưng mang vào trận */
   petDeck?: string[];
+  /** bộ trụ sản sinh mang vào trận (tối đa POST_DECK_SIZE) */
+  postDeck?: string[];
   /** số bậc nâng cấp "số tướng tối đa" (0..3, ngoài 2 tướng gốc) */
   genSlots?: number;
   /** số ô thú cưng mở thêm (0..1, ngoài 2 ô gốc) */

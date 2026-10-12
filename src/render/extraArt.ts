@@ -1,12 +1,13 @@
-import { Container, Graphics } from 'pixi.js';
-import type { UnitDef } from '../data/units';
-import type { Side } from '../game/sim';
+import { Container, Graphics, Text } from 'pixi.js';
+import { POSTS, type UnitDef } from '../data/units';
+import { textStyle } from './vfx';
+import type { UnitSide } from '../game/sim';
 import { INK, ball, darker, g, lighter, mix, outline, poly, rrect } from './draw';
 
 // Voi chiến, Hao Thiên Khuyển và các công trình phòng thủ (đồ họa vẽ bằng code)
 
 const GOLD = 0xffd34d;
-const TEAM: [number, number] = [0x3d8bff, 0xe24b4b];
+const TEAM: [number, number, number] = [0x3d8bff, 0xe24b4b, 0xb06adf];
 
 export interface ExtraArt {
   body: Container;
@@ -129,7 +130,7 @@ export interface DefenseArt {
   update(clock: number, atk: number): void;
 }
 
-export function buildDefenseArt(def: UnitDef, side: Side, accentOverride?: number): DefenseArt {
+export function buildDefenseArt(def: UnitDef, side: UnitSide, accentOverride?: number): DefenseArt {
   const accent = accentOverride ?? TEAM[side];
   const root = new Container();
   const art = new Container();
@@ -367,6 +368,34 @@ export function buildDefenseArt(def: UnitDef, side: Side, accentOverride?: numbe
       tick = (clock) => {
         halo.alpha = 0.6 + Math.sin(clock * 2.6) * 0.4;
         cr.y = Math.sin(clock * 1.8) * 0.8;
+      };
+      break;
+    }
+    case 'spawner': {
+      // trụ sản sinh: bệ đá, cột trụ, vòng pháp trận màu theo loại quân và biểu tượng nổi trên đỉnh
+      const info = POSTS[def.id];
+      const col = info?.color ?? accent;
+      const w = g();
+      rrect(w, -20, -10, 40, 10, 3, stone);
+      rrect(w, -13, -44, 26, 36, 4, darker(stone, 0.12));
+      rrect(w, -16, -50, 32, 8, 3, stone);
+      for (let k = 0; k < 3; k++) w.moveTo(-9, -38 + k * 9).lineTo(9, -38 + k * 9).stroke({ width: 1, color: darker(stone, 0.5), alpha: 0.4 });
+      w.rect(-13, -22, 26, 4).fill(accent);
+      art.addChild(w);
+      const halo = g();
+      halo.ellipse(0, -2, 26, 7).stroke({ width: 2, color: col, alpha: 0.85 });
+      halo.circle(0, -62, 15).fill({ color: col, alpha: 0.22 });
+      art.addChildAt(halo, 1);
+      const em = new Text({ text: info?.icon ?? '✦', style: textStyle(18, 0xffffff) });
+      em.anchor.set(0.5, 0.5);
+      em.position.set(0, -62);
+      art.addChild(em);
+      pennant(18, -10, 30);
+      height = 82;
+      tick = (clock, atk) => {
+        halo.alpha = 0.7 + Math.sin(clock * 3) * 0.3;
+        em.y = -62 + Math.sin(clock * 2.2) * 2;
+        em.scale.set(1 + (atk > 0 ? 0.35 * Math.sin(Math.min(1, atk / 0.4) * Math.PI) : 0));
       };
       break;
     }

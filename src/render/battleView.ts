@@ -1,16 +1,19 @@
 import { Container, Graphics, Text, type Application } from 'pixi.js';
-import { Battle, LANE_COUNT, type Outpost, type Side, type UnitInst } from '../game/sim';
+import { Battle, type Outpost, type Side, type UnitInst } from '../game/sim';
 import type { Station } from '../data/campaign';
-import { buildUnitArt, FLY_LIFT, SIDE_COLOR, type UnitArt } from './unitArt';
+import { addLevelTag, buildUnitArt, FLY_LIFT, SIDE_COLOR, type UnitArt } from './unitArt';
 import { fxLite } from './fxmode';
 import { buildBattlefield, type Battlefield } from './scenery';
 import { roof } from './landmarks';
 import { Vfx, textStyle } from './vfx';
 import { INK, ball, darker, g, lighter, mix, poly, rrect } from './draw';
 import { getLang, t, unitName } from '../i18n';
-import { UNITS } from '../data/units';
+import { CASTLE } from '../data/campaign';
+import { UNITS, type MountKind } from '../data/units';
+import { buildMount, type Mount } from './mountArt';
 import { RANDOM_EVENTS, eventParams } from '../data/terrain';
-import { BASE_LANE_LEN, LONG_UNIT_SCALE, OUTPOST_ICON, ZONES, type LaneZone } from '../data/lane';
+import { OUTPOST_ICON, ZONES, type LaneZone } from '../data/lane';
+import { LAIRS, WILD_LEASH } from '../data/wild';
 
 const easeOutBack = (k: number) => {
   const c1 = 1.70158;
@@ -24,10 +27,13 @@ interface UV {
   defRef: UnitInst['def'];
   /** lane đang chứa art (đổi khi quân rẽ qua đường nối) */
   lane: number;
-  /** lane hiển thị (số thực): trượt mượt sang lane mới */
-  laneF: number;
+  /** hàng hiển thị trên màn hình (số thực): trượt mượt sang hàng mới khi quân rẽ lane */
+  rowF: number;
   aura: Graphics;
   name?: Text;
+  /** chữ cấp sau thanh máu (trụ sản sinh: cấp + số quân đã sinh) */
+  lvTag?: Text;
+  lvKey?: string;
   nameLang?: string;
   nameText?: string;
   formId: string | null;
@@ -38,6 +44,10 @@ interface UV {
   swooshAt: number;
   dustT: number;
   lineT: number;
+  /** độ cao hiện tại (px) của quân bay / đang cưỡi thú bay: nâng hạ mượt */
+  lift: number;
+  /** thú cưỡi đang hiện dưới chân (skyMount) */
+  mount?: { kind: MountKind; m: Mount };
 }
 
 interface OutpostView {
@@ -59,6 +69,18 @@ interface ZoneView {
   c: Container;
 }
 
+interface LairView {
+  lane: number;
+  kind: string;
+  c: Container;
+}
+
+interface PortalView {
+  c: Container;
+  glow: Graphics;
+  pulse: number;
+}
+
 interface TowerView {
   c: Container;
   body: Graphics;
@@ -73,6 +95,11 @@ interface TowerView {
   w: number;
   h: number;
   side: Side;
+  /** cổng thành của lane thứ 4 (chỉ địch có): không hiện thanh máu */
+  extra: boolean;
+  /** thành chung: máu dùng chung nên chỉ lane giữa hiện thanh máu (kèm 🏯) */
+  castle: boolean;
+  hidePlate: boolean;
 }
 
 export class BattleView {
@@ -88,11 +115,14 @@ export class BattleView {
   readonly vfx: Vfx;
   private hl: Graphics[] = [];
   private views = new Map<number, UV>();
-  private towers: TowerView[][] = [];
+  private towers: (TowerView | null)[][] = [];
+  private castleArchers: { lane: number; arts: UnitArt[]; atk: number }[] = [];
   private banners: Container[] = [];
   private bridgeGs: Graphics[] = [];
   private outpostViews: OutpostView[] = [];
   private zoneViews: ZoneView[] = [];
+  private lairViews: LairView[] = [];
+  private portals: PortalView[] = [];
   private hoverDef = false;
   private bannerAge: number[] = [];
   private clock = 0;
@@ -115,9 +145,9 @@ export class BattleView {
 
   constructor(private app: Application, private battle: Battle, private station: Station) {
     this.laneLen = battle.len;
-    this.mini = battle.len > BASE_LANE_LEN ? LONG_UNIT_SCALE : 1;
+    this.mini = battle.unitScale;
     this.vfx = new Vfx(this);
-    for (let i = 0; i < LANE_COUNT; i++) {
+    for (let i = 0; i < battle.lanes.length; i++) {
       const u = new Container();
       u.sortableChildren = true;
       this.unitsC.push(u);
@@ -132,24 +162,36 @@ export class BattleView {
     this.root.destroy({ children: true });
   }
 
+  /** hàng (từ trên xuống) mà lane chiếm trên màn hình: lane thứ 4 của địch có thể nằm trên hoặc dưới các lane của ta */
+  rowOf(lane: number) {
+    return this.battle.rowOrder.indexOf(lane);
+  }
   laneTop(lane: number) {
-    return this.panoH + lane * this.laneH;
+    return this.panoH + this.rowOf(lane) * this.laneH;
   }
   sx(x: number) {
     return this.padL + (x / this.laneLen) * (this.W - this.padL * 2);
   }
-  gy(lane: number, yOff: number) {
-    return this.laneTop(lane) + this.laneH * (0.52 + 0.27 * yOff);
+  /** toạ độ dọc đường đi của một hàng (hàng có thể là số thực khi quân đang trượt giữa hai lane) */
+  gyRow(row: number, yOff: number) {
+    return this.panoH + row * this.laneH + this.laneH * (0.52 + 0.27 * yOff);
   }
-  /** hệ số phối cảnh theo làn (làn gần người xem to hơn) */
+  gy(lane: number, yOff: number) {
+    return this.gyRow(this.rowOf(lane), yOff);
+  }
+  /** hệ số phối cảnh theo hàng (hàng gần người xem to hơn) */
+  depthRow(row: number) {
+    const n = this.battle.lanes.length;
+    return n === 1 ? 1.05 : 0.92 + (0.16 * row) / (n - 1);
+  }
   depth(lane: number) {
-    return this.battle.lanes.length === 1 ? 1.05 : 0.92 + 0.08 * lane;
+    return this.depthRow(this.rowOf(lane));
   }
   /** lane tại toạ độ dọc của chiến trường; -1 nếu điểm nằm ngoài các làn (bầu trời / phía dưới) */
   laneAt(localY: number) {
     const rel = localY - this.panoH;
     if (rel < 0 || rel >= this.battle.lanes.length * this.laneH) return -1;
-    return Math.floor(rel / this.laneH);
+    return this.battle.rowOrder[Math.floor(rel / this.laneH)];
   }
 
   /** đổi toạ độ ngang trên màn hình sang toạ độ lane (0..1000) */
@@ -166,9 +208,9 @@ export class BattleView {
         if (!u.alive) continue;
         const v = this.views.get(u.uid);
         if (!v) continue;
-        const s = this.us * this.depth(v.laneF);
+        const s = this.us * this.depthRow(v.rowF);
         const x = this.sx(u.x);
-        const y = this.gy(v.laneF, u.yOff);
+        const y = this.gyRow(v.rowF, u.yOff);
         const halfW = Math.max(24 * u.def.scale * s, 13);
         const hgt = Math.max(v.art.height * s, 24);
         if (px >= x - halfW && px <= x + halfW && py >= y - hgt && py <= y + 8 * s && y > bestY) {
@@ -184,8 +226,8 @@ export class BattleView {
   unitBox(u: UnitInst): { x: number; top: number; bottom: number } | null {
     const v = this.views.get(u.uid);
     if (!v) return null;
-    const s = this.us * this.depth(v.laneF);
-    const y = this.gy(v.laneF, u.yOff);
+    const s = this.us * this.depthRow(v.rowF);
+    const y = this.gyRow(v.rowF, u.yOff);
     // chừa chỗ cho thanh máu và tên tướng phía trên đầu
     const extra = (u.def.kind === 'troop' ? 16 : 30) * s;
     return { x: this.sx(u.x), top: y - v.art.height * s - extra, bottom: y + 8 * s };
@@ -222,6 +264,8 @@ export class BattleView {
     this.towers = [];
     this.outpostViews = [];
     this.zoneViews = [];
+    this.lairViews = [];
+    this.portals = [];
     this.hl = [];
     this.banners = [];
     this.bannerAge = [];
@@ -240,10 +284,18 @@ export class BattleView {
 
     // địa hình lane và căn cứ phụ nằm dưới tháp / quân
     for (const lane of this.battle.lanes) for (const z of lane.zones) this.zoneViews.push(this.makeZone(lane.index, z));
+    this.buildExtra();
+    this.buildTunnels();
     for (const o of this.battle.outposts) this.outpostViews.push(this.makeOutpost(o));
+    for (const lr of this.battle.lairs) this.lairViews.push(this.makeLair(lr.lane, lr.x, lr.kind));
     for (let i = 0; i < n; i++) {
-      const row: TowerView[] = [];
+      const row: (TowerView | null)[] = [];
       for (const side of [0, 1] as const) {
+        // lane thứ 4 chỉ địch có: phía ta không có thành
+        if (i === this.battle.extraLane && side === 0) {
+          row.push(null);
+          continue;
+        }
         const tv = this.makeTower(i, side);
         this.towersLayer.addChild(tv.c);
         row.push(tv);
@@ -260,6 +312,7 @@ export class BattleView {
       this.banners.push(bn);
       this.bannerAge.push(0);
     }
+    this.buildCastle();
     for (const lane of this.battle.lanes) if (lane.winner !== null) this.showLaneBanner(lane.index, lane.winner);
     this.bridgeGs = this.battle.bridges.map((b) => {
       const bg = new Graphics();
@@ -268,6 +321,53 @@ export class BattleView {
       return bg;
     });
     this.root.position.set(0, 0);
+  }
+
+  // ───────────────────────── thành chung ─────────────────────────
+  /** tường thành nối các cổng của mọi lane thành một tòa thành; cung thủ đứng trên mái từng cổng */
+  private buildCastle() {
+    for (const ca of this.castleArchers) for (const a of ca.arts) a.root.destroy({ children: true });
+    this.castleArchers = [];
+    if (!this.battle.castle) return;
+    const x0 = this.W - this.padL - 6;
+    const wall = new Graphics();
+    const stone = 0xa9a29a;
+    const top = this.panoH * 0.78;
+    wall.rect(x0, top, this.padL + 6, this.H - top).fill(stone);
+    for (let y = top + 10; y < this.H; y += 14) wall.moveTo(x0, y).lineTo(this.W, y).stroke({ width: 1, color: 0x6a645e, alpha: 0.45 });
+    // lỗ châu mai dọc mép tường hướng ra chiến trường
+    for (let y = top; y < this.H; y += 22) wall.rect(x0 - 7, y + 3, 9, 13).fill(stone).stroke({ width: 1, color: 0x6a645e, alpha: 0.6 });
+    wall.rect(x0 - 1, top, 3, this.H - top).fill({ color: 0x000000, alpha: 0.25 });
+    this.towersLayer.addChildAt(wall, 0);
+    wall.zIndex = -1;
+    const sc = Math.max(0.5, this.us * 0.6);
+    for (const lane of this.battle.lanes) {
+      const tv = this.towers[lane.index]?.[1];
+      if (!tv || lane.extra) continue;
+      const arts: UnitArt[] = [];
+      for (let k = 0; k < CASTLE.archers; k++) {
+        const art = buildUnitArt(UNITS.archer, 1);
+        art.hpBar.visible = false;
+        art.root.scale.set(sc);
+        art.root.position.set(tv.c.x + tv.w * (k === 0 ? 0.13 : 0.87), tv.c.y - tv.h * 0.39 + 3);
+        art.root.zIndex = tv.c.y + 2;
+        this.towersLayer.addChild(art.root);
+        arts.push(art);
+      }
+      this.castleArchers.push({ lane: lane.index, arts, atk: 0 });
+    }
+  }
+
+  private updateCastle(dt: number) {
+    for (const ca of this.castleArchers) {
+      ca.atk = Math.max(0, ca.atk - dt);
+      const lane = this.battle.lanes[ca.lane];
+      const alive = lane.winner === null && lane.flags[1].hp > 0;
+      ca.arts.forEach((a, i) => {
+        a.root.visible = alive;
+        if (alive) a.update(this.clock + i * 0.9, false, ca.atk > 0 ? Math.max(0.001, 1 - ca.atk / 0.3) : 0);
+      });
+    }
   }
 
   // ───────────────────────── lane sông ─────────────────────────
@@ -368,7 +468,8 @@ export class BattleView {
 
   // ───────────────────────── căn cứ phụ ─────────────────────────
   private makeOutpost(o: Outpost): OutpostView {
-    const h = Math.min(this.laneH * 0.66, 96 * Math.min(1.2, Math.max(0.7, this.W / 900)));
+    // lane dài (quân nhỏ lại): căn cứ cũng nhỏ bớt cho cân đối
+    const h = Math.min(this.laneH * 0.66, 96 * Math.min(1.2, Math.max(0.7, this.W / 900))) * (0.5 + 0.5 * this.mini);
     const w = h / 1.5;
     const c = new Container();
     const ring = new Graphics();
@@ -461,6 +562,11 @@ export class BattleView {
     bg.poly([px, my + ah * 1.7, px - ah, my + ah * 0.6, px + ah, my + ah * 0.6]).fill({ color: 0xffe9a8, alpha: 0.85 });
   }
 
+  /** ổ quái mờ đi khi lane đã kết thúc */
+  private lairAlpha() {
+    for (const lv of this.lairViews) lv.c.alpha = this.battle.lanes[lv.lane].winner !== null ? 0.25 : 1;
+  }
+
   private updateBridges() {
     this.battle.bridges.forEach((b, i) => {
       const bg = this.bridgeGs[i];
@@ -468,6 +574,172 @@ export class BattleView {
       const closed = this.battle.lanes[b.a].winner !== null || this.battle.lanes[b.b].winner !== null;
       bg.alpha = closed ? 0.3 : 1;
     });
+  }
+
+  // ───────────────────────── lane thứ 4 (chỉ địch có) ─────────────────────────
+  /** phần lane phía ta bị chặn bằng đá, và con đường dốc dẫn từ lane thứ 4 sang lane chủ tại điểm nhập */
+  private buildExtra() {
+    const b = this.battle;
+    if (b.extraLane < 0) return;
+    const e = b.extraLane;
+    const c = new Container();
+    const H = this.laneH;
+    const y0 = this.laneTop(e);
+    const xm = this.sx(b.mergeX);
+    const wall = new Graphics();
+    // phía ta: vách đá chắn kín, quân không đi được
+    wall.rect(0, y0, xm - 8, H).fill({ color: 0x14101c, alpha: 0.8 });
+    let seed = 7711 + this.station.id * 31;
+    const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;
+    const nRock = Math.max(5, Math.round(xm / 46));
+    for (let i = 0; i < nRock; i++) {
+      const rx = (i + 0.3 + rnd() * 0.5) * (xm / nRock);
+      const ry = y0 + H * (0.18 + rnd() * 0.64);
+      const r = H * (0.1 + rnd() * 0.1);
+      poly(wall, [rx - r, ry + r * 0.7, rx - r * 0.7, ry - r * 0.5, rx + r * 0.1, ry - r, rx + r * 0.8, ry - r * 0.3, rx + r, ry + r * 0.7], mix(0x4a4658, 0x2a2634, rnd()), 1.2);
+      wall.poly([rx - r * 0.5, ry - r * 0.2, rx, ry - r * 0.8, rx + r * 0.3, ry - r * 0.3]).fill({ color: 0xffffff, alpha: 0.1 });
+    }
+    wall.rect(xm - 14, y0, 12, H).fill({ color: 0x0a0810, alpha: 0.55 });
+    const sign = new Text({ text: '⛰', style: textStyle(Math.max(16, Math.min(40, H * 0.4)), 0xffffff) });
+    sign.anchor.set(0.5);
+    sign.alpha = 0.5;
+    sign.position.set(Math.max(24, xm * 0.45), y0 + H * 0.52);
+    // đường dốc: từ lane thứ 4 sang lane chủ, nhập vào đường chính (ở lane chủ quân đi tiếp về phía thành ta)
+    const ramp = new Graphics();
+    const yE = this.gy(e, 0);
+    const yH = this.gy(b.hostLane, 0);
+    const w = Math.max(18, H * 0.42);
+    const x1 = xm + 4;
+    const x2 = xm - Math.max(20, this.W * 0.045);
+    ramp.poly([x1 - w, yE, x1 + w, yE, x2 + w, yH, x2 - w, yH]).fill({ color: 0xb58a52, alpha: 0.78 }).stroke({ width: 2, color: 0x3a2412, alpha: 0.85 });
+    ramp.poly([x1 - w * 0.55, yE, x1 + w * 0.55, yE, x2 + w * 0.55, yH, x2 - w * 0.55, yH]).fill({ color: 0xd9b27a, alpha: 0.32 });
+    const dx = x2 - x1;
+    const dy = yH - yE;
+    const len = Math.hypot(dx, dy) || 1;
+    for (let k = 1; k <= 3; k++) {
+      const px = x1 + (dx * k) / 4;
+      const py = yE + (dy * k) / 4;
+      const ux = dx / len;
+      const uy = dy / len;
+      const a = Math.max(6, H * 0.12);
+      ramp.poly([px + ux * a, py + uy * a, px - ux * a - uy * a, py - uy * a + ux * a, px - ux * a + uy * a, py - uy * a - ux * a]).fill({ color: 0xfff0c0, alpha: 0.75 });
+    }
+    // nhãn cho người chơi: đường của địch nhập vào lane chủ
+    const tag = new Text({ text: '⑂', style: textStyle(Math.max(15, Math.min(30, H * 0.3)), 0xffd34d) });
+    tag.anchor.set(0.5);
+    tag.position.set((x1 + x2) / 2 + w * 1.25, (yE + yH) / 2);
+    c.addChild(wall, sign, ramp, tag);
+    this.towersLayer.addChild(c);
+  }
+
+  // ───────────────────────── hầm ─────────────────────────
+  private buildTunnels() {
+    for (const t of this.battle.tunnels) {
+      const ax = this.sx(t.xa);
+      const ay = this.gy(t.a, 0.15);
+      const bx = this.sx(t.xb);
+      const by = this.gy(t.b, 0.15);
+      // đường ngầm: nét đứt cong nối hai cửa
+      const path = new Graphics();
+      const cx = (ax + bx) / 2;
+      const cy = (ay + by) / 2 + this.laneH * 0.28;
+      const N = 26;
+      for (let k = 0; k < N; k += 2) {
+        const p = (u: number) => [(1 - u) * (1 - u) * ax + 2 * (1 - u) * u * cx + u * u * bx, (1 - u) * (1 - u) * ay + 2 * (1 - u) * u * cy + u * u * by];
+        const [x1, y1] = p(k / N);
+        const [x2, y2] = p((k + 1) / N);
+        path.moveTo(x1, y1).lineTo(x2, y2);
+      }
+      path.stroke({ width: 2.4, color: 0xc9a6ff, alpha: 0.4 });
+      this.towersLayer.addChild(path);
+      this.portals.push(this.makePortal(t.a, t.xa, 0), this.makePortal(t.b, t.xb, 1));
+    }
+  }
+
+  /** cửa hầm: vòm đá, miệng hầm tối, vầng sáng tím nhấp nháy; vòng dưới chân theo màu phe dùng cửa này để vào hầm */
+  private makePortal(lane: number, x: number, side: Side): PortalView {
+    const w = Math.max(30, Math.min(74, this.laneH * 0.5));
+    const h = w * 0.82;
+    const c = new Container();
+    c.position.set(this.sx(x), this.gy(lane, 0.15));
+    c.zIndex = this.gy(lane, 0.15);
+    const ring = new Graphics();
+    ring.ellipse(0, 2, w * 0.7, w * 0.2).fill({ color: SIDE_COLOR[side], alpha: 0.16 }).stroke({ width: 2, color: SIDE_COLOR[side], alpha: 0.75 });
+    const body = new Graphics();
+    body.ellipse(0, 3, w * 0.62, w * 0.14).fill({ color: 0x000000, alpha: 0.35 });
+    // vòm đá
+    body.moveTo(-w * 0.56, 0).lineTo(-w * 0.56, -h * 0.5).quadraticCurveTo(-w * 0.56, -h * 1.02, 0, -h * 1.02).quadraticCurveTo(w * 0.56, -h * 1.02, w * 0.56, -h * 0.5).lineTo(w * 0.56, 0).closePath().fill(0x6a6270).stroke({ width: 2, color: 0x24202c });
+    body.moveTo(-w * 0.4, 0).lineTo(-w * 0.4, -h * 0.5).quadraticCurveTo(-w * 0.4, -h * 0.84, 0, -h * 0.84).quadraticCurveTo(w * 0.4, -h * 0.84, w * 0.4, -h * 0.5).lineTo(w * 0.4, 0).closePath().fill(0x0c0812);
+    for (let k = 0; k < 5; k++) {
+      const a = Math.PI * (1 + k / 4);
+      body.circle(Math.cos(a) * w * 0.48, -h * 0.55 + Math.sin(a) * h * 0.48, w * 0.05).fill({ color: 0x9a92a6, alpha: 0.9 });
+    }
+    const glow = new Graphics();
+    glow.ellipse(0, -h * 0.34, w * 0.3, h * 0.36).fill({ color: 0xb98aff, alpha: 0.5 });
+    glow.ellipse(0, -h * 0.34, w * 0.16, h * 0.2).fill({ color: 0xe6d2ff, alpha: 0.6 });
+    const rune = new Text({ text: '⇅', style: textStyle(Math.max(10, w * 0.3), 0xe6d2ff) });
+    rune.anchor.set(0.5, 1);
+    rune.position.set(0, -h * 1.04);
+    c.addChild(ring, body, glow, rune);
+    this.towersLayer.addChild(c);
+    return { c, glow, pulse: 0 };
+  }
+
+  private updatePortals(dt: number) {
+    for (const pv of this.portals) {
+      pv.pulse = Math.max(0, pv.pulse - dt * 1.6);
+      pv.glow.alpha = 0.55 + 0.25 * Math.sin(this.clock * 3 + pv.c.x) + pv.pulse * 0.45;
+      pv.glow.scale.set(1 + pv.pulse * 0.25);
+    }
+  }
+
+  // ───────────────────────── ổ quái hoang dã ─────────────────────────
+  /** nền ổ: vòng vùng canh của đàn con, hang đất tối và vài vật trang trí theo loài */
+  private makeLair(lane: number, x: number, kind: string): LairView {
+    const def = LAIRS[kind as keyof typeof LAIRS];
+    const c = new Container();
+    c.position.set(this.sx(x), this.gy(lane, 0));
+    const rx = (WILD_LEASH.brood / this.laneLen) * (this.W - this.padL * 2);
+    const ry = this.laneH * 0.34;
+    const gr = new Graphics();
+    gr.ellipse(0, 0, rx, ry).fill({ color: def.color, alpha: 0.07 }).stroke({ width: 1.6, color: def.color, alpha: 0.42 });
+    const dw = Math.max(20, Math.min(rx * 0.55, 64 * this.us * 1.4));
+    gr.ellipse(0, 2, dw, dw * 0.34).fill({ color: 0x1a1220, alpha: 0.78 }).stroke({ width: 2, color: darker(def.color, 0.45), alpha: 0.9 });
+    switch (kind) {
+      case 'spider':
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          gr.moveTo(0, 2).lineTo(Math.cos(a) * dw * 1.5, 2 + Math.sin(a) * dw * 0.5).stroke({ width: 1.1, color: 0xffffff, alpha: 0.38 });
+        }
+        for (const k of [0.7, 1.1, 1.5]) gr.ellipse(0, 2, dw * k, dw * 0.34 * k).stroke({ width: 1, color: 0xffffff, alpha: 0.28 });
+        break;
+      case 'wolf':
+        for (const bx of [-1.05, 0.95]) {
+          gr.roundRect(bx * dw - 8, -3, 16, 4, 2).fill({ color: 0xf2ecdc, alpha: 0.85 });
+          gr.circle(bx * dw - 8, -1, 2.4).fill({ color: 0xf2ecdc, alpha: 0.85 });
+          gr.circle(bx * dw + 8, -1, 2.4).fill({ color: 0xf2ecdc, alpha: 0.85 });
+        }
+        break;
+      case 'serpent':
+        for (const k of [1.1, 1.45]) gr.ellipse(0, 2, dw * k, dw * 0.34 * k).stroke({ width: 3, color: 0x3ec84a, alpha: 0.5 });
+        break;
+      case 'boar':
+        gr.ellipse(dw * 0.9, 4, dw * 0.45, dw * 0.14).fill({ color: 0x6a4a2a, alpha: 0.8 });
+        for (let i = 0; i < 6; i++) gr.moveTo(-dw * 1.3 + i * 7, 6).lineTo(-dw * 1.3 + i * 7 + 5, -2).stroke({ width: 1.4, color: 0xe0c070, alpha: 0.75 });
+        break;
+      default:
+        for (let i = 0; i < 5; i++) {
+          const a = -0.6 + i * 0.9;
+          gr.moveTo(Math.cos(a) * dw * 0.8, 2 + Math.sin(a) * dw * 0.28).lineTo(Math.cos(a) * dw * 1.5, 2 + Math.sin(a) * dw * 0.5).stroke({ width: 1.6, color: 0xff7a3a, alpha: 0.6 });
+        }
+    }
+    const icon = new Text({ text: def.icon, style: textStyle(Math.max(13, Math.min(26, this.laneH * 0.2)), 0xffffff) });
+    icon.anchor.set(0.5, 1);
+    icon.alpha = 0.85;
+    icon.position.set(-dw * 1.55, -ry * 0.35);
+    c.addChild(gr, icon);
+    this.towersLayer.addChild(c);
+    return { lane, kind, c };
   }
 
   // ───────────────────────── tháp canh kiểu chùa ─────────────────────────
@@ -494,7 +766,11 @@ export class BattleView {
     const hpText = new Text({ text: '', style: textStyle(Math.max(9, 9.5 * Math.min(1.2, this.us)), 0xffffff) });
     hpText.anchor.set(0.5);
     c.addChild(flagC, body, ...lamps, plate, hpText);
-    const tv: TowerView = { c, body, flagC, flagG, lamps, plate, hpText, lastHp: -1, lastBroken: false, smokeT: 0, w, h, side };
+    const castle = side === 1 && !!this.battle.castle;
+    const tv: TowerView = {
+      c, body, flagC, flagG, lamps, plate, hpText, lastHp: -1, lastBroken: false, smokeT: 0, w, h, side, extra: lane === this.battle.extraLane,
+      castle, hidePlate: castle && lane !== Math.floor((this.battle.playerLanes - 1) / 2),
+    };
     this.drawTower(tv, false);
     this.drawFlag(tv, false, false);
     return tv;
@@ -607,9 +883,12 @@ export class BattleView {
     this.updateRiver();
     this.syncUnits(dt);
     this.syncTowers(dt);
+    this.updateCastle(dt);
     this.updateOverlays(dt);
     this.updateBridges();
     this.updateOutposts();
+    this.updatePortals(dt);
+    this.lairAlpha();
     this.vfx.update(dt);
     const sh = this.vfx.shake;
     if (sh > 0.1) this.root.position.set((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh);
@@ -633,12 +912,21 @@ export class BattleView {
         this.showToast(t(e.owner === 0 ? 'hud.outpostWin' : 'hud.outpostLost', { name }));
       } else if (e.t === 'wave') {
         this.showToast(t(e.elite ? 'hud.waveElite' : 'hud.waveStart', { n: e.n, total: e.total }));
+      } else if (e.t === 'castleShoot') {
+        const ca = this.castleArchers.find((c) => c.lane === e.lane);
+        if (ca) ca.atk = 0.3;
       } else if (e.t === 'waveClear') {
-        this.showToast(t('hud.waveClear', { n: e.n, gold: e.gold }));
+        this.showToast(t('hud.waveClear', { n: e.n }));
       } else if (e.t === 'cross') {
         this.vfx.dust(this.sx(e.x), this.gy(e.from, 0.5), 4, 0.9);
         const cv = e.snap ? this.views.get(e.uid) : undefined;
-        if (cv) cv.laneF = e.to;
+        if (cv) cv.rowF = this.rowOf(e.to);
+      } else if (e.t === 'tunnel') {
+        // chui xuống hầm: bụi ở cửa vào; cửa ra được báo bằng hiệu ứng trồi lên của sim
+        this.vfx.dust(this.sx(e.x), this.gy(e.lane, 0.2), 6, 1.1, 0x7a6a8a);
+          for (const pv of this.portals) pv.pulse = 1;
+      } else if (e.t === 'brood') {
+        this.vfx.dust(this.sx(e.x), this.gy(e.lane, 0.2), 5, 0.9, 0x9a7ac8);
       } else if (e.t === 'event') {
         const ev = RANDOM_EVENTS.find((r) => r.id === e.id)!;
         this.showToast(`${ev.icon} ${t(`event.${e.id}.name`)}: ${t(`event.${e.id}.short`, eventParams(e.id))}`);
@@ -661,6 +949,7 @@ export class BattleView {
           this.views.set(u.uid, v);
           this.unitsC[lane.index].addChild(v.art.root);
           v.lane = lane.index;
+          v.rowF = this.rowOf(lane.index);
         } else if (v.lane !== lane.index) {
           // quân rẽ qua đường nối: chuyển sang lớp của lane mới (vị trí trượt mượt trong updateUnitView)
           this.unitsC[lane.index].addChild(v.art.root);
@@ -688,10 +977,13 @@ export class BattleView {
     v.aura = aura;
     v.name = undefined;
     v.lastPct = -1;
+    v.lvTag = u.post || !u.gen ? addLevelTag(v.art, u.pow) : undefined;
+    v.lvKey = undefined;
     // bản phân thân của boss không gắn tên (tránh chồng chữ)
-    if ((u.def.kind === 'general' || u.def.kind === 'boss') && !u.gen) {
+    const lairBoss = u.side === 2 && !u.owner;
+    if ((u.def.kind === 'general' || u.def.kind === 'boss' || lairBoss) && !u.gen) {
       const text = this.nameFor(u);
-      const tx = new Text({ text, style: textStyle(11, u.def.kind === 'boss' ? 0xff9a9a : 0xffe08a) });
+      const tx = new Text({ text, style: textStyle(11, u.def.kind === 'boss' ? 0xff9a9a : lairBoss ? 0xe2b8ff : 0xffe08a) });
       tx.anchor.set(0.5, 1);
       tx.position.set(0, -v.art.height - 12);
       v.art.root.addChild(tx);
@@ -710,12 +1002,13 @@ export class BattleView {
     old.destroy({ children: true });
     v.art = art;
     v.formId = formId;
+    v.mount = undefined;
     this.attachExtras(v, u);
   }
 
   private makeUnitView(u: UnitInst): UV {
     const art = buildUnitArt(u.def, u.side);
-    const v: UV = { art, defRef: u.def, lane: u.lane, laneF: u.lane, aura: g(), formId: null, lastPct: -1, seed: u.uid * 0.77, born: this.clock, prevAtk: 0, swooshAt: 0, dustT: Math.random() * 0.2, lineT: 0 };
+    const v: UV = { art, defRef: u.def, lane: u.lane, rowF: this.rowOf(u.lane), aura: g(), formId: null, lastPct: -1, seed: u.uid * 0.77, born: this.clock, prevAtk: 0, swooshAt: 0, dustT: Math.random() * 0.2, lineT: 0, lift: u.def.tags?.includes('fly') ? FLY_LIFT : 0 };
     this.attachExtras(v, u);
     this.vfx.ring(this.sx(u.x), this.gy(u.lane, u.yOff), 24 * this.us * u.def.scale, SIDE_COLOR[u.side], 0.45, 2.5);
     v.art.root.scale.set(0.01);
@@ -729,13 +1022,14 @@ export class BattleView {
       this.swapForm(v, u, formId);
     }
     const a = v.art;
-    const diff = u.lane - v.laneF;
+    const diff = this.rowOf(u.lane) - v.rowF;
     const crossing = Math.abs(diff) > 0.001;
-    if (crossing) v.laneF += Math.sign(diff) * Math.min(Math.abs(diff), dt / 0.9);
-    const us = this.us * this.depth(v.laneF);
-    const dir = u.side === 0 ? 1 : -1;
+    if (crossing) v.rowF += Math.sign(diff) * Math.min(Math.abs(diff), dt / 0.9);
+    const us = this.us * this.depthRow(v.rowF);
+    // quân canh và quái hoang dã quay mặt về phía đối thủ; quân thường nhìn về phía thành địch
+    const dir = u.guard ? u.face : u.side === 0 ? 1 : -1;
     const sxp = this.sx(u.x);
-    const y = this.gy(v.laneF, u.yOff);
+    const y = this.gyRow(v.rowF, u.yOff);
     a.root.position.set(sxp, y);
     a.root.zIndex = y;
     if (v.name) {
@@ -757,6 +1051,11 @@ export class BattleView {
     a.root.scale.set(Math.max(0.01, us * pop));
 
     const fly = !!u.def.tags?.includes('fly');
+    // độ cao: quân bay luôn lơ lửng; cưỡi thú bay (skyMount) thì nâng dần; bị hất tung thì vút lên rồi rơi xuống
+    const liftTo = fly || u.flyT > 0 ? FLY_LIFT : 0;
+    v.lift += (liftTo - v.lift) * Math.min(1, dt * 7);
+    if (Math.abs(liftTo - v.lift) < 0.3) v.lift = liftTo;
+    const air = u.airT > 0 && u.airMax > 0 ? Math.sin(Math.PI * (1 - u.airT / u.airMax)) * 52 : 0;
     const atk = u.attackAnim > 0 ? Math.max(0.001, Math.min(1, 1 - u.attackAnim / 0.3)) : 0;
     a.update(this.clock + v.seed, u.moving || crossing, atk);
 
@@ -786,25 +1085,29 @@ export class BattleView {
       } else {
         const p = 1 - Math.max(0, u.deadTimer) / 0.7;
         a.art.rotation = (u.side === 0 ? -1 : 1) * Math.min(1.5, p * 2.2);
-        a.art.y = p * 6 - (fly ? FLY_LIFT * (1 - p) : 0);
+        a.art.y = p * 6 - v.lift * (1 - p);
         a.root.alpha = Math.max(0, 1 - p * p);
       }
       return;
     }
 
-    a.root.alpha = u.burrowT > 0 ? 0 : Math.min(1, age * 5);
-    if (v.name) v.name.visible = u.burrowT <= 0;
+    // ẩn thân: mờ đi (kẻ địch không chọn được); độn thổ: biến mất hẳn
+    a.root.alpha = u.burrowT > 0 || u.tunnelT > 0 ? 0 : Math.min(1, age * 5) * (u.hideT > 0 ? 0.38 + Math.sin(this.clock * 9 + v.seed) * 0.08 : 1);
+    if (v.name) v.name.visible = u.burrowT <= 0 && u.tunnelT <= 0;
     // Tôn Ngộ Không đạp Cân Đẩu Vân khi ở lane sông
     const cloudOn = !!a.setCloud && u.lane === this.battle.riverLane;
     a.setCloud?.(cloudOn);
-    a.art.y = fly ? -FLY_LIFT + Math.sin((this.clock + v.seed) * 2.4) * 3 : cloudOn ? -9 + Math.sin((this.clock + v.seed) * 3) * 1.5 : 0;
-    a.art.rotation = 0;
+    const hover = v.lift > 2 ? Math.sin((this.clock + v.seed) * 2.4) * 3 : 0;
+    a.art.y = cloudOn && v.lift < 2 ? -9 + Math.sin((this.clock + v.seed) * 3) * 1.5 : -v.lift + hover;
+    a.art.y -= air;
+    a.art.rotation = u.airT > 0 ? dir * Math.sin(this.clock * 14 + v.seed) * 0.25 : 0;
+    this.syncMount(v, u, dir, a.art.y);
     const hk = Math.max(0, u.hitFlash / 0.12);
     a.art.x = -dir * 3 * hk;
     const base = a.baseScale;
     const bump = fxLite() ? 0.5 : 1;
     a.art.scale.set(dir * base * (1 + hk * 0.06 * bump), base * (1 - hk * 0.08 * bump));
-    a.art.tint = u.hitFlash > 0 ? (fxLite() ? 0xffb4ac : 0xff8f8f) : u.invuln > 0 ? 0xfff2a0 : u.poison ? 0xc4ffa8 : u.stunT > 0 ? 0xd0d8ff : 0xffffff;
+    a.art.tint = u.hitFlash > 0 ? (fxLite() ? 0xffb4ac : 0xff8f8f) : u.freezeT > 0 ? 0x9fd8ff : u.charmT > 0 ? 0xffb0e4 : u.invuln > 0 ? 0xfff2a0 : u.poison ? 0xc4ffa8 : u.stunT > 0 ? 0xd0d8ff : 0xffffff;
     a.hpBar.visible = !u.ghost;
 
     if (u.burrowT > 0) {
@@ -829,23 +1132,58 @@ export class BattleView {
     }
 
     this.drawAura(v, u);
+    if (v.lvTag && u.post) {
+      const txt = `Lv${u.post.lv} ${u.post.made}/${this.battle.postMax(u)}`;
+      if (v.lvKey !== txt) {
+        v.lvKey = txt;
+        v.lvTag.text = txt;
+      }
+    }
 
+    // thanh máu bám theo độ cao (quân bay / bị hất tung)
+    a.hpBar.position.y = -a.height - 8 - 3 * (k - 1) - Math.max(0, v.lift - (fly ? FLY_LIFT : 0)) - air;
+    if (v.name) v.name.position.y = -a.height - 12 - Math.max(0, v.lift - (fly ? FLY_LIFT : 0)) - air;
     const pct = Math.max(0, u.hp / u.maxHp);
     if (Math.abs(pct - v.lastPct) > 0.004) {
       v.lastPct = pct;
       const w = a.barW;
-      const col = u.side === 0 ? (pct > 0.5 ? 0x4fe08a : pct > 0.25 ? 0xffd34d : 0xff6a4d) : 0xff5252;
+      const col = u.side === 0 ? (pct > 0.5 ? 0x4fe08a : pct > 0.25 ? 0xffd34d : 0xff6a4d) : u.side === 2 ? 0xc78bff : 0xff5252;
       a.hpBar.clear()
         .roundRect(-w / 2 - 1, -1, w + 2, 7, 3.5).fill({ color: 0x0a0c14, alpha: 0.85 })
         .roundRect(-w / 2 + 0.5, 0.5, (w - 1) * pct, 4, 2).fill(col)
         .roundRect(-w / 2 + 0.5, 0.5, (w - 1) * pct, 1.6, 1).fill({ color: 0xffffff, alpha: 0.35 });
-      a.hpBar.position.y = -a.height - 8 - 3 * (k - 1);
     }
+  }
+
+  /** thú cưỡi dưới chân (skyMount): hiện khi đang bay, bay theo hướng đi của quân */
+  private syncMount(v: UV, u: UnitInst, dir: number, artY: number) {
+    const want = u.flyT > 0 && u.alive ? (u.mountKind as MountKind) : null;
+    if (v.mount && v.mount.kind !== want) {
+      v.mount.m.node.destroy({ children: true });
+      v.mount = undefined;
+    }
+    if (!want) return;
+    if (!v.mount) {
+      const m = buildMount(want);
+      v.art.root.addChildAt(m.node, 1);
+      v.mount = { kind: want, m };
+    }
+    const { m } = v.mount;
+    const sc = Math.max(0.85, v.art.baseScale);
+    m.node.scale.set(dir * sc, sc);
+    // chân người đứng trên lưng thú; thú nhấp nhô nhẹ và hạ cánh dần khi sắp hết giờ
+    const fade = Math.min(1, u.flyT / 0.5);
+    m.node.alpha = fade;
+    m.node.position.set(0, artY - m.seatY * sc);
+    m.tick(this.clock + v.seed, u.moving);
   }
 
   private drawAura(v: UV, u: UnitInst) {
     const o = v.aura;
     o.clear();
+    // hào quang đi theo quân đang cưỡi thú bay / bị hất tung (quân bay sẵn đã tính trong chiều cao)
+    const air = u.airT > 0 && u.airMax > 0 ? Math.sin(Math.PI * (1 - u.airT / u.airMax)) * 52 : 0;
+    o.position.y = -(Math.max(0, v.lift - (u.def.tags?.includes('fly') ? FLY_LIFT : 0)) + air);
     const s = u.def.scale;
     const pulse = 0.5 + 0.5 * Math.sin(this.clock * 5 + v.seed);
     if (u.enraged) {
@@ -858,6 +1196,24 @@ export class BattleView {
       o.ellipse(0, 1.5, 22 * s, 6.4 * s).stroke({ width: 1.5 + k * 2.5, color: 0xcfe8ff, alpha: 0.4 + k * 0.5 });
     }
     if (u.invuln > 0) o.ellipse(0, -22 * s, 24 * s, 36 * s).fill({ color: 0xffe066, alpha: 0.18 + pulse * 0.12 });
+    if (u.freezeT > 0) {
+      // khối băng bao quanh
+      o.poly([-15 * s, 2, -19 * s, -26 * s, -9 * s, -50 * s, 6 * s, -56 * s, 17 * s, -42 * s, 19 * s, -12 * s, 12 * s, 2])
+        .fill({ color: 0xaee4ff, alpha: 0.42 })
+        .stroke({ width: 2, color: 0xe8f8ff, alpha: 0.9 });
+      o.poly([-8 * s, -8 * s, -10 * s, -30 * s, -4 * s, -44 * s]).fill({ color: 0xffffff, alpha: 0.35 });
+    }
+    if (u.charmT > 0) {
+      // tim hồng xoay quanh đầu
+      const hy = -v.art.height - 14;
+      for (let i = 0; i < 3; i++) {
+        const ang = this.clock * 4 + (i / 3) * Math.PI * 2;
+        const hx = Math.cos(ang) * 13 * s;
+        const hz = hy + Math.sin(ang) * 3;
+        o.moveTo(hx, hz + 3).bezierCurveTo(hx - 6, hz - 2, hx - 3, hz - 7, hx, hz - 3).bezierCurveTo(hx + 3, hz - 7, hx + 6, hz - 2, hx, hz + 3).fill(0xff7aa8);
+      }
+    }
+    if (u.hideT > 0) o.ellipse(0, 1.5, 24 * s, 7 * s).stroke({ width: 2, color: 0xcfd8ff, alpha: 0.4 + pulse * 0.4 });
     if (u.def.skill === 'palm' && (u.timers.palm ?? 1) <= 0) {
       o.ellipse(0, 1.5, 26 * s, 7.6 * s).stroke({ width: 2, color: 0xffd34d, alpha: 0.5 + pulse * 0.4 });
     }
@@ -928,10 +1284,10 @@ export class BattleView {
       .roundRect(px, py, pw, ph, 5).fill({ color: 0x0a0c14, alpha: 0.88 }).stroke({ width: 1.4, color: lighter(col, 0.25) })
       .roundRect(px + 1.5, py + 1.5, (pw - 3) * pct, ph - 3, 3.5).fill(col)
       .roundRect(px + 1.5, py + 1.5, (pw - 3) * pct, (ph - 3) * 0.4, 2).fill({ color: 0xffffff, alpha: 0.3 });
-    tv.hpText.text = `${Math.ceil(hp)}/${Math.round(max)}`;
+    tv.hpText.text = `${tv.castle ? '🏯 ' : ''}${Math.ceil(hp)}/${Math.round(max)}`;
     tv.hpText.position.set(tv.w / 2, py + ph / 2 + 0.5);
     // Thủ Thành: thành địch không bị phá nên không hiện thanh máu
-    const hide = broken || (!!this.battle.cfg.siege && side === 1);
+    const hide = broken || tv.extra || tv.hidePlate || (!!this.battle.cfg.siege && side === 1);
     tv.plate.visible = !hide;
     tv.hpText.visible = !hide;
   }
@@ -941,7 +1297,7 @@ export class BattleView {
       const lane = this.battle.lanes[i];
       const hl = this.hl[i];
       const y0 = this.laneTop(i);
-      if (this.dragging && lane.winner === null) {
+      if (this.dragging && lane.winner === null && !lane.extra) {
         const hot = this.hoverLane === i;
         hl.visible = true;
         const pulse = 0.5 + 0.5 * Math.sin(this.clock * 6);

@@ -2,15 +2,22 @@ import { STATIONS, type Station } from './campaign';
 
 // ───────────── Chế độ THỦ THÀNH: giữ thành trước từng đợt tấn công của địch ─────────────
 // Địch không có thành để phá: người chơi chỉ cần sống sót qua mọi đợt. Mất 2/3 thành là thua.
-// Giữa hai đợt có vài giây nghỉ để xếp quân; hạ xong một đợt được thưởng vàng trong trận và sửa thành.
+// Không có thu nhập vàng theo giây: chỉ nhận vàng khi hạ địch (thưởng nhân SIEGE_BOUNTY_MUL) và khi gọi sớm đợt kế.
+// Mỗi đợt có SIEGE_WAVE_SEC giây rồi đợt kế tự ra (chồng lên quân đợt trước); qua 50% thời gian thì được bấm gọi sớm.
 
 /** số đợt tấn công của một lượt chơi */
 export const SIEGE_WAVE_COUNT = 12;
 /** quân ta đứng chờ ở vạch này (toạ độ lane), chỉ tiến lên khi địch tới gần */
 export const SIEGE_HOLD = 540;
-/** giây chuẩn bị trước đợt đầu / nghỉ giữa các đợt */
+/** giây chuẩn bị trước đợt đầu / thời gian của mỗi đợt trước khi đợt kế tự ra */
 export const SIEGE_PREP_SEC = 16;
-export const SIEGE_BREAK_SEC = 12;
+export const SIEGE_WAVE_SEC = 40;
+/** bấm gọi sớm: đợt kế ra sau ngần này giây */
+export const SIEGE_CALL_DELAY = 5;
+/** thưởng vàng hạ địch nhân lên (bù cho việc không có thu nhập theo giây) */
+export const SIEGE_BOUNTY_MUL = 2.5;
+/** vàng thưởng khi gọi sớm: `saved` giây được rút ngắn × mức tăng dần theo đợt sắp ra */
+export const siegeCallBonus = (saved: number, nextWave: number) => Math.max(0, Math.round(saved * (1 + 0.2 * nextWave)));
 /** thưởng xu ngoài trận */
 export const siegeWaveReward = (n: number) => 30 + 14 * n;
 export const SIEGE_CLEAR_BONUS = 300;
@@ -104,6 +111,10 @@ export const SIEGE_STATION: Station = {
   weather: 'sunny',
   giantId: undefined,
   outposts: [],
+  posts: 0,
+  extraLane: undefined,
+  tunnels: [],
+  lairs: [],
   bridges: [],
   reward: 0,
   fastSec: 0,

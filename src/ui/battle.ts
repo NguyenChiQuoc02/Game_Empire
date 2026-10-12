@@ -2,7 +2,7 @@ import type { Application, Ticker } from 'pixi.js';
 import { h } from './dom';
 import { getLang, onLang, stationName, t, unitDesc, unitName, unitSkill } from '../i18n';
 import { STATIONS, stationLabel, type Station } from '../data/campaign';
-import { MAX_DEFENSES_PER_LANE, UNITS, isNaval, levelMul } from '../data/units';
+import { MAX_DEFENSES_PER_LANE, MAX_POSTS_PER_LANE, POSTS, POST_LEVELS, UNITS, isNaval, isPost, levelMul } from '../data/units';
 import { Battle, CAP_INCOME_MUL, CAP_STEPS, PLAYER_INCOME, type UnitInst } from '../game/sim';
 import { EnemyAI } from '../game/ai';
 import { BattleView } from '../render/battleView';
@@ -14,7 +14,7 @@ import { tipBody } from './tip';
 import { envBadges } from './env';
 import { extraSkillsAt } from '../data/gskills';
 import { generalCapOf } from '../backend/save';
-import { SIEGE_CLEAR_BONUS, SIEGE_INDEX, SIEGE_RECORD_BONUS, SIEGE_STATION, SIEGE_WAVE_COUNT, siegeWaveReward } from '../data/siege';
+import { SIEGE_CLEAR_BONUS, SIEGE_INDEX, SIEGE_RECORD_BONUS, SIEGE_STATION, SIEGE_WAVES, SIEGE_WAVE_COUNT, siegeWaveReward } from '../data/siege';
 
 export type ExitAction = 'menu' | 'retry' | 'next';
 
@@ -48,6 +48,11 @@ export class BattleScreen {
   private mq = window.matchMedia('(max-width: 760px), (max-height: 520px)');
   private mqFn = () => this.el.speed?.classList.toggle('compact', this.mq.matches);
   private selected: string | null = null;
+  /** các thẻ đang hiển thị — phím tắt 1..n và trạng thái thẻ dùng danh sách này */
+  private shownIds: string[] = [];
+  private handEl!: HTMLElement;
+  private postBar!: HTMLElement;
+  private postKey = '';
   private resultT = 0;
   private resultShown = false;
   private disposed = false;
@@ -70,6 +75,10 @@ export class BattleScreen {
     boss?: { root: HTMLElement; name: HTMLElement; phase: HTMLElement; kin: HTMLElement; fill: HTMLElement; marks: HTMLElement };
   } = {};
   private lastCardState = '';
+  /** Thủ Thành: hình địch (đợt kế) + vàng thưởng trên nút gọi đợt kế */
+  private nwFace!: HTMLElement;
+  private nwBonus!: HTMLElement;
+  private nwKey = -1;
   private drag: { id: string; sx: number; sy: number; moved: boolean; ghost?: HTMLElement; pid: number } | null = null;
 
   constructor(private app: Application, private root: HTMLElement, private stIdx: number, private onExit: (a: ExitAction) => void) {
@@ -80,8 +89,9 @@ export class BattleScreen {
     // lính | đồ phòng thủ | tướng (phím tắt 1..n theo thứ tự hiển thị)
     this.deck = [
       ...save.deck.filter((id) => UNITS[id]?.kind === 'troop'),
-      ...save.defDeck.filter((id) => UNITS[id]?.kind === 'defense'),
+      ...save.defDeck.filter((id) => UNITS[id]?.kind === 'defense' && !isPost(UNITS[id])),
       ...(save.petDeck ?? []).filter((id) => UNITS[id]?.kind === 'pet'),
+      ...(save.postDeck ?? []).filter((id) => UNITS[id] && isPost(UNITS[id])),
       ...save.deck.filter((id) => UNITS[id]?.kind === 'general'),
     ];
     this.battle = new Battle({ station: this.station, levels: { ...save.unlocked }, flagLevel: save.flagLv ?? 0, incomeLevel: save.incomeLv ?? 0, generalCap: generalCapOf(save), siege: this.siege, event: this.siege ? null : undefined });
@@ -148,7 +158,8 @@ export class BattleScreen {
   private buildUi() {
     const save = state.save!;
     const st = this.station;
-    const laneN = this.battle.lanes.length;
+    // lane thứ 4 chỉ địch có nên không tính vào số lane thắng/thua và thanh máu thành
+    const laneN = this.battle.playerLanes;
     const pips = Array.from({ length: laneN }, () => h('span', { class: 'pip' }));
     const timer = h('div', { class: 'timer', text: '0:00' });
     this.speedBtns = SPEEDS.map((v) => h('button', {
@@ -158,7 +169,10 @@ export class BattleScreen {
     const speed = h('div', { class: 'speed-box', attrs: { role: 'group', 'aria-label': t('hud.speed'), title: t('hud.speed') } }, ...this.speedBtns);
     const foeLeft = h('b', { text: '0' });
     const stage = h('small', { text: this.siege ? t('siege.hudStage') : t('hud.stage', { n: stationLabel(this.stIdx) }) });
-    const nextWave = this.siege ? h('button', { class: 'next-wave', attrs: { type: 'button', title: t('siege.nextTip') }, on: { click: () => this.callNextWave() } }, h('i', { text: '⏭' }), h('span', { text: t('siege.next') })) : null;
+    this.nwFace = h('span', { class: 'nw-face' });
+    this.nwBonus = h('b', { class: 'nw-bonus' });
+    this.nwKey = -1;
+    const nextWave = this.siege ? h('button', { class: 'next-wave', attrs: { type: 'button', title: t('siege.nextTip') }, on: { click: () => this.callNextWave() } }, this.nwFace, h('i', { text: '⏭' }), h('span', { text: t('siege.next') }), this.nwBonus) : null;
     const myId = this.deck.find((id) => UNITS[id].kind === 'general') ?? this.deck[0];
     const enemyId = st.boss ? (st.bossId ?? 'dongtrac') : st.deck.find((id) => UNITS[id].kind === 'general') ?? st.deck[st.deck.length - 1];
     this.hudHost.replaceChildren(
@@ -223,14 +237,48 @@ export class BattleScreen {
     const info = h('div', { class: 'info' });
     const cards = new Map<string, HTMLElement>();
     const hand = h('div', { class: 'hand' });
+    this.handEl = hand;
+    // đồng hồ lane: máu cờ ta (xanh) / địch (đỏ) mỗi làn
+    const dialMy: HTMLElement[] = [];
+    const dialEn: HTMLElement[] = [];
+    const dial = h('div', { class: 'dial' }, h('div', { class: 'dial-title', text: t('hud.dragLane') }),
+      ...Array.from({ length: laneN }, (_, i) => {
+        const my = h('i', {});
+        const en = h('i', {});
+        dialMy.push(my);
+        dialEn.push(en);
+        return h('div', { class: 'dial-row' }, h('b', { text: String(i + 1) }), h('span', { class: 'bar my' }, my), h('span', { class: 'bar en' }, en));
+      }));
+    this.postBar = h('div', { class: 'post-bar' });
+    this.postKey = '';
+    this.handHost.replaceChildren(h('footer', { class: 'hand-panel' }, this.postBar, info, h('div', { class: `hand-row${this.deck.length > 9 ? ' many' : ''}` }, goldRow, hand, dial)));
+    this.el = { boss, stage, nextWave: nextWave ?? undefined, timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income, capText, capBtn, capCost, capLv, foeLeft };
+    this.fillHand();
+    this.lastCardState = '';
+    this.refreshInfo();
+    this.refreshSpeed();
+    this.mqFn();
+    this.updateHud();
+  }
+
+  /** dựng hàng thẻ ra trận (có vạch ngăn theo loại) */
+  private fillHand() {
+    const hand = this.handEl;
+    const cards = this.el.cards!;
+    cards.clear();
+    const ids = this.deck;
+    this.shownIds = ids;
     // số cột lưới thẻ trên màn nhỏ: một hàng nếu ≤ 9 thẻ, ngược lại chia hai hàng
-    hand.style.setProperty('--cols', String(this.deck.length <= 9 ? this.deck.length : Math.ceil(this.deck.length / 2)));
+    const two = ids.length > 9;
+    hand.style.setProperty('--cols', String(two ? Math.ceil(ids.length / 2) : ids.length));
+    hand.classList.toggle('two-rows', two);
+    hand.replaceChildren();
     let prevKind = '';
-    this.deck.forEach((id, i) => {
+    ids.forEach((id, i) => {
       const d = UNITS[id];
       if (i > 0 && d.kind !== prevKind) hand.append(h('span', { class: 'hand-sep' }));
       prevKind = d.kind;
-      const c = h('div', { class: `hcard ${d.kind}`, attrs: { 'data-id': id } },
+      const c = h('div', { class: `hcard ${d.kind}${isPost(d) ? ' post' : ''}`, attrs: { 'data-id': id } },
         h('span', { class: 'key', text: String(i + 1) }),
         d.kind === 'general' ? this.face(id, 0, 'card-face') : portrait(id),
         h('span', { class: 'cost', text: String(d.cost) }),
@@ -243,24 +291,41 @@ export class BattleScreen {
       cards.set(id, c);
       hand.append(c);
     });
-    // đồng hồ lane: máu cờ ta (xanh) / địch (đỏ) mỗi làn
-    const dialMy: HTMLElement[] = [];
-    const dialEn: HTMLElement[] = [];
-    const dial = h('div', { class: 'dial' }, h('div', { class: 'dial-title', text: t('hud.dragLane') }),
-      ...Array.from({ length: laneN }, (_, i) => {
-        const my = h('i', {});
-        const en = h('i', {});
-        dialMy.push(my);
-        dialEn.push(en);
-        return h('div', { class: 'dial-row' }, h('b', { text: String(i + 1) }), h('span', { class: 'bar my' }, my), h('span', { class: 'bar en' }, en));
-      }));
-    this.handHost.replaceChildren(h('footer', { class: 'hand-panel' }, info, h('div', { class: `hand-row${this.deck.length > 9 ? ' many' : ''}` }, goldRow, hand, dial)));
-    this.el = { boss, stage, nextWave: nextWave ?? undefined, timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income, capText, capBtn, capCost, capLv, foeLeft };
-    this.lastCardState = '';
-    this.refreshInfo();
-    this.refreshSpeed();
-    this.mqFn();
-    this.updateHud();
+  }
+
+  /** bảng nâng cấp các trụ sản sinh đang có (nổi phía trên khung thẻ) */
+  private updatePostBar() {
+    const b = this.battle;
+    const posts = b.postsOf(0);
+    const key = `${getLang()}|${posts.map((u) => `${u.uid}:${u.lane}:${u.post!.lv}:${u.post!.made}:${(b.postUpgradeCost(u) ?? 9999) <= b.gold[0] ? 1 : 0}`).join(',')}`;
+    if (key === this.postKey) return;
+    this.postKey = key;
+    this.postBar.replaceChildren(...posts.map((u) => {
+      const p = u.post!;
+      const cost = b.postUpgradeCost(u);
+      const max = b.postMax(u);
+      const left = max - p.made;
+      return h('button', {
+        class: `pchip${cost !== null && b.gold[0] >= cost ? ' ready' : ''}${left <= 0 ? ' spent' : ''}`,
+        attrs: { type: 'button', title: t('hud.postUpTip') },
+        on: { click: () => this.upgradePost(u.uid) },
+      },
+      h('i', { text: POSTS[u.def.id].icon }),
+      h('span', { class: 'pc-lane', text: `L${u.lane + 1}` }),
+      h('span', { class: 'pc-lv', text: `Lv${p.lv}` }),
+      h('span', { class: 'pc-n', text: `${p.made}/${max}` }),
+      h('b', { text: cost === null ? 'MAX' : `⬆${cost}` }));
+    }));
+  }
+
+  private upgradePost(uid: number) {
+    if (this.paused || this.battle.over) return;
+    if (!this.battle.upgradePost(uid)) {
+      const row = this.el.goldRow!;
+      row.classList.remove('nogold');
+      void row.offsetWidth;
+      row.classList.add('nogold');
+    }
   }
 
   private refreshInfo() {
@@ -283,20 +348,34 @@ export class BattleScreen {
     const sec = Math.floor(b.time);
     e.timer!.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
     if (this.siege && e.stage) {
+      const s = Math.max(0, Math.ceil(b.siegeT));
       const txt = b.siegePhase === 'break'
-        ? t('siege.hudBreak', { n: b.siegeWave + 1, total: SIEGE_WAVE_COUNT, s: Math.max(0, Math.ceil(b.siegeT)) })
-        : t('siege.hudWave', { n: b.siegeWave, total: SIEGE_WAVE_COUNT });
+        ? t('siege.hudBreak', { n: b.siegeWave + 1, total: SIEGE_WAVE_COUNT, s })
+        : b.siegeWave < SIEGE_WAVE_COUNT
+          ? t('siege.hudNext', { n: b.siegeWave, total: SIEGE_WAVE_COUNT, s })
+          : t('siege.hudWave', { n: b.siegeWave, total: SIEGE_WAVE_COUNT });
       if (e.stage.textContent !== txt) e.stage.textContent = txt;
     }
     if (this.siege && e.nextWave) {
-      const can = b.siegePhase === 'break' && b.siegeT > 0 && !b.over;
+      const can = b.siegeCanCall;
       e.nextWave.classList.toggle('show', can);
+      if (can) {
+        // hình kẻ địch mạnh nhất của đợt sắp ra
+        if (this.nwKey !== b.siegeWave) {
+          this.nwKey = b.siegeWave;
+          const next = SIEGE_WAVES[b.siegeWave];
+          const lead = next?.units.map((g) => UNITS[g.id]).sort((x, y) => y.cost - x.cost)[0];
+          this.nwFace.replaceChildren(...(lead ? [lead.kind === 'general' ? this.face(lead.id, 1, 'nw-img') : portrait(lead.id, 1, 'nw-img')] : []));
+        }
+        const bonus = `+${b.siegeCallBonus}`;
+        if (this.nwBonus.textContent !== bonus) this.nwBonus.textContent = bonus;
+      }
     }
-    b.lanes.forEach((l, i) => {
+    b.lanes.slice(0, b.playerLanes).forEach((l, i) => {
       const p = e.pips![i];
       p.className = `pip${l.winner === 0 ? ' win' : l.winner === 1 ? ' lose' : ''}`;
     });
-    b.lanes.forEach((l, i) => {
+    b.lanes.slice(0, b.playerLanes).forEach((l, i) => {
       e.dialMy![i].style.width = `${(l.flags[0].hp / l.flags[0].maxHp) * 100}%`;
       e.dialEn![i].style.width = `${(l.flags[1].hp / l.flags[1].maxHp) * 100}%`;
     });
@@ -304,7 +383,7 @@ export class BattleScreen {
     e.gold!.textContent = String(Math.floor(b.gold[0]));
     e.goldBar!.style.width = `${Math.min(100, (b.gold[0] / cap) * 100)}%`;
     e.capText!.textContent = `/${cap}`;
-    e.income!.textContent = b.goldBoostT > 0 ? `+${Number((b.income[0] * 2).toFixed(2))}/s 💰${Math.ceil(b.goldBoostT)}s` : `+${Number(b.income[0].toFixed(2))}/s`;
+    e.income!.textContent = this.siege ? '' : b.goldBoostT > 0 ? `+${Number((b.income[0] * 2).toFixed(2))}/s 💰${Math.ceil(b.goldBoostT)}s` : `+${Number(b.income[0].toFixed(2))}/s`;
     const upCost = b.capUpgradeCost();
     e.capCost!.textContent = upCost === null ? 'MAX' : String(upCost);
     e.capLv!.textContent = t('hud.capLv', { n: b.capLevel + 1 });
@@ -318,15 +397,17 @@ export class BattleScreen {
     }
     if (this.hasGenerals) this.badges?.setGenerals(b.generalsAlive(0), b.cfg.generalCap ?? 0);
     // trạng thái thẻ (chỉ cập nhật DOM khi đổi)
-    const st = this.deck.map((id) => {
+    this.updatePostBar();
+    const st = this.shownIds.map((id) => {
       const d = UNITS[id];
       return `${id}:${b.gold[0] >= d.cost ? 1 : 0}${d.kind === 'general' && b.generalOnField(0, id) ? 'u' : ''}${d.kind === 'general' && this.generalsFull() ? 'c' : ''}${this.selected === id ? 's' : ''}`;
     }).join('|');
     if (st !== this.lastCardState) {
       this.lastCardState = st;
-      for (const id of this.deck) {
+      for (const id of this.shownIds) {
         const d = UNITS[id];
-        const c = e.cards!.get(id)!;
+        const c = e.cards!.get(id);
+        if (!c) continue;
         c.classList.toggle('poor', b.gold[0] < d.cost);
         c.classList.toggle('used', d.kind === 'general' && b.generalOnField(0, id));
         c.classList.toggle('capped', d.kind === 'general' && !b.generalOnField(0, id) && this.generalsFull());
@@ -416,7 +497,8 @@ export class BattleScreen {
     const lane = this.view.laneAt(cy - r.top);
     if (lane < 0) return -1;
     if (id && !this.battle.laneAllows(UNITS[id], lane)) return -1;
-    return this.battle.lanes[lane].winner === null ? lane : -1;
+    const l = this.battle.lanes[lane];
+    return l.winner === null && !l.extra ? lane : -1;
   }
 
   private onCardDown(e: PointerEvent, id: string, card: HTMLElement) {
@@ -473,7 +555,7 @@ export class BattleScreen {
     const r = this.field.getBoundingClientRect();
     const x = this.view.toLaneX(clientX - r.left);
     if (UNITS[id].kind !== 'defense') return x;
-    const [lo, hi] = this.battle.defenseSpan(0, lane);
+    const [lo, hi] = this.battle.defenseSpan(0, lane, UNITS[id]);
     return Math.max(lo, Math.min(hi, x));
   }
 
@@ -556,7 +638,7 @@ export class BattleScreen {
     const key = `${u.uid}|${Math.ceil(u.hp)}|${Math.round(u.armor)}|${Math.round(u.dmg)}|${Math.round(u.speed)}|${getLang()}`;
     if (key !== this.tipKey) {
       this.tipKey = key;
-      tip.className = `unit-tip ${u.side === 0 ? 'ally' : 'foe'} ${u.def.kind}`;
+      tip.className = `unit-tip ${u.side === 0 ? 'ally' : u.side === 2 ? 'wild' : 'foe'} ${u.def.kind}`;
       tip.replaceChildren(...tipBody({
         def: u.def, side: u.side, hp: u.hp, maxHp: u.maxHp, dmg: u.dmg, armor: u.armor, speed: u.speed, range: u.range, cd: u.cd, pow: u.pow,
         level: u.side === 0 ? state.save?.unlocked[u.def.id] : undefined, gs: u.gs,
@@ -586,11 +668,33 @@ export class BattleScreen {
   private showCardTip(id: string, card: HTMLElement) {
     if (this.drag) return;
     const d = UNITS[id];
+    if (isPost(d)) return this.showPostTip(d, card);
     const lv = state.save?.unlocked[id] ?? 1;
     const m = levelMul(lv);
     const tip = this.cardTip;
     tip.className = `unit-tip card-tip ${d.kind === 'general' ? 'ally general' : 'ally'}`;
     tip.replaceChildren(...tipBody({ def: d, side: 0, hp: d.hp * m, maxHp: d.hp * m, dmg: d.dmg * m, armor: d.armor, speed: d.speed, range: d.range, cd: d.cd, pow: m, level: lv, gs: d.kind === 'general' ? extraSkillsAt(id, lv) : undefined }));
+    tip.style.display = 'block';
+    const sr = this.screen.getBoundingClientRect();
+    const cr = card.getBoundingClientRect();
+    const w = tip.offsetWidth;
+    const hh = tip.offsetHeight;
+    tip.style.left = `${Math.max(4, Math.min(sr.width - w - 4, cr.left - sr.left + cr.width / 2 - w / 2))}px`;
+    tip.style.top = `${Math.max(4, cr.top - sr.top - hh - 8)}px`;
+  }
+
+  /** rê chuột vào thẻ trụ sản sinh: chu kỳ, số quân tối đa theo cấp và các đơn vị có thể sinh ra */
+  private showPostTip(d: (typeof UNITS)[string], card: HTMLElement) {
+    const tip = this.cardTip;
+    tip.className = 'unit-tip card-tip ally defense';
+    const row = (k: string, v: string) => h('div', { class: 'cap-row' }, h('span', { text: k }), h('b', { text: v }));
+    tip.replaceChildren(
+      h('div', { class: 'tip-head' }, h('b', { text: `${POSTS[d.id].icon} ${unitName(d)}` }), h('em', { text: t('hud.postCost', { n: d.cost }) })),
+      h('div', { class: 'tip-skill' }, h('p', { text: unitDesc(d) })),
+      h('div', { class: 'cap-body' },
+        ...POST_LEVELS.map((l, i) => row(`Lv${i + 1}`, t('hud.postLevel', { s: l.every, n: l.max, c: l.cost }))),
+        row(t('hud.postPool'), POSTS[d.id].pool.map((id) => unitName(UNITS[id])).join(', '))),
+    );
     tip.style.display = 'block';
     const sr = this.screen.getBoundingClientRect();
     const cr = card.getBoundingClientRect();
@@ -641,8 +745,8 @@ export class BattleScreen {
     if (e.key === 'Escape' || e.key === 'p') return void this.pause();
     if (this.paused || this.battle.over) return;
     const n = Number(e.key);
-    if (n >= 1 && n <= this.deck.length) {
-      this.selected = this.deck[n - 1];
+    if (n >= 1 && n <= this.shownIds.length) {
+      this.selected = this.shownIds[n - 1];
       this.refreshInfo();
       this.updateHud();
       return;
@@ -650,7 +754,7 @@ export class BattleScreen {
     if (e.key.toLowerCase() === 'u') return void this.upgradeCap();
     if (e.key.toLowerCase() === 'n' && this.siege) return void this.callNextWave();
     const laneKey = ['q', 'w', 'e'].indexOf(e.key.toLowerCase());
-    if (laneKey >= 0 && laneKey < this.battle.lanes.length && this.selected) this.tryDeploy(this.selected, laneKey);
+    if (laneKey >= 0 && laneKey < this.battle.playerLanes && this.selected) this.tryDeploy(this.selected, laneKey);
   };
 
   private nudgeHand() {
@@ -688,10 +792,11 @@ export class BattleScreen {
     const b = this.battle;
     const d = UNITS[id];
     if (b.lanes[lane].winner !== null) return;
-    if (!b.laneAllows(d, lane)) return void toast(t(isNaval(d) ? 'hud.needRiver' : d.kind === 'defense' ? 'hud.noDefRiver' : 'hud.noGroundRiver'), 'error');
+    if (!b.laneAllows(d, lane)) return void toast(t(isNaval(d) ? 'hud.needRiver' : isPost(d) ? 'hud.noPostRiver' : d.kind === 'defense' ? 'hud.noDefRiver' : 'hud.noGroundRiver'), 'error');
     if (d.kind === 'general' && b.generalOnField(0, id)) return void toast(t('hud.generalUsed'), 'error');
     if (d.kind === 'general' && b.generalsAlive(0) >= (b.cfg.generalCap ?? 99)) return void toast(t('hud.generalCap', { n: b.cfg.generalCap ?? 0 }), 'error');
-    if (d.kind === 'defense' && b.defensesIn(0, lane) >= MAX_DEFENSES_PER_LANE) return void toast(t('hud.defenseFull', { n: MAX_DEFENSES_PER_LANE }), 'error');
+    if (isPost(d) && b.postsIn(0, lane) >= MAX_POSTS_PER_LANE) return void toast(t('hud.postFull', { n: MAX_POSTS_PER_LANE }), 'error');
+    if (d.kind === 'defense' && !isPost(d) && b.defensesIn(0, lane) >= MAX_DEFENSES_PER_LANE) return void toast(t('hud.defenseFull', { n: MAX_DEFENSES_PER_LANE }), 'error');
     if (b.gold[0] < d.cost) {
       const row = this.el.goldRow!;
       row.classList.remove('nogold');

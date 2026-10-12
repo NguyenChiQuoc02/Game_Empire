@@ -55,7 +55,7 @@ export class EnemyAI {
     const defs = b.cfg.station.defenses;
     if (!defs?.length || this.defenseT > 0 || b.time < 14) return;
     this.defenseT = 14 + Math.random() * 10;
-    const open = b.lanes.filter((l) => l.winner === null && l.index !== b.riverLane);
+    const open = b.lanes.filter((l) => l.winner === null && l.index !== b.riverLane && !l.extra);
     if (!open.length) return;
     // ưu tiên lane người chơi đang áp sát
     let lane = open[0];
@@ -70,7 +70,8 @@ export class EnemyAI {
     }
     const id = defs[Math.floor(Math.random() * defs.length)];
     // lane có căn cứ phụ do địch giữ: thường dựng công trình che căn cứ, còn lại dựng gần thành
-    const post = b.outposts.find((o) => o.lane === lane.index && o.owner === 1);
+    const posts = b.outposts.filter((o) => o.lane === lane.index && o.owner === 1);
+    const post = posts.length ? posts[Math.floor(Math.random() * posts.length)] : undefined;
     const x = post && Math.random() < 0.5 ? post.x + 40 + Math.random() * 90 : b.len - (150 + Math.random() * 170);
     if (b.canDeploy(1, id, lane.index)) b.deploy(1, id, lane.index, x);
   }
@@ -93,6 +94,11 @@ export class EnemyAI {
       const ownFlag = l.flags[1].hp / l.flags[1].maxHp;
       const enemyFlag = l.flags[0].hp / l.flags[0].maxHp;
       return 0.6 + threat * 1.6 + mine * 0.5 + (1 - ownFlag) + (1 - enemyFlag) * 0.4;
+    });
+    // lane thứ 4 chỉ là đường vòng nhập vào lane chủ: có trọng số gần bằng lane chủ để địch dồn hai dòng quân vào đó
+    const hostW = open.findIndex((l) => l.index === b.hostLane);
+    open.forEach((l, i) => {
+      if (l.extra) weights[i] = hostW >= 0 ? weights[hostW] * 0.85 : 0;
     });
     const total = weights.reduce((a, c) => a + c, 0);
     let r = Math.random() * total;

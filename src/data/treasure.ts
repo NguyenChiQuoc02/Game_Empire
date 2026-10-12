@@ -514,10 +514,10 @@ export interface HuntFaction {
 }
 
 export const HUNT_FACTIONS: HuntFaction[] = [
-  { id: 'han', name: 'Hán Quân', troops: ['spear', 'shield', 'knight', 'archer', 'crossbow', 'samurai', 'trebuchet'], generals: ['quanvu', 'trieuvan', 'lubo', 'truongphi'], defenses: ['archertower', 'ballista'] },
-  { id: 'giang', name: 'Giang Hồ Bang', troops: ['ninja', 'monk', 'taoist', 'berserker', 'poisoner', 'crossbow', 'healer'], generals: ['kieuphong', 'lenhhoxung', 'truongvoky', 'auduongphong', 'quachtinh'], defenses: ['spikewall', 'altar'] },
-  { id: 'thien', name: 'Thiên Binh', troops: ['samurai', 'archer', 'shield', 'healer', 'bomber', 'elephant', 'taoist'], generals: ['natra', 'tonngokhong', 'duongtien', 'quanam', 'loicong'], defenses: ['frosttotem', 'archertower'] },
-  { id: 'yao', name: 'Yêu Tộc', troops: ['berserker', 'ninja', 'bomber'], beasts: ['soihoang', 'lonrung', 'gauden', 'hocnui', 'baoden', 'tegiac', 'holy', 'soivuong', 'nhendoc', 'diatrung', 'mangxa'], generals: ['taothao', 'vitieubao', 'tatu', 'thaisutu'], defenses: ['spiketrap', 'firepit'] },
+  { id: 'han', name: 'Hán Quân', troops: ['spear', 'shield', 'knight', 'archer', 'crossbow', 'samurai', 'trebuchet', 'daodaobinh', 'hoathuong', 'hogia', 'phiky'], generals: ['quanvu', 'trieuvan', 'lubo', 'truongphi', 'dienvi', 'hahaudon', 'truonglieu', 'liubei'], defenses: ['archertower', 'ballista'] },
+  { id: 'giang', name: 'Giang Hồ Bang', troops: ['ninja', 'monk', 'taoist', 'berserker', 'poisoner', 'crossbow', 'healer', 'lahan', 'phikiem', 'langy', 'hanbang'], generals: ['kieuphong', 'lenhhoxung', 'truongvoky', 'auduongphong', 'quachtinh', 'hongthatcong', 'hoangdung', 'doanduy', 'modungphuc'], defenses: ['spikewall', 'altar'] },
+  { id: 'thien', name: 'Thiên Binh', troops: ['samurai', 'archer', 'shield', 'healer', 'bomber', 'elephant', 'taoist', 'kimcang', 'thanluc', 'duocdong', 'daodong'], generals: ['natra', 'tonngokhong', 'duongtien', 'quanam', 'loicong', 'duongtang', 'thietphien', 'kimsidieu', 'laoquan', 'trubatgioi'], defenses: ['frosttotem', 'archertower'] },
+  { id: 'yao', name: 'Yêu Tộc', troops: ['berserker', 'ninja', 'bomber'], beasts: ['soihoang', 'lonrung', 'gauden', 'hocnui', 'baoden', 'tegiac', 'holy', 'soivuong', 'nhendoc', 'diatrung', 'mangxa', 'bachcot', 'hacphong', 'sudavuong', 'cuuvi', 'macau', 'hotinh', 'ngocong', 'thanhxa', 'langyeu', 'nguudau', 'madien', 'cuongthi'], generals: ['taothao', 'vitieubao', 'tatu', 'thaisutu'], defenses: ['spiketrap', 'firepit'] },
 ];
 
 // ── quái trung lập
