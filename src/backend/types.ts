@@ -1,4 +1,5 @@
 import type { ExploreState } from '../data/explore';
+import type { PrincessSave } from '../data/princess';
 
 export interface SaveData {
   v: 1;
@@ -19,6 +20,8 @@ export interface SaveData {
   petSlots?: number;
   /** chế độ Khám phá: tiến trình từng bản đồ (khóa m1..m13) */
   explore?: Record<string, ExploreState>;
+  /** chế độ Giải cứu công chúa: lượt chơi đang dở và thống kê */
+  princess?: PrincessSave;
   /** trạm cao nhất đã mở (0..STATIONS.length-1) */
   progress: number;
   cleared: boolean[];

@@ -11,7 +11,7 @@ import { flush, mutate, onSaveStatus, refresh, setBase, state } from './state';
 import { onLang, t } from './i18n';
 import { h } from './ui/dom';
 import { renderAuth } from './ui/auth';
-import { focusExploreTab, focusHunt, focusSiege, focusStation, isPortraitLayout, renderHome } from './ui/home';
+import { focusExploreTab, focusPrincessTab, focusHunt, focusSiege, focusStation, isPortraitLayout, renderHome } from './ui/home';
 import { focusExplore } from './ui/explore';
 import { EXPLORE_INDEX, type ExploreLaunch } from './data/explore';
 import { HuntScreen, type HuntExit } from './ui/hunt';
@@ -110,8 +110,11 @@ async function boot() {
       battle = null;
       app.ticker.stop();
       if (action === 'retry') return startExplore(launch);
-      focusExploreTab();
-      focusExplore(launch.map);
+      if (launch.princess) focusPrincessTab();
+      else {
+        focusExploreTab();
+        focusExplore(launch.map);
+      }
       screen = 'home';
       redraw();
     }, launch);

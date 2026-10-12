@@ -554,6 +554,10 @@ export interface ExploreLaunch {
   station: Station;
   rules: ExploreRules;
   label: string;
+  /** tướng buộc phải có trong bộ bài (Giải cứu công chúa) */
+  general?: string;
+  /** trận của chế độ Giải cứu công chúa (ambush: trận phục kích tại trạm sự kiện) */
+  princess?: { ambush: boolean };
 }
 
 export const newExploreState = (g: EGraph): ExploreState => ({ cap: [g.start], temp: 'ice', claim: Date.now() });

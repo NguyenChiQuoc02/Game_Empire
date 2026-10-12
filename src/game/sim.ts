@@ -3309,11 +3309,17 @@ export class Battle {
         const sx = u.x + dir * 34;
         u.attackAnim = 0.4;
         const pick = UNITS[pool[Math.floor(Math.random() * pool.length)]];
-        // cấp thẻ trụ làm "sàn" cấp cho quân sinh ra (quân đã lên cấp cao hơn thì giữ cấp của quân)
-        const lvl = Math.max(this.cfg.levels[pick.id] ?? 1, this.cfg.levels[u.def.id] ?? 1);
-        this.spawn(pick, side, idx, sx + (Math.random() - 0.5) * 12, { pow: levelMul(lvl) });
+        // quân sinh ra mang cấp hiện có của chính thẻ đó (không phụ thuộc cấp doanh trại)
+        this.spawn(pick, side, idx, sx + (Math.random() - 0.5) * 12);
         p.made++;
         this.emit({ t: 'fx', kind: 'summon', lane: idx, x: sx, dir });
+        // sinh đủ số quân tối đa thì doanh trại tan biến
+        if (p.made >= this.postMax(u)) {
+          this.emit({ t: 'text', lane: idx, x: u.x, key: 'fx.postDone', color: 0xffd34d, big: true });
+          u.alive = false;
+          u.vanish = true;
+          u.deadTimer = 0.9;
+        }
         break;
       }
       case 'thorns': {

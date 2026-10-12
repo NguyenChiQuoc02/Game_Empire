@@ -3,6 +3,7 @@ import { STATIONS } from '../data/campaign';
 import { maxLevelOf } from '../data/gskills';
 import { SIEGE_WAVE_COUNT } from '../data/siege';
 import { EXPLORE_MAPS, exploreKey, type ExploreState } from '../data/explore';
+import type { ItemId, PrincessRun, PrincessSave } from '../data/princess';
 import type { SaveData } from './types';
 
 /** v2: bố cục 3 bản đồ x 10 trạm (tiến trình trạm của bản cũ không còn khớp nên được đặt lại) */
@@ -54,6 +55,45 @@ function mergeExplore(a: SaveData['explore'], b: SaveData['explore']): Record<st
   return out;
 }
 
+const ITEMS: ItemId[] = ['map', 'key', 'medicine'];
+
+/** làm sạch lượt chơi Giải cứu công chúa (không có giá trị undefined, số trong khoảng hợp lệ) */
+function normalizePrincess(raw: Partial<PrincessSave> | undefined): PrincessSave {
+  const int = (v: unknown, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.floor(Number(v) || 0)));
+  const out: PrincessSave = { plays: int(raw?.plays, 0, 1e6), clears: int(raw?.clears, 0, 1e6) };
+  if (raw?.best && ['S', 'A', 'B', 'C', 'D'].includes(raw.best.rank)) out.best = { score: int(raw.best.score, 0, 200), rank: raw.best.rank };
+  out.ended = (raw?.ended ?? []).map((x) => Math.floor(Number(x))).filter((x) => Number.isFinite(x)).slice(-6);
+  const r = raw?.run as Partial<PrincessRun> | undefined;
+  if (r && Number.isFinite(Number(r.seed)) && typeof r.general === 'string' && !out.ended.includes(Math.floor(Number(r.seed)))) {
+    const a = Array.isArray(r.alloc) ? r.alloc : [0, 0, 0];
+    const alloc: [number, number, number] = [int(a[0], 0, 10), int(a[1], 0, 10), int(a[2], 0, 10)];
+    const run: PrincessRun = {
+      seed: Math.floor(Number(r.seed)), general: r.general, alloc, at: int(r.at, 0, 80),
+      visited: [...new Set((r.visited ?? [0]).map((x) => int(x, 0, 80)))],
+      morale: int(r.morale, 0, 100), food: int(r.food, 0, 200), gold: int(r.gold, 0, 1e6), clues: int(r.clues, 0, 99),
+      items: (r.items ?? []).filter((x): x is ItemId => ITEMS.includes(x)), turns: int(r.turns, 0, 9999), goldFound: int(r.goldFound, 0, 1e6),
+      secretOpen: !!r.secretOpen, rescued: !!r.rescued, startedAt: Number(r.startedAt) || Date.now(), rev: int(r.rev, 0, 1e6), events: int(r.events, 0, 999),
+      fails: Object.fromEntries(Object.entries(r.fails ?? {}).map(([k, v]) => [String(int(k, 0, 99)), int(v, 0, 9)])),
+      locked: [...new Set((r.locked ?? []).map((x) => int(x, 0, 99)))],
+    };
+    if (r.over === 'win' || r.over === 'fail') run.over = r.over;
+    out.run = run;
+  }
+  return out;
+}
+
+/** gộp Giải cứu công chúa của hai thiết bị: thống kê lấy lớn hơn; lượt đang dở lấy bên có rev cao hơn (trừ lượt đã kết thúc ở một bên) */
+function mergePrincess(a: PrincessSave | undefined, b: PrincessSave | undefined): PrincessSave {
+  const ended = [...new Set([...(a?.ended ?? []), ...(b?.ended ?? [])])].slice(-6);
+  const runs = [a?.run, b?.run].filter((r): r is PrincessRun => !!r && !ended.includes(r.seed));
+  runs.sort((x, y) => y.rev - x.rev);
+  const best = [a?.best, b?.best].filter((x): x is NonNullable<PrincessSave['best']> => !!x).sort((x, y) => y.score - x.score)[0];
+  const out: PrincessSave = { plays: Math.max(a?.plays ?? 0, b?.plays ?? 0), clears: Math.max(a?.clears ?? 0, b?.clears ?? 0), ended };
+  if (best) out.best = best;
+  if (runs[0]) out.run = runs[0];
+  return out;
+}
+
 export function newSave(name: string): SaveData {
   const unlocked: Record<string, number> = {};
   for (const id of [...STARTERS, ...STARTER_DEFENSES, ...STARTER_PETS, ...STARTER_POSTS]) unlocked[id] = 1;
@@ -80,6 +120,7 @@ export function newSave(name: string): SaveData {
     incomeLv: 0,
     siegeBest: 0,
     explore: {},
+    princess: { plays: 0, clears: 0 },
     huntPlays: 0,
     huntWins: 0,
     sv: STATION_LAYOUT_VERSION,
@@ -135,6 +176,7 @@ export function normalizeSave(raw: Partial<SaveData> | null, name: string): Save
     incomeLv: clampInt(raw.incomeLv, INCOME_MAX_LV),
     siegeBest: clampInt(raw.siegeBest, SIEGE_WAVE_COUNT),
     explore: normalizeExplore(raw.explore),
+    princess: normalizePrincess(raw.princess),
     huntPlays: clampInt(raw.huntPlays, 1e6),
     huntWins: clampInt(raw.huntWins, 1e6),
     sv: STATION_LAYOUT_VERSION,
@@ -169,6 +211,7 @@ export function mergeSaves(remote: SaveData, local: SaveData, baseCoins: number)
       incomeLv: Math.max(remote.incomeLv ?? 0, local.incomeLv ?? 0),
       siegeBest: Math.max(remote.siegeBest ?? 0, local.siegeBest ?? 0),
       explore: mergeExplore(remote.explore, local.explore),
+      princess: mergePrincess(remote.princess, local.princess),
       huntPlays: Math.max(remote.huntPlays ?? 0, local.huntPlays ?? 0),
       huntWins: Math.max(remote.huntWins ?? 0, local.huntWins ?? 0),
       wins: Math.max(remote.wins, local.wins),

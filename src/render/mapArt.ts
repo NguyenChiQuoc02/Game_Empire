@@ -13,6 +13,12 @@ export interface MapSpec {
   themes: MapTheme[];
   start: [number, number];
   end: [number, number];
+  /** đường nối tuỳ ý giữa các điểm (chỉ số trong [start, ...stations, end]); bỏ trống = đường đi tuần tự */
+  edges?: [number, number][];
+  /** hạt giống trang trí (mỗi bản đồ một vẻ) */
+  seed?: number;
+  /** độ phân giải xuất ảnh (mặc định theo màn hình, tối đa 2); đặt cao hơn để ít vỡ khi phóng to */
+  res?: number;
 }
 
 const REGION: Record<MapTheme, { ground: number; accent: number }> = {
@@ -30,7 +36,7 @@ const REGION: Record<MapTheme, { ground: number; accent: number }> = {
 };
 
 const cache = new Map<string, string>();
-const keyOf = (spec: MapSpec) => JSON.stringify([Math.round(spec.w), Math.round(spec.h), spec.stations, spec.themes]);
+const keyOf = (spec: MapSpec) => JSON.stringify([Math.round(spec.w), Math.round(spec.h), spec.stations, spec.themes, spec.edges ?? 0, spec.seed ?? 0, spec.res ?? 0]);
 
 /** lấy tranh đã vẽ (nếu có) để hiển thị ngay không chờ */
 export const peekMapArt = (spec: MapSpec): string | undefined => cache.get(keyOf(spec));
@@ -42,7 +48,7 @@ export async function renderMapArt(app: Application, spec: MapSpec): Promise<str
   if (hit) return hit;
   const { w, h } = spec;
   const m = Math.min(w, h);
-  const rand = rng(7771);
+  const rand = rng(spec.seed ?? 7771);
   const root = new Container();
   const o = g();
   root.addChild(o);
@@ -89,6 +95,19 @@ export async function renderMapArt(app: Application, spec: MapSpec): Promise<str
   // đường đi: làm mượt qua các điểm
   const road = () => {
     const tr = (width: number, color: number, alpha = 1) => {
+      if (spec.edges) {
+        // đồ thị đường tuỳ ý: mỗi cạnh là một đoạn cong nhẹ
+        spec.edges.forEach(([a, b], n) => {
+          const [ax, ay] = pts[a];
+          const [bx, by] = pts[b];
+          const mx = (ax + bx) / 2;
+          const my = (ay + by) / 2;
+          const off = (n % 2 ? 1 : -1) * m * 0.018;
+          o.moveTo(ax, ay).quadraticCurveTo(mx + off, my - off, bx, by);
+        });
+        o.stroke({ width, color, alpha, cap: 'round', join: 'round' });
+        return;
+      }
       o.moveTo(pts[0][0], pts[0][1]);
       for (let i = 1; i < pts.length; i++) {
         const [px, py] = pts[i - 1];
@@ -228,7 +247,7 @@ export async function renderMapArt(app: Application, spec: MapSpec): Promise<str
   void ball;
   void darker;
 
-  const url = await app.renderer.extract.base64({ target: root, frame: new Rectangle(0, 0, w, h), resolution: Math.min(2, window.devicePixelRatio || 1) });
+  const url = await app.renderer.extract.base64({ target: root, frame: new Rectangle(0, 0, w, h), resolution: spec.res ?? Math.min(2, window.devicePixelRatio || 1) });
   root.destroy({ children: true });
   cache.set(key, url);
   return url;

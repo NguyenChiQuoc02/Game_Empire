@@ -14,6 +14,7 @@ import { tipBody } from './tip';
 import { envBadges } from './env';
 import { extraSkillsAt } from '../data/gskills';
 import { generalCapOf } from '../backend/save';
+import { recordPrincessBattle } from './princess';
 import { applyExploreResult, exploreMapDef, type ExploreLaunch } from '../data/explore';
 import { SIEGE_CLEAR_BONUS, SIEGE_INDEX, SIEGE_RECORD_BONUS, SIEGE_STATION, SIEGE_WAVES, SIEGE_WAVE_COUNT, siegeWaveReward } from '../data/siege';
 
@@ -92,6 +93,7 @@ export class BattleScreen {
       ...(save.postDeck ?? []).filter((id) => UNITS[id] && isPost(UNITS[id])),
       ...save.deck.filter((id) => UNITS[id]?.kind === 'general'),
     ];
+    if (explore?.general && UNITS[explore.general] && !this.deck.includes(explore.general)) this.deck.push(explore.general);
     this.battle = new Battle({ station: this.station, levels: { ...save.unlocked }, flagLevel: save.flagLv ?? 0, incomeLevel: save.incomeLv ?? 0, generalCap: generalCapOf(save), siege: this.siege, event: this.siege ? null : undefined, explore: explore?.rules });
     this.ai = this.siege ? null : new EnemyAI(this.battle, this.station.deck);
     this.view = new BattleView(app, this.battle, this.station);
@@ -779,7 +781,31 @@ export class BattleScreen {
     );
   }
 
+  /** kết quả một trận của Giải cứu công chúa: ghi vào lượt chơi, hiện thu hoạch */
+  private showPrincessResult(launch: ExploreLaunch) {
+    const b = this.battle;
+    const win = b.winner === 0;
+    const out = recordPrincessBattle(launch.node, win, !!launch.princess?.ambush);
+    const time = Math.floor(b.time);
+    this.resultModal = openModal(
+      () => h('div', { class: `result ${win ? 'win' : 'lose'}` },
+        h('div', { class: 'res-ico', text: win ? (out.rescued ? '👸' : '🏆') : '💀' }),
+        h('h2', { text: out.rescued ? t('princess.rescued') : win ? t('princess.resWin') : t('princess.resLose') }),
+        h('p', { class: 'res-sub', text: out.rescued ? t('princess.rescuedSub') : win ? t('princess.resWinSub', { name: launch.station.name }) : t('princess.resLoseSub') }),
+        h('div', { class: 'res-stats' },
+          h('div', {}, h('small', { text: t('result.lanes') }), h('b', { text: `${b.wins[0]} – ${b.wins[1]}` })),
+          h('div', {}, h('small', { text: t('result.time') }), h('b', { text: `${Math.floor(time / 60)}:${String(time % 60).padStart(2, '0')}` })),
+          h('div', {}, h('small', { text: t('result.kills') }), h('b', { text: String(b.kills[0]) }))),
+        win ? h('div', { class: 'res-reward', text: `💰 +${out.gold}${out.clue ? ` · 🔍 +1 ${t('princess.clue')}` : ''}` }) : h('p', { class: 'res-tip', text: out.blocked ? t('princess.blockedNote') : out.locked ? t('princess.lockedNote') : t('princess.moraleLost') }),
+        h('div', { class: 'modal-actions col' },
+          win || out.failed || out.locked ? null : h('button', { class: 'btn primary big', text: `↻ ${t('result.retry')}`, attrs: { type: 'button' }, on: { click: () => this.onExit('retry') } }),
+          h('button', { class: `btn ${win || out.failed || out.locked ? 'primary big' : 'ghost'}`, text: t('explore.backToMap'), attrs: { type: 'button' }, on: { click: () => this.onExit('menu') } }))),
+      { dismissible: false },
+    );
+  }
+
   private showExploreResult(launch: ExploreLaunch) {
+    if (launch.princess) return this.showPrincessResult(launch);
     const b = this.battle;
     const win = b.winner === 0;
     const map = exploreMapDef(launch.map);

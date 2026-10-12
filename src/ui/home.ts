@@ -23,12 +23,13 @@ import { unread } from '../notices';
 import { rewardFor } from '../game/rewards';
 import { CASTLE_PUSH, allyCastleLevel, allyCastlePush, castlePushDmg } from '../data/campaign';
 import { explorePanel } from './explore';
+import { princessPanel } from './princess';
 import type { ExploreLaunch } from '../data/explore';
 import { HUNT_FORMATS, HUNT_MAPS, DEFAULT_HUNT_SETUP, HUNT_N, TR, buildHuntMap, huntMapDef, type HuntMapId, type HuntSetup } from '../data/treasure';
 import { huntMapName, huntMapSub, huntMapTip } from '../i18n';
 import { SIEGE_CLEAR_BONUS, SIEGE_INDEX, SIEGE_WAVES, SIEGE_WAVE_COUNT, siegeWaveReward, type SiegeWave } from '../data/siege';
 
-type Tab = 'campaign' | 'army' | 'siege' | 'hunt' | 'explore';
+type Tab = 'campaign' | 'army' | 'siege' | 'hunt' | 'explore' | 'princess';
 let tab: Tab = 'campaign';
 let selected = -1;
 let armyFilter: 'troop' | 'defense' | 'pet' | 'general' | 'post' = 'troop';
@@ -43,6 +44,11 @@ let armyTab: ArmyTab = 'deck';
 export function focusStation(i: number) {
   selected = i;
   tab = 'campaign';
+}
+
+/** Quay lại tab Giải cứu công chúa sau trận */
+export function focusPrincessTab() {
+  tab = 'princess';
 }
 
 /** Quay lại tab Khám phá sau trận */
@@ -85,11 +91,11 @@ export function renderHome(root: HTMLElement, ctx: HomeCtx) {
     h('button', { class: 'icon-btn', text: '⚙', attrs: { 'aria-label': t('settings.title'), type: 'button' }, on: { click: () => openSettings({ onLogout: ctx.onLogout }) } }),
   );
 
-  const content = h('main', { class: `content${mapMode ? ' map-content' : ''}` }, mapMode ? campaign(ctx) : tab === 'siege' ? siegePanel(ctx) : tab === 'hunt' ? huntPanel(ctx) : tab === 'explore' ? explorePanel(ctx) : army(ctx));
+  const content = h('main', { class: `content${mapMode ? ' map-content' : ''}` }, mapMode ? campaign(ctx) : tab === 'siege' ? siegePanel(ctx) : tab === 'hunt' ? huntPanel(ctx) : tab === 'explore' ? explorePanel(ctx) : tab === 'princess' ? princessPanel(ctx) : army(ctx));
 
   const navBtn = (id: Tab, ico: string, label: string) =>
     h('button', { class: `nav-btn${tab === id ? ' active' : ''}`, attrs: { type: 'button' }, on: { click: () => { tab = id; ctx.redraw(); } } }, h('i', { text: ico }), h('span', { text: label }));
-  const nav = h('nav', { class: 'bottom-nav' }, navBtn('campaign', '🗺', t('home.tabCampaign')), navBtn('explore', '🧭', t('home.tabExplore')), navBtn('siege', '🏰', t('home.tabSiege')), navBtn('hunt', '💎', t('home.tabHunt')), navBtn('army', '⚔', t('home.tabArmy')));
+  const nav = h('nav', { class: 'bottom-nav' }, navBtn('campaign', '🗺', t('home.tabCampaign')), navBtn('explore', '🧭', t('home.tabExplore')), navBtn('princess', '👸', t('home.tabPrincess')), navBtn('siege', '🏰', t('home.tabSiege')), navBtn('hunt', '💎', t('home.tabHunt')), navBtn('army', '⚔', t('home.tabArmy')));
 
   root.replaceChildren(h('div', { class: `screen home${mapMode ? ' map-mode' : ''}` }, top, content, nav));
   const c = root.querySelector('.content');
