@@ -1469,9 +1469,17 @@ export function buildUnitArt(def: UnitDef, side: UnitSide, withSquad = false, ac
 export function addLevelTag(art: UnitArt, pow: number): Text {
   const tx = new Text({ text: `Lv${levelOfPow(pow)}`, style: textStyle(8, 0xdfe6f5) });
   tx.anchor.set(0, 0.5);
-  tx.position.set(art.barW / 2 + 3, 2.5);
-  art.hpBar.addChild(tx);
+  art.root.addChild(tx);
+  syncLevelTag(art, tx);
   return tx;
+}
+
+/** đặt chữ cấp theo thanh máu (cùng vị trí, tỉ lệ, ẩn/hiện): Graphics không được làm cha của Text ở PixiJS 8 */
+export function syncLevelTag(art: UnitArt, tx: Text) {
+  const b = art.hpBar;
+  tx.position.set(b.x + (art.barW / 2 + 3) * b.scale.x, b.y + 2.5 * b.scale.y);
+  tx.scale.copyFrom(b.scale);
+  tx.visible = b.visible;
 }
 
 function lerp(a: number, b: number, t: number) {

@@ -84,8 +84,7 @@ export function statLine(def: UnitDef, lv: number): HTMLElement {
     return h('div', { class: 'stats' },
       item('❤', fmt(def.hp * m), t('stat.hp')),
       item('⏱', `${Number(postEveryAt(1, lv).toFixed(1))}s`, t('stat.postEvery')),
-      item('👥', String(POST_LEVELS[0].max + postMaxBonus(lv)), t('stat.postMax')),
-      item('⬆', String(POST_LEVELS.length), t('stat.postLv')));
+      item('👥', String(POST_LEVELS[0].max + postMaxBonus(lv)), t('stat.postMax')));
   }
   if (def.kind === 'defense') {
     return h(

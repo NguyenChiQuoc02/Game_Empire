@@ -1,5 +1,5 @@
 import { Container, Graphics, Text, type Application } from 'pixi.js';
-import { addLevelTag, buildUnitArt, FLY_LIFT, type UnitArt } from './unitArt';
+import { addLevelTag, syncLevelTag, buildUnitArt, FLY_LIFT, type UnitArt } from './unitArt';
 import { INK, darker, g, lighter, mix, poly, rrect } from './draw';
 import { Vfx, textStyle } from './vfx';
 import { getLang, t, unitName } from '../i18n';
@@ -19,6 +19,7 @@ interface UV {
   born: number;
   lastPct: number;
   name?: Text;
+  lvTag?: Text;
   gem?: Graphics;
   prevAtk: number;
   dustT: number;
@@ -409,7 +410,7 @@ export class HuntView {
   private makeUnitView(u: HUnit): UV {
     const art = buildUnitArt(u.def, 0, false, this.teamColor(u));
     const v: UV = { art, seed: u.uid * 0.77, born: this.clock, lastPct: -1, prevAtk: 0, dustT: Math.random() * 0.2, swooshAt: 0 };
-    addLevelTag(art, u.pow);
+    v.lvTag = addLevelTag(art, u.pow);
     if (u.def.kind === 'general' || u.guardian) {
       const text = u.guardian ? t('hunt.guardian', { name: unitName(u.def) }) : unitName(u.def);
       const tx = new Text({ text, style: textStyle(u.guardian ? 13 : 11, u.guardian ? 0xff8a7a : 0xffe08a) });
@@ -443,6 +444,7 @@ export class HuntView {
     const fly = !!u.def.tags?.includes('fly');
     if (!u.alive) {
       a.hpBar.visible = false;
+      if (v.lvTag) v.lvTag.visible = false;
       if (v.name) v.name.visible = false;
       if (v.gem) v.gem.visible = false;
       const pr = 1 - Math.max(0, u.deadT) / 0.7;
@@ -503,6 +505,7 @@ export class HuntView {
         .roundRect(-w / 2 + 0.5, 0.5, (w - 1) * pct, 1.6, 1).fill({ color: 0xffffff, alpha: 0.35 });
       a.hpBar.position.y = -a.height - 8;
     }
+    if (v.lvTag) syncLevelTag(a, v.lvTag);
   }
 
   private updateStruct(sv: StructView, u: HUnit) {

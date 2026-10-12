@@ -1701,7 +1701,7 @@ export const POST_LIST: UnitDef[] = Object.keys(POSTS).map((id) => U({
   id, name: POST_NAMES[id], kind: 'defense', cost: POST_COSTS[id],
   hp: 280, dmg: 0, cd: POST_LEVELS[0].every, speed: 0, range: 0, armor: 6,
   skill: 'spawner', skillName: 'Chiêu Mộ Quân',
-  desc: 'Cứ vài giây tự chiêu mộ ngẫu nhiên một đơn vị cùng loại. Chỉ đặt được ở nửa sân nhà. Nâng cấp trong trận để chiêu quân nhanh hơn và nhiều quân hơn.',
+  desc: 'Cứ vài giây tự chiêu mộ ngẫu nhiên một đơn vị cùng loại. Chỉ đặt được ở nửa sân nhà. Nâng cấp thẻ (bằng xu) để chiêu quân nhanh hơn và nhiều quân hơn.',
   tags: id === 'post_naval' ? ['spawner', 'naval'] : ['spawner'], unlockCost: POST_UNLOCK[id], scale: 1.1,
 }));
 export const isPost = (d: Pick<UnitDef, 'tags'>) => !!d.tags?.includes('spawner');

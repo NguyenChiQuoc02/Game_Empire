@@ -155,7 +155,7 @@ export function rollZones(len: number, laneCount: number, rnd: () => number = Ma
 
 // ───────────── bộ ngẫu nhiên có hạt giống (kế hoạch cố định theo bản đồ) ─────────────
 
-function mulberry32(seed: number) {
+export function mulberry32(seed: number) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;

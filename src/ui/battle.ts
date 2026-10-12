@@ -1,8 +1,8 @@
 import type { Application, Ticker } from 'pixi.js';
 import { h } from './dom';
-import { getLang, onLang, stationName, t, unitDesc, unitName, unitSkill } from '../i18n';
+import { getLang, onLang, stationName, t, unitDesc, unitName } from '../i18n';
 import { STATIONS, stationLabel, type Station } from '../data/campaign';
-import { MAX_DEFENSES_PER_LANE, MAX_POSTS_PER_LANE, POSTS, POST_LEVELS, UNITS, isNaval, isPost, levelMul } from '../data/units';
+import { MAX_DEFENSES_PER_LANE, MAX_POSTS_PER_LANE, POSTS, POST_LEVELS, UNITS, isNaval, isPost, levelMul, postEveryAt, postMaxBonus } from '../data/units';
 import { Battle, CAP_INCOME_MUL, CAP_STEPS, PLAYER_INCOME, type UnitInst } from '../game/sim';
 import { EnemyAI } from '../game/ai';
 import { BattleView } from '../render/battleView';
@@ -14,6 +14,7 @@ import { tipBody } from './tip';
 import { envBadges } from './env';
 import { extraSkillsAt } from '../data/gskills';
 import { generalCapOf } from '../backend/save';
+import { applyExploreResult, exploreMapDef, type ExploreLaunch } from '../data/explore';
 import { SIEGE_CLEAR_BONUS, SIEGE_INDEX, SIEGE_RECORD_BONUS, SIEGE_STATION, SIEGE_WAVES, SIEGE_WAVE_COUNT, siegeWaveReward } from '../data/siege';
 
 export type ExitAction = 'menu' | 'retry' | 'next';
@@ -51,14 +52,11 @@ export class BattleScreen {
   /** các thẻ đang hiển thị — phím tắt 1..n và trạng thái thẻ dùng danh sách này */
   private shownIds: string[] = [];
   private handEl!: HTMLElement;
-  private postBar!: HTMLElement;
-  private postKey = '';
   private resultT = 0;
   private resultShown = false;
   private disposed = false;
   private pauseModal: Modal | null = null;
   private resultModal: Modal | null = null;
-  private deployedOnce = false;
   private tip = h('div', { class: 'unit-tip' });
   private cardTip = h('div', { class: 'unit-tip card-tip' });
   private tipUnit: UnitInst | null = null;
@@ -81,10 +79,10 @@ export class BattleScreen {
   private nwKey = -1;
   private drag: { id: string; sx: number; sy: number; moved: boolean; ghost?: HTMLElement; pid: number } | null = null;
 
-  constructor(private app: Application, private root: HTMLElement, private stIdx: number, private onExit: (a: ExitAction) => void) {
+  constructor(private app: Application, private root: HTMLElement, private stIdx: number, private onExit: (a: ExitAction) => void, private explore: ExploreLaunch | null = null) {
     const save = state.save!;
     this.siege = stIdx === SIEGE_INDEX;
-    this.station = this.siege ? SIEGE_STATION : STATIONS[stIdx];
+    this.station = explore ? explore.station : this.siege ? SIEGE_STATION : STATIONS[stIdx];
     if (this.siege) this.screen.classList.add('siege');
     // lính | đồ phòng thủ | tướng (phím tắt 1..n theo thứ tự hiển thị)
     this.deck = [
@@ -94,7 +92,7 @@ export class BattleScreen {
       ...(save.postDeck ?? []).filter((id) => UNITS[id] && isPost(UNITS[id])),
       ...save.deck.filter((id) => UNITS[id]?.kind === 'general'),
     ];
-    this.battle = new Battle({ station: this.station, levels: { ...save.unlocked }, flagLevel: save.flagLv ?? 0, incomeLevel: save.incomeLv ?? 0, generalCap: generalCapOf(save), siege: this.siege, event: this.siege ? null : undefined });
+    this.battle = new Battle({ station: this.station, levels: { ...save.unlocked }, flagLevel: save.flagLv ?? 0, incomeLevel: save.incomeLv ?? 0, generalCap: generalCapOf(save), siege: this.siege, event: this.siege ? null : undefined, explore: explore?.rules });
     this.ai = this.siege ? null : new EnemyAI(this.battle, this.station.deck);
     this.view = new BattleView(app, this.battle, this.station);
 
@@ -168,7 +166,7 @@ export class BattleScreen {
     }));
     const speed = h('div', { class: 'speed-box', attrs: { role: 'group', 'aria-label': t('hud.speed'), title: t('hud.speed') } }, ...this.speedBtns);
     const foeLeft = h('b', { text: '0' });
-    const stage = h('small', { text: this.siege ? t('siege.hudStage') : t('hud.stage', { n: stationLabel(this.stIdx) }) });
+    const stage = h('small', { text: this.siege ? t('siege.hudStage') : this.explore ? this.explore.label : t('hud.stage', { n: stationLabel(this.stIdx) }) });
     this.nwFace = h('span', { class: 'nw-face' });
     this.nwBonus = h('b', { class: 'nw-bonus' });
     this.nwKey = -1;
@@ -234,7 +232,6 @@ export class BattleScreen {
       h('div', { class: 'gold-track' }, goldBar),
       capText,
       capBtn);
-    const info = h('div', { class: 'info' });
     const cards = new Map<string, HTMLElement>();
     const hand = h('div', { class: 'hand' });
     this.handEl = hand;
@@ -249,13 +246,10 @@ export class BattleScreen {
         dialEn.push(en);
         return h('div', { class: 'dial-row' }, h('b', { text: String(i + 1) }), h('span', { class: 'bar my' }, my), h('span', { class: 'bar en' }, en));
       }));
-    this.postBar = h('div', { class: 'post-bar' });
-    this.postKey = '';
-    this.handHost.replaceChildren(h('footer', { class: 'hand-panel' }, this.postBar, info, h('div', { class: `hand-row${this.deck.length > 9 ? ' many' : ''}` }, goldRow, hand, dial)));
-    this.el = { boss, stage, nextWave: nextWave ?? undefined, timer, pips, gold, goldBar, goldRow, cards, info, speed, dialMy, dialEn, income, capText, capBtn, capCost, capLv, foeLeft };
+    this.handHost.replaceChildren(h('footer', { class: 'hand-panel' }, h('div', { class: `hand-row${this.deck.length > 9 ? ' many' : ''}` }, goldRow, hand, dial)));
+    this.el = { boss, stage, nextWave: nextWave ?? undefined, timer, pips, gold, goldBar, goldRow, cards, speed, dialMy, dialEn, income, capText, capBtn, capCost, capLv, foeLeft };
     this.fillHand();
     this.lastCardState = '';
-    this.refreshInfo();
     this.refreshSpeed();
     this.mqFn();
     this.updateHud();
@@ -281,7 +275,7 @@ export class BattleScreen {
       const c = h('div', { class: `hcard ${d.kind}${isPost(d) ? ' post' : ''}`, attrs: { 'data-id': id } },
         h('span', { class: 'key', text: String(i + 1) }),
         d.kind === 'general' ? this.face(id, 0, 'card-face') : portrait(id),
-        h('span', { class: 'cost', text: String(d.cost) }),
+        h('span', { class: 'cost', text: String(this.battle.costOf(0, d)) }),
         isNaval(d) ? h('span', { class: 'nv', text: '🌊' }) : null,
         h('span', { class: 'nm', text: unitName(d) }));
       c.addEventListener('pointerdown', (e) => this.onCardDown(e, id, c));
@@ -291,55 +285,6 @@ export class BattleScreen {
       cards.set(id, c);
       hand.append(c);
     });
-  }
-
-  /** bảng nâng cấp các trụ sản sinh đang có (nổi phía trên khung thẻ) */
-  private updatePostBar() {
-    const b = this.battle;
-    const posts = b.postsOf(0);
-    const key = `${getLang()}|${posts.map((u) => `${u.uid}:${u.lane}:${u.post!.lv}:${u.post!.made}:${(b.postUpgradeCost(u) ?? 9999) <= b.gold[0] ? 1 : 0}`).join(',')}`;
-    if (key === this.postKey) return;
-    this.postKey = key;
-    this.postBar.replaceChildren(...posts.map((u) => {
-      const p = u.post!;
-      const cost = b.postUpgradeCost(u);
-      const max = b.postMax(u);
-      const left = max - p.made;
-      return h('button', {
-        class: `pchip${cost !== null && b.gold[0] >= cost ? ' ready' : ''}${left <= 0 ? ' spent' : ''}`,
-        attrs: { type: 'button', title: t('hud.postUpTip') },
-        on: { click: () => this.upgradePost(u.uid) },
-      },
-      h('i', { text: POSTS[u.def.id].icon }),
-      h('span', { class: 'pc-lane', text: `L${u.lane + 1}` }),
-      h('span', { class: 'pc-lv', text: `Lv${p.lv}` }),
-      h('span', { class: 'pc-n', text: `${p.made}/${max}` }),
-      h('b', { text: cost === null ? 'MAX' : `⬆${cost}` }));
-    }));
-  }
-
-  private upgradePost(uid: number) {
-    if (this.paused || this.battle.over) return;
-    if (!this.battle.upgradePost(uid)) {
-      const row = this.el.goldRow!;
-      row.classList.remove('nogold');
-      void row.offsetWidth;
-      row.classList.add('nogold');
-    }
-  }
-
-  private refreshInfo() {
-    const info = this.el.info!;
-    const id = this.selected;
-    if (!id) {
-      info.className = 'info hint';
-      info.textContent = this.deployedOnce ? t('hud.hintShort') : t('hud.hint');
-      return;
-    }
-    const d = UNITS[id];
-    info.className = 'info';
-    // mô tả dài nổi lên phía trên (không đổi chiều cao khung dưới) để chọn thẻ không làm chiến trường co giãn/giật
-    info.replaceChildren(h('div', { class: 'sel' }, h('b', { text: unitName(d) }), h('span', { class: 'sk', text: ` · ${unitSkill(d)}` }), h('div', { class: 'desc', text: unitDesc(d) })));
   }
 
   private updateHud() {
@@ -397,10 +342,9 @@ export class BattleScreen {
     }
     if (this.hasGenerals) this.badges?.setGenerals(b.generalsAlive(0), b.cfg.generalCap ?? 0);
     // trạng thái thẻ (chỉ cập nhật DOM khi đổi)
-    this.updatePostBar();
     const st = this.shownIds.map((id) => {
       const d = UNITS[id];
-      return `${id}:${b.gold[0] >= d.cost ? 1 : 0}${d.kind === 'general' && b.generalOnField(0, id) ? 'u' : ''}${d.kind === 'general' && this.generalsFull() ? 'c' : ''}${this.selected === id ? 's' : ''}`;
+      return `${id}:${b.gold[0] >= b.costOf(0, d) ? 1 : 0}${d.kind === 'general' && b.generalOnField(0, id) ? 'u' : ''}${d.kind === 'general' && this.generalsFull() ? 'c' : ''}${this.selected === id ? 's' : ''}`;
     }).join('|');
     if (st !== this.lastCardState) {
       this.lastCardState = st;
@@ -408,7 +352,7 @@ export class BattleScreen {
         const d = UNITS[id];
         const c = e.cards!.get(id);
         if (!c) continue;
-        c.classList.toggle('poor', b.gold[0] < d.cost);
+        c.classList.toggle('poor', b.gold[0] < b.costOf(0, d));
         c.classList.toggle('used', d.kind === 'general' && b.generalOnField(0, id));
         c.classList.toggle('capped', d.kind === 'general' && !b.generalOnField(0, id) && this.generalsFull());
         c.classList.toggle('selected', this.selected === id);
@@ -538,8 +482,7 @@ export class BattleScreen {
       d.ghost = h('div', { class: 'drag-ghost' }, h('img', { attrs: { src, alt: '' } }));
       document.body.append(d.ghost);
       this.selected = d.id;
-      this.refreshInfo();
-    }
+      }
     if (d.moved && d.ghost) {
       d.ghost.style.transform = `translate(${e.clientX}px, ${e.clientY}px) translate(-50%, -62%)`;
       const lane = this.laneAtPoint(e.clientX, e.clientY, d.id);
@@ -572,8 +515,7 @@ export class BattleScreen {
     } else {
       // chạm nhẹ: chọn / bỏ chọn thẻ
       this.selected = this.selected === d.id ? null : d.id;
-      this.refreshInfo();
-      this.updateHud();
+        this.updateHud();
     }
   }
 
@@ -597,7 +539,7 @@ export class BattleScreen {
         this.placeTip(e);
         return;
       }
-      return void this.nudgeHand();
+      return;
     }
     this.tryDeploy(this.selected, lane, this.dropX(this.selected, lane, e.clientX));
   };
@@ -685,6 +627,7 @@ export class BattleScreen {
 
   /** rê chuột vào thẻ trụ sản sinh: chu kỳ, số quân tối đa theo cấp và các đơn vị có thể sinh ra */
   private showPostTip(d: (typeof UNITS)[string], card: HTMLElement) {
+    const lv = state.save?.unlocked[d.id] ?? 1;
     const tip = this.cardTip;
     tip.className = 'unit-tip card-tip ally defense';
     const row = (k: string, v: string) => h('div', { class: 'cap-row' }, h('span', { text: k }), h('b', { text: v }));
@@ -692,7 +635,8 @@ export class BattleScreen {
       h('div', { class: 'tip-head' }, h('b', { text: `${POSTS[d.id].icon} ${unitName(d)}` }), h('em', { text: t('hud.postCost', { n: d.cost }) })),
       h('div', { class: 'tip-skill' }, h('p', { text: unitDesc(d) })),
       h('div', { class: 'cap-body' },
-        ...POST_LEVELS.map((l, i) => row(`Lv${i + 1}`, t('hud.postLevel', { s: l.every, n: l.max, c: l.cost }))),
+        row(t('stat.postEvery'), `${Number(postEveryAt(1, lv).toFixed(1))}s`),
+        row(t('stat.postMax'), String(POST_LEVELS[0].max + postMaxBonus(lv))),
         row(t('hud.postPool'), POSTS[d.id].pool.map((id) => unitName(UNITS[id])).join(', '))),
     );
     tip.style.display = 'block';
@@ -747,8 +691,7 @@ export class BattleScreen {
     const n = Number(e.key);
     if (n >= 1 && n <= this.shownIds.length) {
       this.selected = this.shownIds[n - 1];
-      this.refreshInfo();
-      this.updateHud();
+        this.updateHud();
       return;
     }
     if (e.key.toLowerCase() === 'u') return void this.upgradeCap();
@@ -756,13 +699,6 @@ export class BattleScreen {
     const laneKey = ['q', 'w', 'e'].indexOf(e.key.toLowerCase());
     if (laneKey >= 0 && laneKey < this.battle.playerLanes && this.selected) this.tryDeploy(this.selected, laneKey);
   };
-
-  private nudgeHand() {
-    const info = this.el.info!;
-    info.classList.remove('nudge');
-    void info.offsetWidth;
-    info.classList.add('nudge');
-  }
 
   /** Thủ Thành: gọi đợt kế tiếp ngay khi đang nghỉ */
   private callNextWave() {
@@ -797,7 +733,7 @@ export class BattleScreen {
     if (d.kind === 'general' && b.generalsAlive(0) >= (b.cfg.generalCap ?? 99)) return void toast(t('hud.generalCap', { n: b.cfg.generalCap ?? 0 }), 'error');
     if (isPost(d) && b.postsIn(0, lane) >= MAX_POSTS_PER_LANE) return void toast(t('hud.postFull', { n: MAX_POSTS_PER_LANE }), 'error');
     if (d.kind === 'defense' && !isPost(d) && b.defensesIn(0, lane) >= MAX_DEFENSES_PER_LANE) return void toast(t('hud.defenseFull', { n: MAX_DEFENSES_PER_LANE }), 'error');
-    if (b.gold[0] < d.cost) {
+    if (b.gold[0] < b.costOf(0, d)) {
       const row = this.el.goldRow!;
       row.classList.remove('nogold');
       void row.offsetWidth;
@@ -805,9 +741,7 @@ export class BattleScreen {
       return;
     }
     if (b.deploy(0, id, lane, x)) {
-      this.deployedOnce = true;
-      this.refreshInfo();
-    }
+      }
   }
 
   // ───────────────────────── kết quả ─────────────────────────
@@ -845,10 +779,37 @@ export class BattleScreen {
     );
   }
 
+  private showExploreResult(launch: ExploreLaunch) {
+    const b = this.battle;
+    const win = b.winner === 0;
+    const map = exploreMapDef(launch.map);
+    let out = { coins: 0, bonus: 0, finished: false, captured: false };
+    mutate((s) => { out = applyExploreResult(s, launch, win); }, true);
+    const time = Math.floor(b.time);
+    this.resultModal = openModal(
+      () => h('div', { class: `result ${win ? 'win' : 'lose'}` },
+        h('div', { class: 'res-ico', text: win ? '🏆' : '💀' }),
+        h('h2', { text: win ? t('explore.resWin') : t('explore.resLose') }),
+        h('p', { class: 'res-sub', text: win ? t('explore.resWinSub', { name: launch.station.name }) : t('result.loseSub') }),
+        h('div', { class: 'res-stats' },
+          h('div', {}, h('small', { text: t('result.lanes') }), h('b', { text: `${b.wins[0]} – ${b.wins[1]}` })),
+          h('div', {}, h('small', { text: t('result.time') }), h('b', { text: `${Math.floor(time / 60)}:${String(time % 60).padStart(2, '0')}` })),
+          h('div', {}, h('small', { text: t('result.kills') }), h('b', { text: String(b.kills[0]) }))),
+        h('div', { class: 'res-reward', text: `🪙 +${fmt(out.coins)}` }),
+        out.finished ? h('div', { class: 'banner-win', text: `🎉 ${t('explore.mapDone', { name: t(`explore.map.${map.n}.name`), bonus: fmt(out.bonus) })}` }) : null,
+        !win ? h('p', { class: 'res-tip', text: t('result.tip') }) : null,
+        h('div', { class: 'modal-actions col' },
+          win ? null : h('button', { class: 'btn primary big', text: `↻ ${t('result.retry')}`, attrs: { type: 'button' }, on: { click: () => this.onExit('retry') } }),
+          h('button', { class: `btn ${win ? 'primary big' : 'ghost'}`, text: t('explore.backToMap'), attrs: { type: 'button' }, on: { click: () => this.onExit('menu') } }))),
+      { dismissible: false },
+    );
+  }
+
   private showResult() {
     if (this.resultShown) return;
     this.resultShown = true;
     if (this.siege) return this.showSiegeResult();
+    if (this.explore) return this.showExploreResult(this.explore);
     const b = this.battle;
     const win = b.winner === 0;
     const save = state.save!;

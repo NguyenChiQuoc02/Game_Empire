@@ -1,5 +1,6 @@
-import { COMBO_RANGE, ENGINES, MAX_DEFENSES_PER_LANE, MAX_POSTS_PER_LANE, POSTS, POST_HP_PER_LEVEL, POST_LEVELS, isPost, postMaxBonus, SK, UNIT_LIST, UNITS, cubCount, cubRatio, houndRatio, levelMul, levelOfPow, skillHaste, type Engine, type SkillId, type UnitDef, flagHpMul, incomeUpgradeMul } from '../data/units';
-import { CASTLE, laneCountOf, totalLanesOf, type Bridge, type Station } from '../data/campaign';
+import { COMBO_RANGE, ENGINES, MAX_DEFENSES_PER_LANE, MAX_POSTS_PER_LANE, POSTS, POST_LEVELS, isPost, postMaxBonus, SK, UNIT_LIST, UNITS, cubCount, cubRatio, houndRatio, levelMul, levelOfPow, skillHaste, type Engine, type SkillId, type UnitDef, flagHpMul, incomeUpgradeMul } from '../data/units';
+import { CASTLE, CASTLE_PUSH, allyCastleLevel, castlePushDist, castlePushDmg, enemyCastleLevel, laneCountOf, totalLanesOf, type Bridge, type Station } from '../data/campaign';
+import type { ExploreRules } from '../data/explore';
 import { BOSS_PHASES, BOSS_SPLIT, bossPhaseCount, type BossPhase } from '../data/boss';
 import { SIEGE_BOUNTY_MUL, SIEGE_CALL_DELAY, SIEGE_HOLD, SIEGE_PREP_SEC, SIEGE_WAVES, SIEGE_WAVE_SEC, siegeCallBonus } from '../data/siege';
 import { BASE_LANE_LEN, GUARD_LEASH, OUTPOST, TUNNEL, ZONES, garrisonFor, laneLenFor, laneSpeedFor, outpostXs, rollZones, unitScaleFor, type LaneZone, type OutpostKind, type Tunnel, type ZoneFx } from '../data/lane';
@@ -229,6 +230,8 @@ export interface BattleConfig {
   zones?: LaneZone[][] | null;
   /** chế độ Thủ Thành: địch tấn công theo từng đợt (data/siege.ts), thành địch không bị phá */
   siege?: boolean;
+  /** chế độ Khám phá: luật bản đồ + ưu đãi từ các trạm đã chiếm */
+  explore?: ExploreRules;
 }
 
 /** sét đang chờ đánh (có báo trước) */
@@ -390,7 +393,7 @@ export class Battle {
     const posts = n > 1 && this.riverLane < 0 ? st.posts : 0;
     this.len = laneLenFor(posts);
     this.unitScale = unitScaleFor(posts);
-    this.laneSpeed = laneSpeedFor(posts);
+    this.laneSpeed = laneSpeedFor(posts) * (cfg.explore?.speedMul ?? 1);
     this.flagX = [0, this.len];
     this.spawnX = [45, this.len - 45];
     // vị trí cầu / hầm khai báo theo lane chuẩn 1000: co giãn theo độ dài lane
@@ -420,14 +423,16 @@ export class Battle {
       this.randomEvent = Math.random() < chance ? RANDOM_EVENTS[Math.floor(Math.random() * RANDOM_EVENTS.length)].id : null;
     }
     this.eventAt = EVENT_TIME[0] + Math.random() * (EVENT_TIME[1] - EVENT_TIME[0]);
-    this.baseIncome = [PLAYER_INCOME * this.incomeMul, st.income * envIncome];
+    const xr = cfg.explore;
+    this.baseIncome = [PLAYER_INCOME * this.incomeMul * (xr?.incomeMul ?? 1), st.income * envIncome * (xr?.enemyIncomeMul ?? 1)];
+    if (xr?.startGold) this.gold[0] += xr.startGold;
     this.income = [...this.baseIncome];
     this.enemyBudget = st.units;
     if (cfg.siege) this.siegeT = this.siegeLen = SIEGE_PREP_SEC;
     const zones = cfg.zones === undefined ? rollZones(this.len, total) : cfg.zones ?? Array.from({ length: total }, () => []);
     if (this.riverLane >= 0 && zones[this.riverLane]) zones[this.riverLane] = [];
     // màn Boss chỉ có 1 lane: thành ta là phòng tuyến duy nhất nên bền hơn
-    const myFlag = Math.round(PLAYER_FLAG_HP * (n === 1 ? 1.8 : 1) * (cfg.siege ? 1.4 : 1) * flagHpMul(this.cfg.flagLevel ?? 0));
+    const myFlag = Math.round(PLAYER_FLAG_HP * (n === 1 ? 1.8 : 1) * (cfg.siege ? 1.4 : 1) * flagHpMul(this.cfg.flagLevel ?? 0) * (xr?.flagHpMul ?? 1));
     for (let i = 0; i < total; i++) {
       this.lanes.push({
         index: i,
@@ -571,9 +576,9 @@ export class Battle {
     return this.lanes[lane].units.filter((u) => u.alive && u.side === side && u.def.kind === 'defense' && !u.post).length;
   }
 
-  /** số trụ sản sinh của `side` trong lane */
+  /** số doanh trại của `side` trong lane còn sinh được quân (trại đã hết quân không tính vào giới hạn đặt) */
   postsIn(side: Side, lane: number): number {
-    return this.lanes[lane].units.filter((u) => u.alive && u.side === side && u.post).length;
+    return this.lanes[lane].units.filter((u) => u.alive && u.side === side && u.post && u.post.made < this.postMax(u)).length;
   }
 
   /** mọi trụ sản sinh còn sống của phe ta (để hiện bảng nâng cấp) */
@@ -586,35 +591,6 @@ export class Battle {
   /** số quân tối đa trụ sinh được: theo cấp trong trận (vàng) + thưởng theo cấp thẻ (xu) */
   postMax(u: UnitInst): number {
     return u.post ? POST_LEVELS[u.post.lv - 1].max + postMaxBonus(this.cfg.levels[u.def.id] ?? 1) : 0;
-  }
-
-  /** giá nâng cấp trụ lên cấp kế (null = đã tối đa) */
-  postUpgradeCost(u: UnitInst): number | null {
-    if (!u.post || u.post.lv >= POST_LEVELS.length) return null;
-    return POST_LEVELS[u.post.lv].cost;
-  }
-
-  /** nâng cấp trụ: sinh nhanh hơn, tối đa nhiều quân hơn, trụ bền hơn */
-  upgradePost(uid: number): boolean {
-    if (this.over) return false;
-    let u: UnitInst | undefined;
-    for (const l of this.lanes) {
-      u = l.units.find((x) => x.uid === uid);
-      if (u) break;
-    }
-    if (!u || !u.alive || u.side !== 0 || !u.post) return false;
-    const cost = this.postUpgradeCost(u);
-    if (cost === null || this.gold[0] < cost) return false;
-    this.gold[0] -= cost;
-    u.post.lv++;
-    u.maxHp *= POST_HP_PER_LEVEL;
-    u.hp = Math.min(u.maxHp, u.hp * POST_HP_PER_LEVEL);
-    const every = POST_LEVELS[u.post.lv - 1].every;
-    u.timers.post = Math.min(u.timers.post ?? every, every);
-    u.attackAnim = 0.4;
-    this.emit({ t: 'text', lane: u.lane, x: u.x, key: 'fx.postUp', color: 0xffd34d, big: true });
-    this.emit({ t: 'fx', kind: 'summon', lane: u.lane, x: u.x, dir: 1 });
-    return true;
   }
 
   /**
@@ -631,6 +607,12 @@ export class Battle {
     return !river;
   }
 
+  /** giá triển khai thực tế (Khám phá: bản đồ thiếu nước làm quân đắt hơn) */
+  costOf(side: Side, def: UnitDef): number {
+    const m = side === 0 ? this.cfg.explore?.costMul ?? 1 : 1;
+    return m === 1 ? def.cost : Math.max(1, Math.round(def.cost * m));
+  }
+
   canDeploy(side: Side, id: string, lane: number): boolean {
     const def = UNITS[id];
     if (!def || this.over) return false;
@@ -639,7 +621,7 @@ export class Battle {
     // lane thứ 4 chỉ địch có và chỉ quân (không phải công trình) mới ra ở đó; đóng khi lane chủ đã kết thúc
     if (lane === this.extraLane && (side === 0 || def.kind === 'defense' || this.lanes[this.hostLane].winner !== null)) return false;
     if (!this.laneAllows(def, lane)) return false;
-    if (this.gold[side] < def.cost) return false;
+    if (this.gold[side] < this.costOf(side, def)) return false;
     if (isPost(def)) return side === 0 && this.postsIn(side, lane) < MAX_POSTS_PER_LANE;
     if (def.kind === 'defense') return this.defensesIn(side, lane) < MAX_DEFENSES_PER_LANE;
     if (def.kind !== 'troop' && def.kind !== 'general' && def.kind !== 'beast' && def.kind !== 'pet') return false;
@@ -653,7 +635,7 @@ export class Battle {
   deploy(side: Side, id: string, lane: number, x?: number): UnitInst | null {
     if (!this.canDeploy(side, id, lane)) return null;
     const def = UNITS[id];
-    this.gold[side] -= def.cost;
+    this.gold[side] -= this.costOf(side, def);
     if (def.kind === 'defense') {
       const [lo, hi] = this.defenseSpan(side, lane, def);
       const px = Math.max(lo, Math.min(hi, x ?? (side === 0 ? 190 : this.len - 190)));
@@ -692,8 +674,9 @@ export class Battle {
     const st = this.cfg.station;
     const pow = o.pow ?? this.mulFor(side === WILD ? 1 : side, def.id);
     const armorBonus = side === 1 && st.mod === 'armored' ? 6 : 0;
-    const speedMul = (side === 1 && st.mod === 'quick' ? 1.2 : 1) * effMul(this.env, 'speed', def) * (side === WILD || o.guard ? 1 : this.laneSpeed);
-    const hp = o.hp ?? def.hp * pow * effMul(this.env, 'hp', def);
+    const xr = side === 0 ? this.cfg.explore : undefined;
+    const speedMul = (side === 1 && st.mod === 'quick' ? 1.2 : 1) * effMul(this.env, 'speed', def) * (side === WILD || o.guard ? 1 : this.laneSpeed) * (xr?.allySpeedMul ?? 1);
+    const hp = o.hp ?? def.hp * pow * effMul(this.env, 'hp', def) * (xr ? (xr.hpMul ?? 1) * (def.kind === 'defense' ? xr.defHpMul ?? 1 : 1) : 1);
     // tầm xa giữ nguyên là "tầm xa" (>70) dù bị sương mù/rừng thu hẹp
     const rangeMul = effMul(this.env, 'range', def);
     const range = def.range > 70 ? Math.max(71, Math.round(def.range * rangeMul)) : def.range;
@@ -701,7 +684,7 @@ export class Battle {
       uid: this.nextUid++,
       def, side, lane: laneIdx, x,
       hp, maxHp: hp,
-      dmg: o.dmg ?? def.dmg * pow * effMul(this.env, 'dmg', def), armor: (o.armor ?? def.armor) + armorBonus, speed: (o.speed ?? def.speed) * speedMul,
+      dmg: o.dmg ?? def.dmg * pow * effMul(this.env, 'dmg', def) * (xr?.dmgMul ?? 1), armor: (o.armor ?? def.armor) + armorBonus, speed: (o.speed ?? def.speed) * speedMul,
       range, cd: def.cd,
       dodge: effSum(this.env, 'dodge', def), hpRate: effSum(this.env, 'hpRate', def),
       gs: [], pierceAdd: 0, lifesteal: 0, reflectAdd: 0, lsUsed: false, crossCd: 0, stepN: 0,
@@ -756,7 +739,9 @@ export class Battle {
     this.bossTick();
     this.phaseTick();
     this.hazardTick(dt);
+    if (this.cfg.explore) this.exploreTick(dt);
     if (this.castle) this.castleTick(dt);
+    this.pushTick(dt);
     this.giantTick();
     this.weatherTick(dt);
     this.eventTick();
@@ -951,6 +936,41 @@ export class Battle {
   }
 
   /** thiên tai của boss: rơi xuống chỗ quân ta đang đứng, có báo trước */
+  private exploreT = { hazard: 0, ambush: false };
+
+  /** Khám phá: thiên tai định kỳ, phục kích của địch, hồi máu cờ nhà từ trạm giữ nhiệt */
+  private exploreTick(dt: number) {
+    const xr = this.cfg.explore!;
+    if (xr.flagRegen) for (const l of this.lanes) if (l.winner === null && !l.extra) l.flags[0].hp = Math.min(l.flags[0].maxHp, l.flags[0].hp + l.flags[0].maxHp * xr.flagRegen * dt);
+    if (xr.hazard && this.time > 12) {
+      this.exploreT.hazard -= dt;
+      if (this.exploreT.hazard <= 0) {
+        this.exploreT.hazard = xr.hazard.every * (0.8 + Math.random() * 0.4);
+        const open = this.openLanes().filter((l) => !l.extra);
+        if (open.length) {
+          const lane = open[Math.floor(Math.random() * open.length)];
+          const mine = lane.units.filter((e) => e.alive && e.side === 0 && !e.ghost && e.def.kind !== 'defense');
+          const x = mine.length ? mine[Math.floor(Math.random() * mine.length)].x + (Math.random() - 0.5) * 60 : undefined;
+          this.startFireZone(lane.index, x, xr.hazard.kind, 1.2);
+        }
+      }
+    }
+    if (xr.ambush && !this.exploreT.ambush && this.time >= xr.ambush.at) {
+      this.exploreT.ambush = true;
+      const ids = this.cfg.station.deck.filter((id) => UNITS[id] && (UNITS[id].kind === 'troop' || UNITS[id].kind === 'beast') && !UNITS[id].tags?.includes('naval'));
+      const open = this.openLanes().filter((l) => !l.extra && l.index !== this.riverLane);
+      if (ids.length && open.length) {
+        for (let i = 0; i < xr.ambush.n; i++) {
+          const lane = open[Math.floor(Math.random() * open.length)];
+          const x = this.len * (0.45 + Math.random() * 0.15);
+          this.spawn(UNITS[ids[Math.floor(Math.random() * ids.length)]], 1, lane.index, x, { noBounty: false });
+          this.emit({ t: 'text', lane: lane.index, x, key: 'fx.ambush', color: 0xff7a5a, big: true });
+        }
+        this.emit({ t: 'shake', power: 5 });
+      }
+    }
+  }
+
   private hazardTick(dt: number) {
     if (!this.hazards.length) return;
     for (const h of this.hazards) {
@@ -2099,6 +2119,48 @@ export class Battle {
       if (this.castle && flagSide === 1) {
         for (const l of this.lanes) if (!l.extra && l.winner === null) this.laneWon(l, attackerSide);
       } else this.laneWon(lane, attackerSide);
+    }
+  }
+
+  private pushT: number[][] = [];
+
+  /** cấp đẩy lùi của thành `side` (0 = chưa có) */
+  private pushLevel(side: Side): number {
+    if (side === 0) return allyCastleLevel(this.cfg.flagLevel ?? 0);
+    return this.cfg.siege ? 0 : enemyCastleLevel(this.cfg.station.flagHp);
+  }
+
+  /** thành trì hất lùi quân đang áp sát: mỗi CASTLE_PUSH.every giây, sẵn sàng thì ra đòn ngay khi có quân tới gần */
+  private pushTick(dt: number) {
+    if (!this.pushT.length) this.pushT = this.lanes.map(() => [CASTLE_PUSH.every * 0.5, CASTLE_PUSH.every * 0.5]);
+    for (const lane of this.lanes) {
+      if (lane.winner !== null || lane.extra) continue;
+      for (const side of [0, 1] as const) {
+        const level = this.pushLevel(side);
+        if (!level) continue;
+        const dist = castlePushDist(level);
+        const dmg = castlePushDmg(level);
+        const t = this.pushT[lane.index];
+        t[side] -= dt;
+        if (t[side] > 0) continue;
+        const fx = this.flagX[side];
+        const dir = side === 0 ? 1 : -1; // hướng đẩy: ra xa thành
+        const foes = lane.units.filter((e) => e.alive && e.side !== side && e.side !== WILD && !e.ghost && e.def.kind !== 'defense' && !e.guard && Math.abs(e.x - fx) <= CASTLE_PUSH.reach);
+        if (!foes.length) {
+          t[side] = 0;
+          continue;
+        }
+        t[side] = CASTLE_PUSH.every;
+        for (const e of foes) {
+          const k = e.def.kind === 'boss' ? 0.35 : e.def.tags?.includes('giant') ? 0.6 : 1;
+          e.x = Math.max(20, Math.min(this.len - 20, e.x + dir * dist * k));
+          e.stunT = Math.max(e.stunT, this.ccTime(e, CASTLE_PUSH.stun));
+          this.damage(e, dmg * k, null, { aoe: true, pierce: 0.5, creditSide: side });
+        }
+        this.emit({ t: 'fx', kind: 'rockhit', lane: lane.index, x: fx + dir * 40, dir: dir as 1 | -1, r: 90 });
+        this.emit({ t: 'text', lane: lane.index, x: fx + dir * 60, key: 'fx.castlePush', color: side === 0 ? 0x9ad0ff : 0xffb09a, big: true });
+        this.emit({ t: 'shake', power: 5 });
+      }
     }
   }
 

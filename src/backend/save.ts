@@ -2,6 +2,7 @@ import { STARTERS, STARTER_DEFENSES, STARTER_PETS, STARTER_POSTS, POST_DECK_SIZE
 import { STATIONS } from '../data/campaign';
 import { maxLevelOf } from '../data/gskills';
 import { SIEGE_WAVE_COUNT } from '../data/siege';
+import { EXPLORE_MAPS, exploreKey, type ExploreState } from '../data/explore';
 import type { SaveData } from './types';
 
 /** v2: bố cục 3 bản đồ x 10 trạm (tiến trình trạm của bản cũ không còn khớp nên được đặt lại) */
@@ -13,6 +14,45 @@ export const defSizeOf = (s: Pick<SaveData, 'defSlots'>) => DEFENSE_DECK_SIZE + 
 /** số tướng tối đa (mang vào trận và cùng lúc trên chiến trường) */
 export const generalCapOf = (s: Pick<SaveData, 'genSlots'>) => MAX_GENERALS_IN_DECK + (s.genSlots ?? 0);
 export const petSizeOf = (s: Pick<SaveData, 'petSlots'>) => PET_DECK_SIZE + (s.petSlots ?? 0);
+
+/** Firestore không nhận giá trị undefined: bỏ các khóa không có giá trị */
+function cleanExplore(x: ExploreState): ExploreState {
+  const out: ExploreState = { cap: x.cap, temp: x.temp === 'fire' ? 'fire' : 'ice', claim: x.claim ?? Date.now() };
+  if (x.done) out.done = true;
+  if (x.run) out.run = x.run;
+  return out;
+}
+
+/** làm sạch tiến trình Khám phá: chỉ giữ bản đồ hợp lệ, chỉ số trạm trong khoảng, nhiệt độ hợp lệ */
+function normalizeExplore(raw: Record<string, Partial<ExploreState>> | undefined): Record<string, ExploreState> {
+  const out: Record<string, ExploreState> = {};
+  for (const m of EXPLORE_MAPS) {
+    const r = raw?.[exploreKey(m.n)];
+    if (!r || !Array.isArray(r.cap)) continue;
+    const cap = [...new Set(r.cap.map((x) => Math.floor(Number(x))).filter((x) => x >= 0 && x < m.nodes))];
+    if (!cap.includes(0)) cap.unshift(0);
+    out[exploreKey(m.n)] = cleanExplore({ cap, done: !!r.done, temp: r.temp, claim: Number(r.claim) || Date.now(), run: Math.max(0, Math.min(1e6, Math.floor(Number(r.run) || 0))) });
+  }
+  return out;
+}
+
+/** gộp tiến trình Khám phá của hai thiết bị: trạm đã chiếm hợp lại, đã hoàn thành nếu bên nào hoàn thành */
+function mergeExplore(a: SaveData['explore'], b: SaveData['explore']): Record<string, ExploreState> {
+  const out: Record<string, ExploreState> = {};
+  for (const m of EXPLORE_MAPS) {
+    const k = exploreKey(m.n);
+    const x = a?.[k];
+    const y = b?.[k];
+    if (!x && !y) continue;
+    // một bên đã chơi lại bản đồ (run lớn hơn): lấy nguyên tiến trình của bên đó
+    if (x && y && (x.run ?? 0) !== (y.run ?? 0)) {
+      out[k] = cleanExplore((y.run ?? 0) > (x.run ?? 0) ? y : x);
+      continue;
+    }
+    out[k] = cleanExplore({ cap: [...new Set([...(x?.cap ?? []), ...(y?.cap ?? [])])], done: !!(x?.done || y?.done), temp: (y ?? x)!.temp, claim: Math.max(x?.claim ?? 0, y?.claim ?? 0), run: (y ?? x)!.run });
+  }
+  return out;
+}
 
 export function newSave(name: string): SaveData {
   const unlocked: Record<string, number> = {};
@@ -39,6 +79,7 @@ export function newSave(name: string): SaveData {
     flagLv: 0,
     incomeLv: 0,
     siegeBest: 0,
+    explore: {},
     huntPlays: 0,
     huntWins: 0,
     sv: STATION_LAYOUT_VERSION,
@@ -93,6 +134,7 @@ export function normalizeSave(raw: Partial<SaveData> | null, name: string): Save
     flagLv: clampInt(raw.flagLv, 1e6),
     incomeLv: clampInt(raw.incomeLv, INCOME_MAX_LV),
     siegeBest: clampInt(raw.siegeBest, SIEGE_WAVE_COUNT),
+    explore: normalizeExplore(raw.explore),
     huntPlays: clampInt(raw.huntPlays, 1e6),
     huntWins: clampInt(raw.huntWins, 1e6),
     sv: STATION_LAYOUT_VERSION,
@@ -126,6 +168,7 @@ export function mergeSaves(remote: SaveData, local: SaveData, baseCoins: number)
       flagLv: Math.max(remote.flagLv ?? 0, local.flagLv ?? 0),
       incomeLv: Math.max(remote.incomeLv ?? 0, local.incomeLv ?? 0),
       siegeBest: Math.max(remote.siegeBest ?? 0, local.siegeBest ?? 0),
+      explore: mergeExplore(remote.explore, local.explore),
       huntPlays: Math.max(remote.huntPlays ?? 0, local.huntPlays ?? 0),
       huntWins: Math.max(remote.huntWins ?? 0, local.huntWins ?? 0),
       wins: Math.max(remote.wins, local.wins),

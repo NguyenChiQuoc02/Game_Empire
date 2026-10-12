@@ -21,11 +21,14 @@ import { maxLevelOf } from '../data/gskills';
 import { skillPanel, unlockAtNext } from './gskills';
 import { unread } from '../notices';
 import { rewardFor } from '../game/rewards';
+import { CASTLE_PUSH, allyCastleLevel, allyCastlePush, castlePushDmg } from '../data/campaign';
+import { explorePanel } from './explore';
+import type { ExploreLaunch } from '../data/explore';
 import { HUNT_FORMATS, HUNT_MAPS, DEFAULT_HUNT_SETUP, HUNT_N, TR, buildHuntMap, huntMapDef, type HuntMapId, type HuntSetup } from '../data/treasure';
 import { huntMapName, huntMapSub, huntMapTip } from '../i18n';
 import { SIEGE_CLEAR_BONUS, SIEGE_INDEX, SIEGE_WAVES, SIEGE_WAVE_COUNT, siegeWaveReward, type SiegeWave } from '../data/siege';
 
-type Tab = 'campaign' | 'army' | 'siege' | 'hunt';
+type Tab = 'campaign' | 'army' | 'siege' | 'hunt' | 'explore';
 let tab: Tab = 'campaign';
 let selected = -1;
 let armyFilter: 'troop' | 'defense' | 'pet' | 'general' | 'post' = 'troop';
@@ -42,6 +45,11 @@ export function focusStation(i: number) {
   tab = 'campaign';
 }
 
+/** Quay lại tab Khám phá sau trận */
+export function focusExploreTab() {
+  tab = 'explore';
+}
+
 /** Quay lại tab Kho Báu sau trận */
 export function focusHunt() {
   tab = 'hunt';
@@ -55,6 +63,7 @@ export function focusSiege() {
 export interface HomeCtx {
   onPlay(stationIdx: number): void;
   onHunt(setup: HuntSetup): void;
+  onExplore(launch: ExploreLaunch): void;
   onLogout(): void;
   redraw(): void;
 }
@@ -76,11 +85,11 @@ export function renderHome(root: HTMLElement, ctx: HomeCtx) {
     h('button', { class: 'icon-btn', text: '⚙', attrs: { 'aria-label': t('settings.title'), type: 'button' }, on: { click: () => openSettings({ onLogout: ctx.onLogout }) } }),
   );
 
-  const content = h('main', { class: `content${mapMode ? ' map-content' : ''}` }, mapMode ? campaign(ctx) : tab === 'siege' ? siegePanel(ctx) : tab === 'hunt' ? huntPanel(ctx) : army(ctx));
+  const content = h('main', { class: `content${mapMode ? ' map-content' : ''}` }, mapMode ? campaign(ctx) : tab === 'siege' ? siegePanel(ctx) : tab === 'hunt' ? huntPanel(ctx) : tab === 'explore' ? explorePanel(ctx) : army(ctx));
 
   const navBtn = (id: Tab, ico: string, label: string) =>
     h('button', { class: `nav-btn${tab === id ? ' active' : ''}`, attrs: { type: 'button' }, on: { click: () => { tab = id; ctx.redraw(); } } }, h('i', { text: ico }), h('span', { text: label }));
-  const nav = h('nav', { class: 'bottom-nav' }, navBtn('campaign', '🗺', t('home.tabCampaign')), navBtn('siege', '🏰', t('home.tabSiege')), navBtn('hunt', '💎', t('home.tabHunt')), navBtn('army', '⚔', t('home.tabArmy')));
+  const nav = h('nav', { class: 'bottom-nav' }, navBtn('campaign', '🗺', t('home.tabCampaign')), navBtn('explore', '🧭', t('home.tabExplore')), navBtn('siege', '🏰', t('home.tabSiege')), navBtn('hunt', '💎', t('home.tabHunt')), navBtn('army', '⚔', t('home.tabArmy')));
 
   root.replaceChildren(h('div', { class: `screen home${mapMode ? ' map-mode' : ''}` }, top, content, nav));
   const c = root.querySelector('.content');
@@ -632,6 +641,12 @@ function incomePanel(ctx: HomeCtx): HTMLElement {
   );
 }
 
+/** mô tả đẩy lùi của thành nhà ở cấp `lv` */
+const pushText = (lv: number) => {
+  const d = allyCastlePush(lv);
+  return d ? t('army.castlePushOn', { n: d, s: CASTLE_PUSH.every, dmg: castlePushDmg(allyCastleLevel(lv)) }) : t('army.castlePushOff', { from: CASTLE_PUSH.allyFrom });
+};
+
 /** nâng cấp máu thành trì (cờ nhà) bằng xu */
 function castlePanel(ctx: HomeCtx): HTMLElement {
   const save = state.save!;
@@ -645,7 +660,8 @@ function castlePanel(ctx: HomeCtx): HTMLElement {
     h('div', { class: 'castle-info' },
       h('b', { text: t('army.castle') }),
       h('div', { class: 'castle-hp' }, h('span', { text: `❤ ${hp(lv)}` }), maxed ? h('em', { text: t('army.castleMax') }) : h('em', { text: `→ ${hp(lv + 1)} (+${hp(lv + 1) - hp(lv)})` })),
-      h('small', { text: t('army.castleLvInf', { lv }) + ' · ' + t('army.castleNote') })),
+      h('small', { text: t('army.castleLvInf', { lv }) + ' · ' + t('army.castleNote') }),
+      h('small', { class: 'castle-push', text: `⛓ ${pushText(lv)}` })),
     attachInfoTip(h('button', {
       class: `btn gold${maxed || !can ? ' disabled' : ''}`,
       text: maxed ? t('army.maxLevel') : `⬆ ${t('army.upgrade')} · 🪙 ${fmt(cost)}`,
@@ -663,7 +679,7 @@ function castlePanel(ctx: HomeCtx): HTMLElement {
       h('div', { class: 'tip-head' }, h('b', { text: `🏯 ${t('army.castle')}` }), h('em', { text: t('up.level', { a: lv, b: lv + 1 }) })),
       maxed
         ? h('div', { class: 'cap-max', text: t('up.maxedVal', { v: hp(lv) }) })
-        : h('div', { class: 'up-body' }, upRow(`❤ ${t('up.hp')}`, `${hp(lv)} → ${hp(lv + 1)} (+${hp(lv + 1) - hp(lv)})`, 'up'), upRow(t('up.bossHp'), `${Math.round(hp(lv) * 1.8)} → ${Math.round(hp(lv + 1) * 1.8)}`, 'up'), costRow(cost)),
+        : h('div', { class: 'up-body' }, upRow(`❤ ${t('up.hp')}`, `${hp(lv)} → ${hp(lv + 1)} (+${hp(lv + 1) - hp(lv)})`, 'up'), upRow(t('up.bossHp'), `${Math.round(hp(lv) * 1.8)} → ${Math.round(hp(lv + 1) * 1.8)}`, 'up'), upRow(`⛓ ${t('up.push')}`, `${allyCastlePush(lv)} → ${allyCastlePush(lv + 1)}`, 'up'), upRow(`💥 ${t('up.pushDmg')}`, `${allyCastleLevel(lv) ? castlePushDmg(allyCastleLevel(lv)) : 0} → ${castlePushDmg(allyCastleLevel(lv + 1))}`, 'up'), costRow(cost)),
       h('p', { class: 'cap-note', text: t('army.castleNote') }),
     ]),
   );

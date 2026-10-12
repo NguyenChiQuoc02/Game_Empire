@@ -11,7 +11,9 @@ import { flush, mutate, onSaveStatus, refresh, setBase, state } from './state';
 import { onLang, t } from './i18n';
 import { h } from './ui/dom';
 import { renderAuth } from './ui/auth';
-import { focusHunt, focusSiege, focusStation, isPortraitLayout, renderHome } from './ui/home';
+import { focusExploreTab, focusHunt, focusSiege, focusStation, isPortraitLayout, renderHome } from './ui/home';
+import { focusExplore } from './ui/explore';
+import { EXPLORE_INDEX, type ExploreLaunch } from './data/explore';
 import { HuntScreen, type HuntExit } from './ui/hunt';
 import type { HuntSetup } from './data/treasure';
 import { SIEGE_INDEX } from './data/siege';
@@ -73,7 +75,7 @@ async function boot() {
   const redraw = () => {
     if (screen === 'auth') renderAuth(root, backend, redraw);
     else if (screen === 'home' && state.save) {
-      renderHome(root, { onPlay: startBattle, onHunt: startHunt, onLogout: logout, redraw });
+      renderHome(root, { onPlay: startBattle, onHunt: startHunt, onExplore: startExplore, onLogout: logout, redraw });
     }
   };
 
@@ -98,6 +100,23 @@ async function boot() {
     });
   };
 
+  const startExplore = (launch: ExploreLaunch) => {
+    hunt?.dispose();
+    hunt = null;
+    battle?.dispose();
+    screen = 'battle';
+    battle = new BattleScreen(app, root, EXPLORE_INDEX, (action: ExitAction) => {
+      battle?.dispose();
+      battle = null;
+      app.ticker.stop();
+      if (action === 'retry') return startExplore(launch);
+      focusExploreTab();
+      focusExplore(launch.map);
+      screen = 'home';
+      redraw();
+    }, launch);
+  };
+
   const startBattle = (idx: number) => {
     hunt?.dispose();
     hunt = null;
@@ -116,7 +135,7 @@ async function boot() {
     });
   };
 
-  if (import.meta.env.DEV) Object.assign(window, { __game: { state, startBattle, startHunt, icons: { iconUrl, faceUrl } } });
+  if (import.meta.env.DEV) Object.assign(window, { __game: { state, startBattle, startHunt, startExplore, icons: { iconUrl, faceUrl } } });
 
   onLang(() => {
     document.title = t('app.title');

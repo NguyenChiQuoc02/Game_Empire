@@ -1,7 +1,7 @@
 import { Container, Graphics, Text, type Application } from 'pixi.js';
 import { Battle, type Outpost, type Side, type UnitInst } from '../game/sim';
 import type { Station } from '../data/campaign';
-import { addLevelTag, buildUnitArt, FLY_LIFT, SIDE_COLOR, type UnitArt } from './unitArt';
+import { addLevelTag, syncLevelTag, buildUnitArt, FLY_LIFT, SIDE_COLOR, type UnitArt } from './unitArt';
 import { fxLite } from './fxmode';
 import { buildBattlefield, type Battlefield } from './scenery';
 import { roof } from './landmarks';
@@ -1071,6 +1071,7 @@ export class BattleView {
 
     if (!u.alive) {
       a.hpBar.visible = false;
+      if (v.lvTag) v.lvTag.visible = false;
       a.art.x = 0;
       v.aura.clear();
       if (v.name) v.name.visible = false;
@@ -1132,8 +1133,9 @@ export class BattleView {
     }
 
     this.drawAura(v, u);
+    if (v.lvTag) syncLevelTag(a, v.lvTag);
     if (v.lvTag && u.post) {
-      const txt = `Lv${u.post.lv} ${u.post.made}/${this.battle.postMax(u)}`;
+      const txt = `${u.post.made}/${this.battle.postMax(u)}`;
       if (v.lvKey !== txt) {
         v.lvKey = txt;
         v.lvTag.text = txt;

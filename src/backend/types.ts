@@ -1,3 +1,5 @@
+import type { ExploreState } from '../data/explore';
+
 export interface SaveData {
   v: 1;
   name: string;
@@ -15,6 +17,8 @@ export interface SaveData {
   genSlots?: number;
   /** số ô thú cưng mở thêm (0..1, ngoài 2 ô gốc) */
   petSlots?: number;
+  /** chế độ Khám phá: tiến trình từng bản đồ (khóa m1..m13) */
+  explore?: Record<string, ExploreState>;
   /** trạm cao nhất đã mở (0..STATIONS.length-1) */
   progress: number;
   cleared: boolean[];

@@ -75,6 +75,20 @@ export interface Station {
  * bắn quân ta trong tầm `range` (ngắn hơn máy công thành tầm xa như Hỏa Pháo, Pháo Thạch Cự Hình).
  */
 export const CASTLE = { hpMul: 0.7, archers: 2, dmg: 13, cd: 1.0, range: 270 } as const;
+/**
+ * Thành trì đẩy lùi quân tấn công: cứ `every` giây, quân đang áp sát thành (trong `reach`) bị hất lùi một đoạn tùy cấp thành.
+ * Thành địch có cấp theo máu cờ (trạm càng sâu càng cao); thành của ta bắt đầu đẩy lùi từ cấp nâng cấp `allyFrom`.
+ */
+export const CASTLE_PUSH = { every: 15, reach: 170, base: 50, perLevel: 12, max: 260, allyFrom: 5, stun: 0.5 } as const;
+/** cấp thành địch suy ra từ máu cờ (khớp công thức máu cờ của trạm chiến dịch): cứ 8 bậc trạm tương đương +1 cấp */
+export const enemyCastleLevel = (flagHp: number) => 1 + Math.floor((flagHp <= 1297 ? (flagHp - 340) / 33 : 29 + (flagHp - 1297) / 14) / 8);
+/** quãng đẩy lùi (đơn vị lane) theo cấp thành (địch: từ cấp 1; ta: tính từ `allyFrom`) */
+export const castlePushDist = (level: number) => Math.min(CASTLE_PUSH.max, CASTLE_PUSH.base + CASTLE_PUSH.perLevel * Math.max(0, level - 1));
+export const allyCastlePush = (flagLv: number) => (flagLv >= CASTLE_PUSH.allyFrom ? castlePushDist(flagLv - CASTLE_PUSH.allyFrom + 1) : 0);
+/** cấp đẩy lùi của thành nhà (0 = chưa có) */
+export const allyCastleLevel = (flagLv: number) => (flagLv >= CASTLE_PUSH.allyFrom ? flagLv - CASTLE_PUSH.allyFrom + 1 : 0);
+/** sát thương mỗi đòn đẩy lùi theo cấp thành, xuyên một phần giáp */
+export const castlePushDmg = (level: number) => Math.min(400, 25 + 10 * Math.max(0, level - 1));
 const CASTLE_STATIONS = new Set([3, 17, 28, 36, 45, 51, 65, 72, 78, 81, 88, 92, 98, 102, 108]);
 
 export interface Chapter {
